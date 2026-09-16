@@ -119,6 +119,58 @@
     \label{fig:ref_distribution}
 \end{figure}
 
+\subsection{Catalogue Columns}
+Table~\ref{tab:columns} lists every column of the reference TEST dataset, grouped by role.
+
+\begin{longtable}{@{}p{4.1cm}p{1.9cm}p{8.6cm}@{}}
+    \caption{Columns of the reference TEST dataset.\label{tab:columns}} \\
+    \toprule
+    \textbf{Column} & \textbf{Type} & \textbf{Description} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Column} & \textbf{Type} & \textbf{Description} \\
+    \midrule
+    \endhead
+    \bottomrule
+    \endlastfoot
+    \multicolumn{3}{@{}l}{\textbf{Identification}} \\
+    primary\_key & string & Normalised Sentinel-1 WV imagette key, \texttt{<acquisition>:WV\_<imagette>}; unique per row \\
+    sar-safe-slc & string & Sentinel-1 SLC SAFE name including the \texttt{:WV\_<imagette>} suffix \\
+    sar-path-slc & string & Absolute path of the SLC imagette measurement (GeoTIFF) \\
+    sar-safe-ocn & string & Sentinel-1 OCN SAFE name including the \texttt{:WV\_<imagette>} suffix \\
+    sar-path-ocn & string & Absolute path of the OCN imagette measurement (NetCDF) \\
+    ref\_id & string & File name of the scatterometer granule the reference came from \\
+    \midrule
+    \multicolumn{3}{@{}l}{\textbf{SAR geometry}} \\
+    sar\_time & datetime & Imagette start of acquisition (UTC), \texttt{YYYY-mm-dd HH:MM:SS} \\
+    sar\_lon, sar\_lat & float & Imagette footprint centroid (deg); longitude in $[-180, +180]$ \\
+    sar\_incidence\_angle & float & Incidence angle at the imagette centroid (deg) \\
+    sar\_elevation\_angle & float & Elevation angle at the imagette centroid (deg) \\
+    sar\_ground\_heading & float & Ground heading of the imagette (deg, signed as delivered by the catalogue) \\
+    sar\_distance\_to\_coast & float & Distance from the imagette centroid to the nearest OSM coastline (km) \\
+    \midrule
+    \multicolumn{3}{@{}l}{\textbf{Reference (scatterometer)}} \\
+    ref\_time & datetime & Acquisition time of the selected reference cell (UTC) \\
+    ref\_lon, ref\_lat & float & Centre of the selected reference cell (deg) \\
+    ref\_flag & integer & Source quality flag of the reference product \\
+    windspeed\_scat & float & Reference wind speed at 10\,m (m\,s$^{-1}$) \\
+    winddirection\_scat & float & Reference wind direction (deg, blowing towards, clockwise from north) \\
+    \midrule
+    \multicolumn{3}{@{}l}{\textbf{Second reference (SWOT KaRIn)}} \\
+    waveheight\_swot & float & SWOT KaRIn mean significant wave height (m) \\
+    swot\_lon, swot\_lat & float & SWOT reference position (deg) \\
+    swot\_time & datetime & SWOT reference time (UTC) \\
+    swot\_flag & string & SWOT reference quality flag \\
+    \midrule
+    \multicolumn{3}{@{}l}{\textbf{Provenance and filters}} \\
+    legacy\_usage & string & Set to \texttt{train} when the case was already consumed by a previous training exercise \\
+    overlap\_pct & float & SAR/SWOT footprint overlap (\%) \\
+    mean\_rainrate\_IMERG & float & IMERG mean rain rate over the matchup (mm\,h$^{-1}$) \\
+    scat\_swot\_distance\_km & float & Direct scatterometer--SWOT separation (km) \\
+    scat\_swot\_time\_delta\_min & float & Direct scatterometer--SWOT time difference (min) \\
+\end{longtable}
+
 \newpage
 % ---------------------------
 % SECTION 2 : Dataset Production Steps

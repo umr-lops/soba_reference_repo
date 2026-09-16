@@ -27,7 +27,7 @@ from .report import (
     compile_pdf,
     default_test_name,
     plot_figures,
-    purge_build_dir,
+    purge_latex_byproducts,
     run_crossing,
     stage_latex_assets,
     write_test_parquet,
@@ -38,8 +38,10 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scat", required=True, help="scatterometer catalogue parquet")
     parser.add_argument("--swot", required=True, help="SWOT KaRIn catalogue parquet")
-    parser.add_argument("--satellite", default="S1D")
-    parser.add_argument("--scatterometer", default="ASCAT")
+    parser.add_argument("--satellite", required=True,
+                        help="Sentinel-1 platform, e.g. S1D")
+    parser.add_argument("--scatterometer", required=True,
+                        help="scatterometer mission, ASCAT or HSCAT")
     parser.add_argument("--label", default=None,
                         help="defaults to <satellite>_swot_<scatterometer>")
 
@@ -69,7 +71,7 @@ def parse_args(argv=None):
                         help="directory holding pdflatex.exe (or a WSL pdflatex)")
     parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--keep-intermediates", action="store_true",
-                        help="keep the .tex, figures and LaTeX assets next to the PDF")
+                        help="keep the LaTeX byproducts (.aux, .log, .out, .toc)")
     return parser.parse_args(argv)
 
 
@@ -106,15 +108,17 @@ def main(argv=None) -> int:
     tex_path.write_text(tex, encoding="utf-8")
 
     test_name = args.test_name or default_test_name(
-        result, scat_path.name, args.satellite, args.dataset_version
+        result, scat_path.name, swot_path.name, args.satellite, args.dataset_version
     )
     test_path = write_test_parquet(build_test_frame(result), test_dir / test_name)
 
     pdf_path = None
     if args.compile:
-        pdf_path = compile_pdf(output_dir, f"{label}_catalogue_report", Path(args.miktex_bin))
+        report_stem = f"{label}_catalogue_report"
+        pdf_path = compile_pdf(output_dir, report_stem, Path(args.miktex_bin))
         if not args.keep_intermediates:
-            purge_build_dir(output_dir, keep=[pdf_path])
+            # keep the .tex, figures and assets so the report can be hand-edited
+            purge_latex_byproducts(output_dir, report_stem)
 
     manifest = test_dir / f"{label}_manifest.json"
     manifest.parent.mkdir(parents=True, exist_ok=True)

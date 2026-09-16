@@ -10,11 +10,9 @@ Spec: "Format Description for parquet co-aligned datasets" (SOBA WP3, v1.0.3).
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import re
-import shutil
 import subprocess
 
 # Must be set before any geopandas/GDAL import: silences the PROJ "ERROR 1" lookup noise.
@@ -423,10 +421,11 @@ def build_test_filename(
     """Apply the SOBA naming convention for a reference TEST dataset.
 
     ``S1{A,B,C,D}_reference_test_dataset_<sarmode>_<startdate>_<stopdate>_
-    <productiondate>_<polarization>_<refproductname>_<version>.parquet``
+    <productiondate>_<polarization>_<refproductname1>_<refproductname2>_<version>.parquet``
 
     ``startdate``/``stopdate`` are the first and last SAR starting dates present
     in the TEST dataset itself; ``productiondate`` is the day the file is written.
+    ``ref_product`` carries both reference product names, joined by ``_``.
     """
     times = pd.to_datetime(sar_times, utc=True)
     if times.empty or times.isna().all():
@@ -446,40 +445,49 @@ def build_test_filename(
 def default_test_name(
     result: CrossingResult,
     scat_name: str,
+    swot_name: str,
     satellite: str,
     version: str = "0.1",
 ) -> str:
-    """Build the TEST filename from the crossing and the reference catalogue name."""
-    source = parse_source_catalogue_name(scat_name)
-    if source["satellite"].upper() != satellite.upper():
-        raise ValueError(
-            f"--satellite {satellite} does not match the reference catalogue "
-            f"({source['satellite']})"
-        )
+    """Build the TEST filename from the crossing and both reference catalogue names.
+
+    The crossing has two reference products, so the convention's
+    ``<refproductname>`` field carries both: the scatterometer first, SWOT second.
+    """
+    references = []
+    for name in (scat_name, swot_name):
+        source = parse_source_catalogue_name(name)
+        if source["satellite"].upper() != satellite.upper():
+            raise ValueError(
+                f"--satellite {satellite} does not match the catalogue "
+                f"({source['satellite']})"
+            )
+        references.append(source["ref_product"])
+
     sar_mode, polarization = derive_sar_identity(result)
     frame = result.filtered if len(result.filtered) else result.crossing
     return build_test_filename(
-        satellite, sar_mode, polarization, source["ref_product"],
+        satellite, sar_mode, polarization, "_".join(references),
         frame["sar_time_scat"], version,
     )
 
 
-def purge_build_dir(output_dir: Path, keep: Sequence[Path]) -> list[Path]:
-    """Delete everything in the build directory except the files in ``keep``.
+LATEX_BYPRODUCT_SUFFIXES = (".aux", ".log", ".out", ".toc")
 
-    Used after a successful compile so the run directory holds only the PDF.
+
+def purge_latex_byproducts(output_dir: Path, stem: str) -> list[Path]:
+    """Delete the LaTeX byproducts of ``stem`` from the build directory.
+
+    The ``.tex``, the figures and the staged assets are kept so the report can be
+    hand-edited and recompiled; only the compiler's own scratch files go.
     """
     output_dir = Path(output_dir)
-    keep_names = {Path(item).name for item in keep}
     removed: list[Path] = []
-    for entry in sorted(output_dir.iterdir()):
-        if entry.name in keep_names:
-            continue
-        if entry.is_dir():
-            shutil.rmtree(entry)
-        else:
-            entry.unlink()
-        removed.append(entry)
+    for suffix in LATEX_BYPRODUCT_SUFFIXES:
+        candidate = output_dir / f"{stem}{suffix}"
+        if candidate.is_file():
+            candidate.unlink()
+            removed.append(candidate)
     return removed
 
 

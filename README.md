@@ -9,8 +9,10 @@ spec-conformant WV TEST parquet under the SOBA dataset naming convention.
 Reference: *Format Description for parquet co-aligned datasets* (SOBA WP3, v1.0.3).
 
 The bundled `assets/latex/template.tex` is the SOBA template **rewritten for reference TEST
-datasets** (title line, scope, section wording, footer). The upstream co-aligned catalogue
-template in the SOBA project is untouched — pass `--latex-dir /home/il/projects/SOBA` to use it.
+datasets**: title line, scope, section wording, footer, and a new §1.4 *Catalogue Columns*
+table (Column / Type / Description, grouped by role) mirroring the co-aligned catalogue
+document's column table. The upstream co-aligned template in the SOBA project is untouched —
+pass `--latex-dir /home/il/projects/SOBA` to use it instead.
 
 ## Install
 
@@ -28,6 +30,7 @@ cd /home/il/projects/soba-catalogue-report
 
 ```bash
 /home/il/miniforge3/envs/SOBA/bin/soba-catalogue-report \
+  --satellite S1D --scatterometer ASCAT \
   --scat /home/il/SOBA_datafiles/S1D_coaligned_catalogue_WV_20260107_20260414_20260908_SV_KNMI-ASCAT-METOP-12.5km_0.2.parquet \
   --swot /home/il/SOBA_datafiles/S1D_coaligned_catalogue_WV_20260107_20260808_20260902_SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \
   --test-dir /home/il/projects/SOBA/test_datasets
@@ -39,10 +42,10 @@ Without the install, `PYTHONPATH=src /home/il/miniforge3/envs/SOBA/bin/python -m
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--scat` | required | scatterometer catalogue parquet |
-| `--swot` | required | SWOT KaRIn catalogue parquet |
-| `--satellite` | `S1D` | Sentinel-1 platform; checked against the catalogue name and the SAFE identifiers |
-| `--scatterometer` | `ASCAT` | `ASCAT` or `HSCAT` |
+| `--scat` | **required** | scatterometer catalogue parquet |
+| `--swot` | **required** | SWOT KaRIn catalogue parquet |
+| `--satellite` | **required** | Sentinel-1 platform; checked against both catalogue names and the SAFE identifiers |
+| `--scatterometer` | **required** | `ASCAT` or `HSCAT` |
 | `--label` | `<satellite>_swot_<scatterometer>` | names the report |
 | `--overlap-min-pct` | `100` | required SAR/SWOT footprint overlap |
 | `--rain-max-mm-h` | `0.3` | maximum IMERG mean rain rate |
@@ -55,26 +58,35 @@ Without the install, `PYTHONPATH=src /home/il/miniforge3/envs/SOBA/bin/python -m
 | `--land-map` | `assets/ne_110m_land.geojson` | grey base map for the geography figure |
 | `--miktex-bin` | Windows MiKTeX `x64` bin | directory holding `pdflatex.exe` |
 | `--compile` / `--no-compile` | `--compile` | skip LaTeX to iterate on figures fast |
-| `--keep-intermediates` | off | keep the `.tex`, figures and LaTeX assets next to the PDF |
+| `--keep-intermediates` | off | keep the LaTeX byproducts (`.aux`, `.log`, `.out`, `.toc`) |
 
 ## Outputs
 
-**Report directory (`runs/<label>/`) — after a successful compile it contains the PDF and nothing else.**
-The `.tex`, the figures, the LaTeX assets and the `.aux/.log/.out/.toc` files are deleted once the
-PDF is written, because they only existed to produce it. Pass `--keep-intermediates` to keep them,
-or `--no-compile` (which never purges, so you can inspect the sources).
+**Report directory (`runs/<label>/`)** — after a successful compile the LaTeX byproducts are
+deleted, and everything the document was built from is kept so the report can be hand-edited
+and recompiled:
+
+```
+<label>_catalogue_report.pdf    the report
+<label>_catalogue_report.tex    filled template, editable
+figures/*.png                   the three figures
+soba.sty  logo_soba.png  schema_dataflow.tex  cpcd_definition.tex
+```
+
+Pass `--keep-intermediates` to also keep the `.aux/.log/.out/.toc`; `--no-compile` skips LaTeX
+(and the cleanup) entirely.
 
 **Deliverables directory (`--test-dir`, default `test_datasets/`):**
 
 ```
-S1D_reference_test_dataset_WV_20260112_20260227_20260916_SV_KNMI-ASCAT-METOP-12.5km_0.1.parquet
+S1D_reference_test_dataset_WV_20260112_20260227_20260916_SV_KNMI-ASCAT-METOP-12.5km_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet
 <label>_manifest.json
 ```
 
 ### TEST dataset filename
 
 ```
-S1{A,B,C,D}_reference_test_dataset_<sarmode>_<startdate>_<stopdate>_<productiondate>_<polarization>_<refproductname>_<version>.parquet
+S1{A,B,C,D}_reference_test_dataset_<sarmode>_<startdate>_<stopdate>_<productiondate>_<polarization>_<refproductname1>_<refproductname2>_<version>.parquet
 ```
 
 | Field | Source |
@@ -84,11 +96,13 @@ S1{A,B,C,D}_reference_test_dataset_<sarmode>_<startdate>_<stopdate>_<productiond
 | `<startdate>`, `<stopdate>` | first and last SAR starting date **in the TEST dataset itself** (YYYYMMDD) |
 | `<productiondate>` | the day the file is written (YYYYMMDD) |
 | `<polarization>` | read from the SAFE identifiers (`SV`, `SH`, `DV`, `DH`) |
-| `<refproductname>` | parsed from the reference (scatterometer) catalogue filename |
+| `<refproductname1>` | the scatterometer reference, parsed from its catalogue filename |
+| `<refproductname2>` | the SWOT reference, parsed from its catalogue filename |
 | `<version>` | `--dataset-version` |
 
-The reference product name is parsed from the catalogue filename, so the filename must follow
-the co-aligned naming convention; otherwise pass `--test-name` explicitly.
+Both reference product names appear because the crossing carries two references. They are
+parsed from the catalogue filenames, so those must follow the co-aligned naming convention;
+otherwise pass `--test-name` explicitly.
 
 ## Notes
 

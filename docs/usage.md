@@ -86,18 +86,19 @@ table produces them too.
 ## Iterating quickly
 
 `--no-compile` skips LaTeX entirely and still writes the figures, the `.tex` and the TEST
-parquet, which is the fast loop when tuning a plot. It also skips the cleanup: after a real
-compile the build directory is purged down to the PDF, so use `--no-compile` or
-`--keep-intermediates` whenever you need to read the generated `.tex` or the figures.
+parquet, which is the fast loop when tuning a plot. It also skips the byproduct cleanup.
 
 ## Where each file ends up
+
+After a successful compile the document sources stay next to the PDF so it can be hand-edited
+and recompiled (`cd runs/<label> && "$MIKTEX_BIN/pdflatex.exe" <label>_catalogue_report.tex`):
 
 | File | After a successful compile | With `--no-compile` / `--keep-intermediates` |
 | --- | --- | --- |
 | `<label>_catalogue_report.pdf` | kept | absent (`--no-compile`) |
-| `<label>_catalogue_report.tex` | deleted | kept |
-| `figures/*.png` | deleted | kept |
-| `soba.sty`, `logo_soba.png`, `schema_dataflow.tex`, `cpcd_definition.tex` | deleted | kept |
+| `<label>_catalogue_report.tex` | kept | kept |
+| `figures/*.png` | kept | kept |
+| `soba.sty`, `logo_soba.png`, `schema_dataflow.tex`, `cpcd_definition.tex` | kept | kept |
 | `.aux`, `.log`, `.out`, `.toc` | deleted | kept |
 | TEST parquet + `<label>_manifest.json` | written to `--test-dir` | same |
 
