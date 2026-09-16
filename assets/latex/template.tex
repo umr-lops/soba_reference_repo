@@ -2,7 +2,10 @@
 
 % Utilisation du style SOBA (défini dans soba.sty)
 \usepackage{soba}
-%\setlength{\headsep}{50pt}
+% This document describes a reference TEST dataset, so it overrides the style's
+% default co-aligned catalogue footer.
+\lfoot{Reference TEST Dataset Description - Ifremer}
+
 % ---------------------------
 % DÉBUT DU DOCUMENT
 % ---------------------------
@@ -20,7 +23,7 @@
     
     {\Huge \textbf{SOBA Project} \par}
     \vspace{1cm}
-    {\Large \textbf{Technical documentation for \hl{dataset name} Co-aligned Parquet Catalogue description} \par}
+    {\Large \textbf{Technical documentation for \hl{dataset name} reference TEST dataset} \par}
     
     \vspace{2cm}
     
@@ -44,7 +47,7 @@
 
 \newpage
 
-\textbf{Scope:} This document describes one of the co-aligned catalogue parquet datasets produced in the framework of the SOBA project. It details the dataset content, and the way the dataset has been generated.
+\textbf{Scope:} This document describes a reference TEST dataset produced in the framework of the SOBA project. A TEST dataset pairs Sentinel-1 SAR observations with independent reference observations, and is reserved for evaluating retrieval algorithms on data that was never used to build or tune them. It details the dataset content, and the way the dataset is extracted from the underlying co-aligned catalogues.
 
 
 % Utilisation du diagramme avec légende
@@ -84,35 +87,35 @@
 \textbf{Dataset general description:} \hl{fill this part with product name, provider, resolution, SAR mode, polarization, unit ...etc}
 
 \subsection{Global Coverage Map}
-\textbf{Description:} The co-aligned catalogue offers Sentinel-1 SAR acquisitions (\hl{IW and WV modes}) matched with reference observations. The map below illustrates the spatial distribution of the co-aligned data points (matchups) across the globe.
+\textbf{Description:} The TEST dataset contains Sentinel-1 SAR acquisitions (\hl{IW and WV modes}) matched with reference observations. The map below illustrates the spatial distribution of the retained matchups across the globe.
 
 \begin{figure}[H]
     \centering
     % Placeholder: Remplacez par votre image de carte de couverture globale
     \fbox{\parbox{\textwidth}{\centering \vspace{4cm} \textit{[Insert Global Coverage Map Image Here]} \vspace{4cm}}}
-    \caption{Global spatial distribution of the SOBA co-aligned SAR/reference matchups.}
+    \caption{Global spatial distribution of the retained SAR/reference matchups in the TEST dataset.}
     \label{fig:coverage_map}
 \end{figure}
 
 \subsection{Monthly Distribution of Matchups}
-\textbf{Description:} To assess the temporal coverage and potential seasonal biases, the number of co-aligned observations per month is plotted below.
+\textbf{Description:} To assess the temporal coverage and potential seasonal biases of the TEST dataset, the number of retained matchups per month is plotted below.
 
 \begin{figure}[H]
     \centering
     % Placeholder: Remplacez par votre graphique en barres mensuel
     \fbox{\parbox{0.8\textwidth}{\centering \vspace{3cm} \textit{[Insert Monthly Barchart Image Here]} \vspace{3cm}}}
-    \caption{Monthly count of co-aligned SAR/reference matchups in the catalogue.}
+    \caption{Monthly count of retained SAR/reference matchups in the TEST dataset.}
     \label{fig:monthly_distribution}
 \end{figure}
 
 \subsection{Reference Parameter Distribution}
-\textbf{Description:} The statistical distribution of the reference \hl{<geophysical parameters>}  is shown below.
+\textbf{Description:} The statistical distribution of the reference \hl{<geophysical parameters>}  in the TEST dataset is shown below.
 
 \begin{figure}[H]
     \centering
     % Placeholder: Remplacez par votre histogramme
     \fbox{\parbox{0.8\textwidth}{\centering \vspace{3cm} \textit{[Insert 1D or 2D Histogram of Reference Variables Here]} \vspace{3cm}}}
-    \caption{Distribution of reference parameters present in the catalogue.}
+    \caption{Distribution of the reference parameters present in the TEST dataset.}
     \label{fig:ref_distribution}
 \end{figure}
 
@@ -123,7 +126,7 @@
 \section{Dataset Production Steps}
 
 \subsection{Selected Products}
-The co-aligned catalogue is built from Sentinel-1 SAR products and external reference datasets. 
+The TEST dataset is extracted from co-aligned catalogues that pair Sentinel-1 SAR products with external reference datasets. 
 
 \begin{itemize}
     \item \textbf{input colocation dataset:} \hl{path or DOI or dataset name}
@@ -138,7 +141,7 @@ The co-aligned catalogue is built from Sentinel-1 SAR products and external refe
 \end{itemize}
 
 \subsection{Selection of Tiles / Filtered Co-locations}
-The raw SAR products are processed to extract co-aligned tiles or imagettes that correspond to the reference data points. 
+The co-aligned catalogues are reduced to the TEST subset by matching the SAR imagettes with the reference observations and applying the collocation criteria below. 
 \begin{enumerate}
 \item \textbf{geographic delta co-location criteria:}  \hl{to be filled}
 \item \textbf{time delta co-location criteria:}  \hl{to be filled}
@@ -152,14 +155,14 @@ The raw SAR products are processed to extract co-aligned tiles or imagettes that
 \end{enumerate}
 
 \subsection{Libraries and Commands Used}
-The catalogue generation pipeline relies on open-source \hl{github/gitlab link} libraries and specific command-line tools. Below is an example of command used for data generation:
+The TEST dataset generation pipeline relies on open-source \hl{github/gitlab link} libraries and specific command-line tools. The command below reproduces this dataset:
 
 \begin{lstlisting}[caption={Example of bash cmd for data generation.}, label={lst:code}]
 example of command used.
 \end{lstlisting}
 
 \subsection{Configuration Files}
-The production pipeline uses YAML/JSON configuration files to define paths, filtering thresholds, and product selection. An example structure is provided below:
+The generation pipeline uses YAML/JSON configuration files to define paths, filtering thresholds, and product selection. The configuration used for this dataset is given below:
 
 \begin{lstlisting}[caption={Example of configuration file \hl{to be modified}  (config.yaml).}, label={lst:config}]
 # SOBA Configuration

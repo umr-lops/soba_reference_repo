@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -18,9 +19,12 @@ from soba_catalogue_report.report import (
     WV_MANDATORY_COLUMNS,
     WV_REF_PARAM_COLUMNS,
     build_report_tex,
+    build_test_filename,
     build_test_frame,
+    default_test_name,
     make_scene_key,
     plot_figures,
+    purge_build_dir,
     run_crossing,
     stage_latex_assets,
     write_test_parquet,
@@ -28,9 +32,14 @@ from soba_catalogue_report.report import (
 
 CORE = "S1D_WV_SLC__1S/2026/007/S1D_WV_SLC__1SSV_20260107T111713_20260107T114520_000927_0006BD"
 SCAT_REF_TIME = pd.Timestamp("2026-01-07 11:54:46", tz="UTC")
+SOURCE_SCAT_NAME = (
+    "S1D_coaligned_catalogue_WV_20260107_20260414_20260916_"
+    "SV_KNMI-ASCAT-METOP-12.5km_0.2.parquet"
+)
 
 
-def _write_pair(tmp_path, *, overlap=100.0, rain=0.0, time_delta_min=10.0):
+def _write_pair(tmp_path, *, overlap=100.0, rain=0.0, time_delta_min=10.0,
+                scat_filename="scat.parquet"):
     """Write a one-row SCAT/SWOT pair with a controllable collocation quality."""
     scat_rows = [{
         "sar_safe_ocn": None, "sar_safe_slc": f"{CORE}_35F2.SAFE:WV_033",
@@ -56,7 +65,7 @@ def _write_pair(tmp_path, *, overlap=100.0, rain=0.0, time_delta_min=10.0):
         "swot_dynamic_ice_flag": 0.0, "swot_rain_flag": 0.0, "ref_flag": "clear",
         "swot_cycle": 1.0, "swot_pass": 1.0, "legacy_usage": None,
     }]
-    scat_path = tmp_path / "scat.parquet"
+    scat_path = tmp_path / scat_filename
     swot_path = tmp_path / "swot.parquet"
     pd.DataFrame(scat_rows).to_parquet(scat_path, index=False)
     pd.DataFrame(swot_rows).to_parquet(swot_path, index=False)
@@ -223,6 +232,8 @@ def test_build_report_tex_replaces_every_placeholder(tmp_path):
         assert name in tex
     assert "120" in tex  # the time filter value must be stated
     assert "soba-catalogue-report" in tex  # the run command replaces the template stub
+    assert "TEST dataset reference TEST dataset" not in tex  # no doubled wording
+    assert "for S1D / SWOT / ASCAT reference TEST dataset" in tex
 
 
 def test_build_report_tex_fails_loudly_when_an_anchor_is_missing(tmp_path):
@@ -251,23 +262,98 @@ def test_build_report_tex_escapes_latex_specials(tmp_path):
     assert r"s1d\_swot\_ascat" in tex
 
 
+# --- TEST dataset naming -----------------------------------------------------
+
+def test_build_test_filename_applies_the_naming_convention():
+    name = build_test_filename(
+        satellite="S1D",
+        sar_mode="WV",
+        polarization="SV",
+        ref_product="KNMI-ASCAT-METOP-12.5km",
+        sar_times=pd.to_datetime(["2026-01-12 13:04:11", "2026-02-16 09:30:56"], utc=True),
+        version="0.1",
+        production_date="2026-09-16",
+    )
+
+    assert name == (
+        "S1D_reference_test_dataset_WV_20260112_20260216_20260916_"
+        "SV_KNMI-ASCAT-METOP-12.5km_0.1.parquet"
+    )
+
+
+def test_default_test_name_reads_the_reference_catalogue_and_the_safe(tmp_path):
+    scat_path, swot_path = _write_pair(tmp_path, scat_filename=SOURCE_SCAT_NAME)
+    result = run_crossing(scat_path, swot_path, "S1D", ReportConfig())
+
+    name = default_test_name(result, SOURCE_SCAT_NAME, "S1D", version="0.1")
+
+    assert re.fullmatch(
+        r"S1D_reference_test_dataset_WV_20260107_20260107_\d{8}_"
+        r"SV_KNMI-ASCAT-METOP-12\.5km_0\.1\.parquet",
+        name,
+    ), name
+
+
+def test_default_test_name_rejects_a_mismatched_satellite(tmp_path):
+    scat_path, swot_path = _write_pair(tmp_path, scat_filename=SOURCE_SCAT_NAME)
+    result = run_crossing(scat_path, swot_path, "S1D", ReportConfig())
+
+    with pytest.raises(ValueError, match="S1C"):
+        default_test_name(result, SOURCE_SCAT_NAME, "S1C")
+
+
+# --- build directory hygiene -------------------------------------------------
+
+def test_purge_build_dir_leaves_only_the_pdf(tmp_path):
+    build = tmp_path / "build"
+    (build / "figures").mkdir(parents=True)
+    pdf = build / "report.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    for name in ("report.tex", "report.log", "report.aux", "soba.sty", "logo_soba.png"):
+        (build / name).write_text("x")
+    (build / "figures" / "map.png").write_bytes(b"x")
+
+    purge_build_dir(build, keep=[pdf])
+
+    assert sorted(path.name for path in build.iterdir()) == ["report.pdf"]
+
+
+# --- template ----------------------------------------------------------------
+
+def test_the_vendored_template_describes_a_test_dataset():
+    text = (DEFAULT_LATEX_DIR / "template.tex").read_text(encoding="utf-8")
+
+    assert "TEST dataset" in text
+    assert "Co-aligned Parquet Catalogue description" not in text
+    assert r"\lfoot{Reference TEST Dataset Description - Ifremer}" in text
+
+
 # --- CLI ---------------------------------------------------------------------
 
 def test_cli_runs_end_to_end_without_compiling(tmp_path):
-    scat_path, swot_path = _write_pair(tmp_path)
+    scat_path, swot_path = _write_pair(tmp_path, scat_filename=SOURCE_SCAT_NAME)
     output_dir = tmp_path / "report"
+    test_dir = tmp_path / "deliverables"
 
     completed = subprocess.run(
         [sys.executable, "-m", "soba_catalogue_report.cli",
          "--scat", str(scat_path), "--swot", str(swot_path),
-         "--label", "unit", "--no-compile", "--output-dir", str(output_dir)],
+         "--label", "unit", "--no-compile",
+         "--output-dir", str(output_dir), "--test-dir", str(test_dir)],
         cwd=Path(__file__).resolve().parents[1],
         env={**os.environ, "PYTHONPATH": "src"},
         capture_output=True, text=True, check=False,
     )
 
     assert completed.returncode == 0, completed.stderr
+    # --no-compile keeps the intermediates; the PDF step is what purges them
     assert (output_dir / "unit_catalogue_report.tex").is_file()
-    assert (output_dir / "manifest.json").is_file()
-    assert (output_dir / "unit_test.parquet").is_file()
     assert len(list((output_dir / "figures").glob("*.png"))) == 3
+    assert (test_dir / "unit_manifest.json").is_file()
+    produced = list(test_dir.glob("S1D_reference_test_dataset_*.parquet"))
+    assert len(produced) == 1, sorted(p.name for p in test_dir.iterdir())
+    assert re.fullmatch(
+        r"S1D_reference_test_dataset_WV_20260107_20260107_\d{8}_"
+        r"SV_KNMI-ASCAT-METOP-12\.5km_0\.1\.parquet",
+        produced[0].name,
+    ), produced[0].name

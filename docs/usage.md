@@ -86,4 +86,18 @@ table produces them too.
 ## Iterating quickly
 
 `--no-compile` skips LaTeX entirely and still writes the figures, the `.tex` and the TEST
-parquet, which is the fast loop when tuning a plot.
+parquet, which is the fast loop when tuning a plot. It also skips the cleanup: after a real
+compile the build directory is purged down to the PDF, so use `--no-compile` or
+`--keep-intermediates` whenever you need to read the generated `.tex` or the figures.
+
+## Where each file ends up
+
+| File | After a successful compile | With `--no-compile` / `--keep-intermediates` |
+| --- | --- | --- |
+| `<label>_catalogue_report.pdf` | kept | absent (`--no-compile`) |
+| `<label>_catalogue_report.tex` | deleted | kept |
+| `figures/*.png` | deleted | kept |
+| `soba.sty`, `logo_soba.png`, `schema_dataflow.tex`, `cpcd_definition.tex` | deleted | kept |
+| `.aux`, `.log`, `.out`, `.toc` | deleted | kept |
+| TEST parquet + `<label>_manifest.json` | written to `--test-dir` | same |
+

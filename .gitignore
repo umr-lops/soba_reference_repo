@@ -3,4 +3,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .venv/
+
+# generated: regenerable from the command recorded in the PDF
 runs/
+test_datasets/

@@ -6,6 +6,8 @@ Example:
         --scat /path/to/SCAT_catalogue.parquet \\
         --swot /path/to/SWOT_catalogue.parquet \\
         --satellite S1D --scatterometer ASCAT
+
+After a successful compile the build directory is cleaned: only the PDF is left.
 """
 
 from __future__ import annotations
@@ -18,11 +20,14 @@ from .report import (
     DEFAULT_LAND_MAP,
     DEFAULT_LATEX_DIR,
     DEFAULT_MIKTEX_BIN,
+    DEFAULT_TEST_DIR,
     ReportConfig,
     build_report_tex,
     build_test_frame,
     compile_pdf,
+    default_test_name,
     plot_figures,
+    purge_build_dir,
     run_crossing,
     stage_latex_assets,
     write_test_parquet,
@@ -47,10 +52,14 @@ def parse_args(argv=None):
                         help="maximum direct scatterometer-SWOT time difference in minutes")
 
     # outputs
-    parser.add_argument("--output-dir", default=None, help="defaults to runs/<label>")
-    parser.add_argument("--test-dir", default=None,
-                        help="where to write the TEST parquet; defaults to --output-dir")
-    parser.add_argument("--test-name", default=None, help="defaults to <label>_test.parquet")
+    parser.add_argument("--output-dir", default=None,
+                        help="report build directory; defaults to runs/<label>")
+    parser.add_argument("--test-dir", default=str(DEFAULT_TEST_DIR),
+                        help="directory for the TEST parquet and the run manifest")
+    parser.add_argument("--test-name", default=None,
+                        help="override the generated TEST filename")
+    parser.add_argument("--dataset-version", default="0.1",
+                        help="<version> field of the TEST filename (X.Y)")
 
     # inputs
     parser.add_argument("--latex-dir", default=str(DEFAULT_LATEX_DIR),
@@ -59,6 +68,8 @@ def parse_args(argv=None):
     parser.add_argument("--miktex-bin", default=str(DEFAULT_MIKTEX_BIN),
                         help="directory holding pdflatex.exe (or a WSL pdflatex)")
     parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--keep-intermediates", action="store_true",
+                        help="keep the .tex, figures and LaTeX assets next to the PDF")
     return parser.parse_args(argv)
 
 
@@ -66,7 +77,7 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     label = args.label or f"{args.satellite.lower()}_swot_{args.scatterometer.lower()}"
     output_dir = Path(args.output_dir) if args.output_dir else Path("runs") / label
-    test_dir = Path(args.test_dir) if args.test_dir else output_dir
+    test_dir = Path(args.test_dir)
     latex_dir = Path(args.latex_dir)
 
     config = ReportConfig(
@@ -94,18 +105,18 @@ def main(argv=None) -> int:
     tex_path = output_dir / f"{label}_catalogue_report.tex"
     tex_path.write_text(tex, encoding="utf-8")
 
-    test_path = write_test_parquet(
-        build_test_frame(result),
-        test_dir / (args.test_name or f"{label}_test.parquet"),
+    test_name = args.test_name or default_test_name(
+        result, scat_path.name, args.satellite, args.dataset_version
     )
+    test_path = write_test_parquet(build_test_frame(result), test_dir / test_name)
 
-    pdf_path = (
-        compile_pdf(output_dir, f"{label}_catalogue_report", Path(args.miktex_bin))
-        if args.compile
-        else None
-    )
+    pdf_path = None
+    if args.compile:
+        pdf_path = compile_pdf(output_dir, f"{label}_catalogue_report", Path(args.miktex_bin))
+        if not args.keep_intermediates:
+            purge_build_dir(output_dir, keep=[pdf_path])
 
-    manifest = output_dir / "manifest.json"
+    manifest = test_dir / f"{label}_manifest.json"
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(json.dumps({
         "scat": str(scat_path),
@@ -123,7 +134,9 @@ def main(argv=None) -> int:
         "test_parquet": str(test_path),
     }, indent=2))
 
-    print(f"tex:  {tex_path}\npdf:  {pdf_path}\ntest: {test_path}")
+    print(f"pdf:  {pdf_path}")
+    print(f"test: {test_path}")
+    print(f"run:  {manifest}")
     return 0
 
 

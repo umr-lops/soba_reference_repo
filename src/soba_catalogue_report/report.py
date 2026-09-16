@@ -10,8 +10,11 @@ Spec: "Format Description for parquet co-aligned datasets" (SOBA WP3, v1.0.3).
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+import re
+import shutil
 import subprocess
 
 # Must be set before any geopandas/GDAL import: silences the PROJ "ERROR 1" lookup noise.
@@ -31,6 +34,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[2]  # .../soba-catalogue-report
 ASSET_DIR = PACKAGE_ROOT / "assets"
 DEFAULT_LAND_MAP = ASSET_DIR / "ne_110m_land.geojson"
 DEFAULT_LATEX_DIR = ASSET_DIR / "latex"
+DEFAULT_TEST_DIR = PACKAGE_ROOT / "test_datasets"
 DEFAULT_MIKTEX_BIN = Path(
     "/mnt/c/Users/ilias/AppData/Local/Programs/MiKTeX/miktex/bin/x64"
 )
@@ -369,6 +373,117 @@ def plot_figures(
 
 
 # --------------------------------------------------------------------------- #
+# TEST dataset filename
+# --------------------------------------------------------------------------- #
+
+SOURCE_CATALOGUE_PATTERN = re.compile(
+    r"^(?P<satellite>S1[ABCD])_coaligned_catalogue_(?P<sar_mode>WV|IW|EW)_"
+    r"(?P<start>\d{8})_(?P<stop>\d{8})_(?P<production>\d{8})_"
+    r"(?P<polarization>S[VH]|D[VH])_(?P<ref_product>.+)_(?P<version>\d+\.\d+)\.parquet$"
+)
+SAFE_LEAF_PATTERN = re.compile(
+    r"^(?P<satellite>S1[ABCD])_(?P<sar_mode>WV|IW|EW)_"
+    r"(?:OCN__2S|SLC__1S)(?P<polarization>[SD][VH])_"
+)
+
+
+def parse_source_catalogue_name(name: str) -> dict[str, str]:
+    """Parse a co-aligned catalogue filename into its naming-convention fields."""
+    match = SOURCE_CATALOGUE_PATTERN.match(Path(name).name)
+    if match is None:
+        raise ValueError(
+            f"cannot parse the reference catalogue filename {name!r}; "
+            "pass --test-name explicitly"
+        )
+    return match.groupdict()
+
+
+def derive_sar_identity(result: CrossingResult) -> tuple[str, str]:
+    """Return ``(sar_mode, polarization)`` read from the crossing's SAFE identifiers."""
+    frame = result.filtered if len(result.filtered) else result.crossing
+    leaves = frame["sar_safe_slc_scat"].dropna().astype("string")
+    if leaves.empty:
+        raise ValueError("no SAR SAFE identifier available to derive the dataset name")
+    leaf = leaves.iloc[0].rsplit("/", 1)[-1]
+    match = SAFE_LEAF_PATTERN.match(leaf)
+    if match is None:
+        raise ValueError(f"cannot derive the SAR mode and polarization from {leaf!r}")
+    return match.group("sar_mode"), match.group("polarization")
+
+
+def build_test_filename(
+    satellite: str,
+    sar_mode: str,
+    polarization: str,
+    ref_product: str,
+    sar_times: pd.Series,
+    version: str = "0.1",
+    production_date=None,
+) -> str:
+    """Apply the SOBA naming convention for a reference TEST dataset.
+
+    ``S1{A,B,C,D}_reference_test_dataset_<sarmode>_<startdate>_<stopdate>_
+    <productiondate>_<polarization>_<refproductname>_<version>.parquet``
+
+    ``startdate``/``stopdate`` are the first and last SAR starting dates present
+    in the TEST dataset itself; ``productiondate`` is the day the file is written.
+    """
+    times = pd.to_datetime(sar_times, utc=True)
+    if times.empty or times.isna().all():
+        raise ValueError("cannot name the TEST dataset: the cohort has no SAR times")
+    production = (
+        pd.Timestamp(production_date)
+        if production_date is not None
+        else pd.Timestamp.now(tz="UTC")
+    )
+    return (
+        f"{satellite.upper()}_reference_test_dataset_{sar_mode}_"
+        f"{times.min().strftime('%Y%m%d')}_{times.max().strftime('%Y%m%d')}_"
+        f"{production.strftime('%Y%m%d')}_{polarization}_{ref_product}_{version}.parquet"
+    )
+
+
+def default_test_name(
+    result: CrossingResult,
+    scat_name: str,
+    satellite: str,
+    version: str = "0.1",
+) -> str:
+    """Build the TEST filename from the crossing and the reference catalogue name."""
+    source = parse_source_catalogue_name(scat_name)
+    if source["satellite"].upper() != satellite.upper():
+        raise ValueError(
+            f"--satellite {satellite} does not match the reference catalogue "
+            f"({source['satellite']})"
+        )
+    sar_mode, polarization = derive_sar_identity(result)
+    frame = result.filtered if len(result.filtered) else result.crossing
+    return build_test_filename(
+        satellite, sar_mode, polarization, source["ref_product"],
+        frame["sar_time_scat"], version,
+    )
+
+
+def purge_build_dir(output_dir: Path, keep: Sequence[Path]) -> list[Path]:
+    """Delete everything in the build directory except the files in ``keep``.
+
+    Used after a successful compile so the run directory holds only the PDF.
+    """
+    output_dir = Path(output_dir)
+    keep_names = {Path(item).name for item in keep}
+    removed: list[Path] = []
+    for entry in sorted(output_dir.iterdir()):
+        if entry.name in keep_names:
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+        removed.append(entry)
+    return removed
+
+
+# --------------------------------------------------------------------------- #
 # TEST parquet export
 # --------------------------------------------------------------------------- #
 
@@ -524,7 +639,8 @@ def build_report_tex(
     n = len(frame)
     distance = frame["scat_swot_distance_km"]
     times = frame["scat_swot_time_delta_min"]
-    dataset_name = f"{result.satellite} / SWOT / {result.scatterometer} TEST dataset"
+    # the template supplies the words "reference TEST dataset" after this name
+    dataset_name = f"{result.satellite} / SWOT / {result.scatterometer}"
     label_tex = _tex_escape(label)
 
     # the template already provides the surrounding enumerate environment,
