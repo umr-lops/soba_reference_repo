@@ -111,6 +111,18 @@ Both reference product names appear because the crossing carries two references.
 parsed from the catalogue filenames, so those must follow the co-aligned naming convention;
 otherwise pass `--test-name` explicitly.
 
+## Workflow
+
+`main` is the trunk and stays runnable: nothing lands until `python -m pytest -q` passes.
+
+- A change that alters behaviour gets a branch — `feat/…`, `fix/…`, `docs/…`, `chore/…` — one
+  topic per branch. Trivial touch-ups (typos, docstrings, wording) go straight to `main`.
+- Merges use `git merge --no-ff`, so a topic reads as one unit in the log while keeping its
+  individual commits. Squash a branch that got noisy, and delete it once merged.
+- Pull requests are for changes worth showing someone; solo work does not need one.
+- Remote writes are explicit: pushing a branch, opening a PR, merging on GitHub or deleting a
+  remote branch each get confirmed first.
+
 ## Notes
 
 - **LaTeX toolchain.** `template.tex` is a pdfLaTeX document, and the tool finds pdflatex
