@@ -47,7 +47,7 @@ Worked example — a minimum distance-to-coast of 10 km:
 5. Mention the new value in `build_report_tex`: add it to the `filters:` block of the generated
    `config.yaml` listing, and to the relevant criteria sentence, so the PDF matches the run.
 
-Then `/home/il/miniforge3/envs/SOBA/bin/python -m pytest -q` — 16+ tests must pass.
+Then `python -m pytest -q` — the whole suite must pass.
 
 ## Why the anchors are strict
 
@@ -74,11 +74,11 @@ message. Recurring causes:
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `! Missing $ inserted` | an unescaped `_`, `&`, `%`, `#` or `$` in injected text | escape it (`_tex_escape`) or use `\path|…|` |
+| `! Missing $ inserted` | an unescaped `_`, `&`, `%`, `#` or `$` in injected text | escape it (`\_`, `\%`, …) or wrap file names in `\path|…|` |
 | `Something's wrong--perhaps a missing \item` | a replacement inserted a nested list inside the template's own list | replace only the `\item` lines |
 | `File '…' not found` | a figure or companion file missing from the build dir | `stage_latex_assets` copies four files; figures are written first |
-| `I can't write on file` / UNC path error | MiKTeX rejecting the WSL working directory | build under `/mnt/c/Users/ilias/AppData/Local/Temp/…` or `/mnt/z/shared/…` and copy the PDF back |
-| `pdflatex not found` | `--miktex-bin` wrong | point it at the directory holding `pdflatex.exe` |
+| `I can't write on file` / UNC path error | a Windows pdflatex rejecting a WSL working directory | build under a Windows-visible temp directory (`/mnt/c/…`) and copy the PDF back |
+| `no pdflatex in …` / `pdflatex is not on PATH` | `--miktex-bin` wrong, or no TeX install | point `--miktex-bin` at the directory holding `pdflatex`/`pdflatex.exe`, or install TeX Live so it is on `PATH` |
 
 `Overfull \hbox` warnings are cosmetic and safe to ignore — the template's own version-history
 table produces them too.
@@ -110,12 +110,13 @@ statistics per reference variable.
 ## Where each file ends up
 
 After a successful compile the document sources stay next to the PDF so it can be hand-edited
-and recompiled (`cd runs/<label> && "$MIKTEX_BIN/pdflatex.exe" <label>_catalogue_report.tex`):
+and recompiled (`cd runs/<label> && pdflatex "<test dataset file name>.tex"`, or
+`"$MIKTEX_BIN/pdflatex.exe"` on Windows):
 
 | File | After a successful compile | With `--no-compile` / `--keep-intermediates` |
 | --- | --- | --- |
-| `<label>_catalogue_report.pdf` | kept | absent (`--no-compile`) |
-| `<label>_catalogue_report.tex` | kept | kept |
+| `<test dataset file name>.pdf` | kept | absent (`--no-compile`) |
+| `<test dataset file name>.tex` | kept | kept |
 | `figures/*.png` | kept | kept |
 | `soba.sty`, `logo_soba.png`, `schema_dataflow.tex`, `cpcd_definition.tex` | kept | kept |
 | `.aux`, `.log`, `.out`, `.toc` | deleted | kept |

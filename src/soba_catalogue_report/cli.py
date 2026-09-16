@@ -7,19 +7,21 @@ Example:
         --swot /path/to/SWOT_catalogue.parquet \\
         --satellite S1D --scatterometer ASCAT
 
-After a successful compile the build directory is cleaned: only the PDF is left.
+After a successful compile the LaTeX byproducts are deleted; the PDF, the figures and the
+sources stay in the build directory so the report can be hand-edited and recompiled. LaTeX
+itself is located through --miktex-bin / $MIKTEX_BIN, or PATH.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from .report import (
     DEFAULT_LAND_MAP,
     DEFAULT_LATEX_DIR,
-    DEFAULT_MIKTEX_BIN,
     DEFAULT_TEST_DIR,
     ReportConfig,
     build_report_tex,
@@ -67,8 +69,9 @@ def parse_args(argv=None):
     parser.add_argument("--latex-dir", default=str(DEFAULT_LATEX_DIR),
                         help="directory holding template.tex and its companion files")
     parser.add_argument("--land-map", default=str(DEFAULT_LAND_MAP))
-    parser.add_argument("--miktex-bin", default=str(DEFAULT_MIKTEX_BIN),
-                        help="directory holding pdflatex.exe (or a WSL pdflatex)")
+    parser.add_argument("--miktex-bin", default=os.environ.get("MIKTEX_BIN"),
+                        help="directory holding the pdflatex executable; "
+                             "defaults to $MIKTEX_BIN, else pdflatex on PATH")
     parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--keep-intermediates", action="store_true",
                         help="keep the LaTeX byproducts (.aux, .log, .out, .toc)")
@@ -95,6 +98,8 @@ def main(argv=None) -> int:
     test_name = args.test_name or default_test_name(
         result, scat_path.name, swot_path.name, args.satellite, args.dataset_version
     )
+    # the report carries the same name as the dataset file it documents
+    report_stem = Path(test_name).stem
 
     figures = plot_figures(result, output_dir / "figures", Path(args.land_map))
     stage_latex_assets(latex_dir, output_dir)
@@ -109,15 +114,14 @@ def main(argv=None) -> int:
         swot_path.name,
         test_name,
     )
-    tex_path = output_dir / f"{label}_catalogue_report.tex"
+    tex_path = output_dir / f"{report_stem}.tex"
     tex_path.write_text(tex, encoding="utf-8")
 
     test_path = write_test_parquet(build_test_frame(result), test_dir / test_name)
 
     pdf_path = None
     if args.compile:
-        report_stem = f"{label}_catalogue_report"
-        pdf_path = compile_pdf(output_dir, report_stem, Path(args.miktex_bin))
+        pdf_path = compile_pdf(output_dir, report_stem, args.miktex_bin)
         if not args.keep_intermediates:
             # keep the .tex, figures and assets so the report can be hand-edited
             purge_latex_byproducts(output_dir, report_stem)

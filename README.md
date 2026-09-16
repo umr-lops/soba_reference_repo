@@ -13,31 +13,33 @@ datasets**: title line, scope, section wording, footer, a §1.3 *reference param
 table (min/max/mean/median per reference variable, filled from the filtered cohort), and a §1.4
 *Catalogue Columns* table (Column / Type / Description, grouped by role) mirroring the
 co-aligned catalogue document's column table. The upstream co-aligned template in the SOBA
-project is untouched — pass `--latex-dir /home/il/projects/SOBA` to use it instead.
+project is untouched — pass `--latex-dir <path-to-the-SOBA-project>` to use it instead.
 
 ## Install
 
-The tool runs on the existing SOBA conda environment (numpy, pandas, pyarrow, matplotlib,
-geopandas are already there):
+Install into an environment that already has the SOBA stack (numpy, pandas, pyarrow,
+matplotlib, geopandas):
 
 ```bash
-cd /home/il/projects/soba-catalogue-report
-/home/il/miniforge3/envs/SOBA/bin/python -m pip install -e . --no-deps
+cd soba-catalogue-report
+python -m pip install -e . --no-deps
 ```
 
-`--no-deps` because the SOBA env already satisfies every dependency.
+`--no-deps` because that environment already satisfies every dependency. Python 3.11 or newer.
 
 ## Run
 
 ```bash
-/home/il/miniforge3/envs/SOBA/bin/soba-catalogue-report \
+soba-catalogue-report \
   --satellite S1D --scatterometer ASCAT \
-  --scat /home/il/SOBA_datafiles/S1D_coaligned_catalogue_WV_20260107_20260414_20260908_SV_KNMI-ASCAT-METOP-12.5km_0.2.parquet \
-  --swot /home/il/SOBA_datafiles/S1D_coaligned_catalogue_WV_20260107_20260808_20260902_SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \
-  --test-dir /home/il/projects/SOBA/test_datasets
+  --scat  <data-dir>/S1D_coaligned_catalogue_WV_20260107_20260414_20260908_SV_KNMI-ASCAT-METOP-12.5km_0.2.parquet \
+  --swot  <data-dir>/S1D_coaligned_catalogue_WV_20260107_20260808_20260902_SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \
+  --test-dir test_datasets
 ```
 
-Without the install, `PYTHONPATH=src /home/il/miniforge3/envs/SOBA/bin/python -m soba_catalogue_report.cli …` works the same way.
+Without the install, `PYTHONPATH=src python -m soba_catalogue_report.cli …` works the same way.
+If `pdflatex` is not on `PATH`, point the tool at it — `--miktex-bin /path/to/miktex/bin/x64`, or
+export `MIKTEX_BIN` once in your shell profile.
 
 ### Flags
 
@@ -57,7 +59,7 @@ Without the install, `PYTHONPATH=src /home/il/miniforge3/envs/SOBA/bin/python -m
 | `--dataset-version` | `0.1` | `<version>` field of the TEST filename |
 | `--latex-dir` | `assets/latex` | holds `template.tex` and its companions |
 | `--land-map` | `assets/ne_110m_land.geojson` | grey base map for the geography figure |
-| `--miktex-bin` | Windows MiKTeX `x64` bin | directory holding `pdflatex.exe` |
+| `--miktex-bin` | `$MIKTEX_BIN`, else `PATH` | directory holding the `pdflatex` executable |
 | `--compile` / `--no-compile` | `--compile` | skip LaTeX to iterate on figures fast |
 | `--keep-intermediates` | off | keep the LaTeX byproducts (`.aux`, `.log`, `.out`, `.toc`) |
 
@@ -68,8 +70,8 @@ deleted, and everything the document was built from is kept so the report can be
 and recompiled:
 
 ```
-<label>_catalogue_report.pdf    the report
-<label>_catalogue_report.tex    filled template, editable
+<test dataset file name>.pdf    the report, named after the parquet it documents
+<test dataset file name>.tex    filled template, editable
 figures/*.png                   the three figures
 soba.sty  logo_soba.png  schema_dataflow.tex  cpcd_definition.tex
 ```
@@ -111,15 +113,15 @@ otherwise pass `--test-name` explicitly.
 
 ## Notes
 
-- **LaTeX toolchain.** `template.tex` is a pdfLaTeX document. There is no LaTeX in WSL, so the
-  tool calls the Windows MiKTeX binary (`pdflatex.exe`), twice, from the build directory.
-  `pdflatex.exe` accepts a WSL working directory as-is. Point `--miktex-bin` elsewhere (or at a
-  WSL `pdflatex`) to compile on another machine.
+- **LaTeX toolchain.** `template.tex` is a pdfLaTeX document, and the tool finds pdflatex
+  through `--miktex-bin` / `$MIKTEX_BIN` or, failing that, on `PATH` — so TeX Live on Linux or
+  macOS needs no configuration. It compiles twice, from the build directory, so the table of
+  contents settles. Nothing machine-specific is baked into the package.
 - **Vendored template.** `assets/latex/*` are copies of the SOBA project's files, with the
   template rewritten for TEST datasets. Refresh the unmodified companions with:
 
   ```bash
-  cp /home/il/projects/SOBA/{soba.sty,logo_soba.png,schema_dataflow.tex,cpcd_definition.tex} assets/latex/
+  cp <path-to-the-SOBA-project>/{soba.sty,logo_soba.png,schema_dataflow.tex,cpcd_definition.tex} assets/latex/
   ```
 
 - **Two generated tables.** §1.3's statistics table is built at run time from the filtered

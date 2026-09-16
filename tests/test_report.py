@@ -22,6 +22,7 @@ from soba_catalogue_report.report import (
     build_test_filename,
     build_test_frame,
     default_test_name,
+    find_pdflatex,
     insert_version_history_row,
     insert_table_row,
     make_scene_key,
@@ -348,6 +349,34 @@ def test_build_report_tex_wraps_every_file_name_in_path(tmp_path):
         assert rf"\path|{name}|" in tex
 
 
+# --- LaTeX discovery ---------------------------------------------------------
+
+def test_find_pdflatex_prefers_the_named_directory(tmp_path):
+    (tmp_path / "pdflatex.exe").write_bytes(b"x")
+
+    # str and Path both work, so the CLI value can be passed straight through
+    assert find_pdflatex(tmp_path) == str(tmp_path / "pdflatex.exe")
+    assert find_pdflatex(str(tmp_path)) == str(tmp_path / "pdflatex.exe")
+
+
+def test_find_pdflatex_fails_loudly_on_a_directory_without_it(tmp_path):
+    with pytest.raises(FileNotFoundError, match="no pdflatex in"):
+        find_pdflatex(tmp_path / "not-a-tex-install")
+
+
+def test_find_pdflatex_falls_back_to_path(monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/pdflatex")
+
+    assert find_pdflatex() == "/usr/bin/pdflatex"
+
+
+def test_find_pdflatex_explains_a_missing_toolchain(monkeypatch):
+    monkeypatch.setattr("shutil.which", lambda name: None)
+
+    with pytest.raises(FileNotFoundError, match="not on PATH"):
+        find_pdflatex()
+
+
 # --- TEST dataset naming -----------------------------------------------------
 
 def test_build_test_filename_applies_the_naming_convention():
@@ -447,10 +476,11 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
 
     assert completed.returncode == 0, completed.stderr
     # --no-compile keeps the intermediates; the PDF step is what purges them
-    assert (output_dir / "unit_catalogue_report.tex").is_file()
-    assert len(list((output_dir / "figures").glob("*.png"))) == 3
     produced = list(test_dir.glob("S1D_reference_test_dataset_*.parquet"))
     assert len(produced) == 1, sorted(p.name for p in test_dir.iterdir())
+    # the report carries the same name as the dataset file it documents
+    assert (output_dir / f"{produced[0].stem}.tex").is_file()
+    assert len(list((output_dir / "figures").glob("*.png"))) == 3
     assert re.fullmatch(
         r"S1D_reference_test_dataset_WV_20260107_20260107_\d{8}_SV_"
         r"KNMI-ASCAT-METOP-12\.5km_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0\.1\.parquet",

@@ -13,6 +13,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import shutil
 import subprocess
 
 # Must be set before any geopandas/GDAL import: silences the PROJ "ERROR 1" lookup noise.
@@ -33,9 +34,8 @@ ASSET_DIR = PACKAGE_ROOT / "assets"
 DEFAULT_LAND_MAP = ASSET_DIR / "ne_110m_land.geojson"
 DEFAULT_LATEX_DIR = ASSET_DIR / "latex"
 DEFAULT_TEST_DIR = PACKAGE_ROOT / "test_datasets"
-DEFAULT_MIKTEX_BIN = Path(
-    "/mnt/c/Users/ilias/AppData/Local/Programs/MiKTeX/miktex/bin/x64"
-)
+# LaTeX is not assumed to be installed: --miktex-bin / $MIKTEX_BIN names a directory
+# holding the pdflatex executable, otherwise it is taken from PATH (see find_pdflatex).
 
 # The spec uses hyphens for the path/SAFE columns while the source catalogues use
 # underscores. The exported TEST file follows the spec.
@@ -337,8 +337,8 @@ def _plot_reference_distributions(result: CrossingResult, path: Path) -> None:
         ax.set_ylabel("matchups")
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         if len(values):
-            ax.axvline(values.mean(), color="orange", linewidth=1)
-            ax.text( values.mean(), 0.92, f"mean = {values.mean():.2f}", color="orange",
+            ax.axvline(values.median(), color="orange", linewidth=1)
+            ax.text(values.median(), 0.92, f"median = {values.median():.2f}", color="orange",
                 ha="center", va="top", transform=ax.get_xaxis_transform(), fontsize=9,)
 
             xmin, xmax = ax.get_xlim()
@@ -864,16 +864,40 @@ def build_report_tex(
     return text
 
 
-def compile_pdf(output_dir: Path, stem: str, miktex_bin: Path = DEFAULT_MIKTEX_BIN) -> Path:
+def find_pdflatex(miktex_bin: str | Path | None = None) -> str:
+    """Resolve the pdflatex executable and return its path.
+
+    ``--miktex-bin`` (or ``$MIKTEX_BIN``) names a directory holding the executable — a
+    MiKTeX install on Windows, for instance. Without it, pdflatex is looked up on
+    ``PATH``, which is what a TeX Live install on Linux or macOS provides. Nothing
+    machine-specific is baked into the package.
+    """
+    if miktex_bin:
+        directory = Path(miktex_bin)
+        for name in ("pdflatex", "pdflatex.exe"):
+            candidate = directory / name
+            if candidate.is_file():
+                return str(candidate)
+        raise FileNotFoundError(f"no pdflatex in {directory}")
+    binary = shutil.which("pdflatex") or shutil.which("pdflatex.exe")
+    if binary is None:
+        raise FileNotFoundError(
+            "pdflatex is not on PATH; install TeX Live or MiKTeX, or name the directory "
+            "holding it with --miktex-bin / $MIKTEX_BIN"
+        )
+    return binary
+
+
+def compile_pdf(
+    output_dir: Path, stem: str, miktex_bin: str | Path | None = None
+) -> Path:
     """Run pdflatex twice from the build directory; raise if no PDF appears."""
     output_dir = Path(output_dir)
-    pdflatex = Path(miktex_bin) / "pdflatex.exe"
-    if not pdflatex.is_file():
-        raise FileNotFoundError(f"pdflatex not found: {pdflatex}")
+    pdflatex = find_pdflatex(miktex_bin)
 
     for _ in range(2):  # twice so the table of contents is stable
         completed = subprocess.run(
-            [str(pdflatex), "-interaction=nonstopmode", "-halt-on-error", f"{stem}.tex"],
+            [pdflatex, "-interaction=nonstopmode", "-halt-on-error", f"{stem}.tex"],
             cwd=output_dir, capture_output=True, text=True, check=False,
         )
         if completed.returncode != 0:

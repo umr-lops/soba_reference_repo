@@ -7,3 +7,6 @@ __pycache__/
 # generated: regenerable from the command recorded in the PDF
 runs/
 test_datasets/
+
+# local knowledge graph: rebuild with `graphify extract . --code-only`
+graphify-out/
