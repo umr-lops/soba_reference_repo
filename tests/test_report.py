@@ -23,6 +23,7 @@ from soba_catalogue_report.report import (
     build_test_frame,
     default_test_name,
     insert_version_history_row,
+    insert_table_row,
     make_scene_key,
     plot_figures,
     purge_latex_byproducts,
@@ -225,6 +226,7 @@ def _fill(tmp_path, template=None):
         ],
         scat_name="scat.parquet",
         swot_name="swot.parquet",
+        test_name="S1D_reference_test_dataset_WV_20260107_20260107_20260916_SV_X_Y_0.1.parquet",
     )
 
 
@@ -238,11 +240,23 @@ def test_build_report_tex_replaces_every_placeholder(tmp_path):
                  "reference_distributions.png"):
         assert name in tex
     assert "120" in tex  # the time filter value must be stated
-    assert "soba-catalogue-report" in tex  # the run command replaces the template stub
+    assert "[toolbox-name]" in tex  # the run command replaces the template stub
     assert "TEST dataset reference TEST dataset" not in tex  # no doubled wording
     assert "for S1D / SWOT / ASCAT reference TEST dataset" in tex
     assert r"\label{tab:reference_stats}" in tex  # reference statistics table
     assert r"\label{tab:columns}" in tex  # catalogue columns table
+    # versioning tables: documentation rows kept, dataset file row added
+    assert r"\caption{Versioning of the documentation}" in tex
+    assert r"\caption{Versioning of test catalogue files}" in tex
+    assert (
+        r"\path|S1D_reference_test_dataset_WV_20260107_20260107_20260916_SV_X_Y_0.1.parquet|"
+        in tex
+    )
+    assert r"\hypersetup{hidelinks}" in tex  # no red link boxes
+    # both reference files are listed on their own line
+    assert (
+        r"\path|scat.parquet|\\" in tex and r"\path|swot.parquet| (KaRIn" in tex
+    )
 
 
 def test_reference_statistics_table_reports_min_max_mean_median(tmp_path):
@@ -259,6 +273,7 @@ def test_insert_version_history_row_survives_template_row_edits():
     template = (
         r"\section*{Version History}" "\n"
         r"\begin{table}[H]" "\n"
+        r"    \caption{Versioning of the documentation}" "\n"
         r"    \begin{tabular}{@{}p{2cm}@{}}" "\n"
         r"        \toprule" "\n"
         r"        1.0.0 & heavily edited by hand \\" "\n"
@@ -276,6 +291,29 @@ def test_insert_version_history_row_survives_template_row_edits():
         < filled.index("9.9.9 & generated")
         < filled.index(r"\bottomrule")
     )
+
+
+def test_insert_table_row_targets_the_table_that_carries_the_caption():
+    template = (
+        r"\begin{table}[H]" "\n"
+        r"    \caption{Versioning of the documentation}" "\n"
+        r"        1.0.0 & doc row \\" "\n"
+        r"        \bottomrule" "\n"
+        r"\end{table}" "\n"
+        r"\begin{table}[H]" "\n"
+        r"    \caption{Versioning of test catalogue files}" "\n"
+        r"        \midrule" "\n"
+        r"        \bottomrule" "\n"
+        r"\end{table}" "\n"
+    )
+
+    filled = insert_table_row(
+        template, "Versioning of test catalogue files", "the_file.parquet & 2026-09-16 & generated"
+    )
+
+    documentation, catalogue_files = filled.split(r"\end{table}", 1)
+    assert "the_file.parquet & 2026-09-16 & generated \\\\" in catalogue_files
+    assert "the_file.parquet" not in documentation
 
 
 def test_build_report_tex_fails_loudly_when_an_anchor_is_missing(tmp_path):
@@ -405,7 +443,6 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
     # --no-compile keeps the intermediates; the PDF step is what purges them
     assert (output_dir / "unit_catalogue_report.tex").is_file()
     assert len(list((output_dir / "figures").glob("*.png"))) == 3
-    assert (test_dir / "unit_manifest.json").is_file()
     produced = list(test_dir.glob("S1D_reference_test_dataset_*.parquet"))
     assert len(produced) == 1, sorted(p.name for p in test_dir.iterdir())
     assert re.fullmatch(
@@ -413,6 +450,10 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
         r"KNMI-ASCAT-METOP-12\.5km_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0\.1\.parquet",
         produced[0].name,
     ), produced[0].name
+    # the manifest is named after the dataset file it describes
+    assert (test_dir / f"{produced[0].stem}_manifest.json").is_file(), (
+        sorted(p.name for p in test_dir.iterdir())
+    )
 
 
 def test_cli_requires_satellite_and_scatterometer(tmp_path):

@@ -92,6 +92,10 @@ def main(argv=None) -> int:
     result = run_crossing(scat_path, swot_path, args.satellite, config, args.scatterometer)
     print(f"common scenes: {len(result.crossing)}  filtered: {len(result.filtered)}")
 
+    test_name = args.test_name or default_test_name(
+        result, scat_path.name, swot_path.name, args.satellite, args.dataset_version
+    )
+
     figures = plot_figures(result, output_dir / "figures", Path(args.land_map))
     stage_latex_assets(latex_dir, output_dir)
 
@@ -103,13 +107,11 @@ def main(argv=None) -> int:
         config,
         scat_path.name,
         swot_path.name,
+        test_name,
     )
     tex_path = output_dir / f"{label}_catalogue_report.tex"
     tex_path.write_text(tex, encoding="utf-8")
 
-    test_name = args.test_name or default_test_name(
-        result, scat_path.name, swot_path.name, args.satellite, args.dataset_version
-    )
     test_path = write_test_parquet(build_test_frame(result), test_dir / test_name)
 
     pdf_path = None
@@ -120,7 +122,8 @@ def main(argv=None) -> int:
             # keep the .tex, figures and assets so the report can be hand-edited
             purge_latex_byproducts(output_dir, report_stem)
 
-    manifest = test_dir / f"{label}_manifest.json"
+    # the manifest is named after the dataset file it describes
+    manifest = test_path.with_name(f"{test_path.stem}_manifest.json")
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(json.dumps({
         "scat": str(scat_path),

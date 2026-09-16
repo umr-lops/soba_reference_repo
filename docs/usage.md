@@ -96,7 +96,11 @@ Three things in the report are built at run time rather than written in the temp
 | --- | --- | --- |
 | Figure images | the three `\fbox{...\textit{[Insert … Here]}...}` placeholders | the run's figures |
 | §1.3 reference statistics table | `\hl{reference parameter statistics}` | min/max/mean/median of the filtered cohort, `STATS_DECIMALS` decimals |
-| Version-history row | inserted before the version table's `\bottomrule` | run label, row count, date |
+| Version-history row | `\caption{Versioning of the documentation}` | run label, row count, date |
+| Dataset-file row | `\caption{Versioning of test catalogue files}` | produced parquet name, date, filters applied |
+
+Table rows are appended before the table's `\bottomrule`; the table is located through its
+caption, so you can add, reorder or delete the template's own rows freely.
 
 The §1.4 catalogue-columns table is *not* generated: it is written in the template, and
 `test_the_template_column_table_documents_every_exported_column` fails if it stops listing a

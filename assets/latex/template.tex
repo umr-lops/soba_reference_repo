@@ -7,6 +7,9 @@
 
 % Utilisation du style SOBA (défini dans soba.sty)
 \usepackage{soba}
+% soba.sty loads hyperref without options, which draws a red box around every
+% cross-reference, table-of-contents entry and URL.
+\hypersetup{hidelinks}
 % This document describes a reference TEST dataset, so it overrides the style's
 % default co-aligned catalogue footer.
 \lfoot{Reference TEST Dataset Description - Ifremer}
@@ -34,6 +37,10 @@
     
     \textbf{Work Package 3: Datasets Preparation} \\
     \vspace{0.5cm}
+
+    \begin{minipage}{0.85\textwidth}
+        \textbf{Scope:} This document describes a reference TEST dataset produced in the framework of the SOBA project. A TEST dataset pairs Sentinel-1 SAR observations with independent reference observations, and is reserved for evaluating retrieval algorithms on data that was never used to build or tune them. It details the dataset content, and the way the dataset is extracted from the underlying co-aligned catalogues.
+    \end{minipage}
     
     \vfill
     
@@ -54,9 +61,6 @@
 
 \newpage
 
-\textbf{Scope:} This document describes a reference TEST dataset produced in the framework of the SOBA project. A TEST dataset pairs Sentinel-1 SAR observations with independent reference observations, and is reserved for evaluating retrieval algorithms on data that was never used to build or tune them. It details the dataset content, and the way the dataset is extracted from the underlying co-aligned catalogues.
-
-
 % Utilisation du diagramme avec légende
 \begin{figure}[htbp]
     \centering
@@ -70,12 +74,26 @@
 
 \begin{table}[H]
     \centering
+    \caption{Versioning of the documentation}
+    \label{tab:versioning_documentation}
     \begin{tabular}{@{}p{2cm}p{3cm}p{8cm}p{4cm}@{}}
         \toprule
         \textbf{Version} & \textbf{Date} & \textbf{Modification} & \textbf{Author} \\
         \midrule
         1.0.0 & 2026-09-16 & Creation of the document & Antoine Grouazel, Ifremer \\
         1.0.1 & 2026-09-16 & Update of the template and figures addition & Ilias Reguig, Ifremer \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{Versioning of test catalogue files}
+    \label{tab:versioning_catalogue_files}
+    \begin{tabular}{@{}p{6.6cm}p{2.4cm}p{8cm}@{}}
+        \toprule
+        \textbf{File name} & \textbf{Date} & \textbf{Modifications} \\
+        \midrule
         \bottomrule
     \end{tabular}
 \end{table}

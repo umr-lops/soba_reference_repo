@@ -671,19 +671,39 @@ def reference_statistics_table(
     )
 
 
-def insert_version_history_row(text: str, row: str) -> str:
-    """Insert ``row`` as the last row of the template's version-history table.
+TEX_LINEBREAK = "\\" * 2  # LaTeX \\ : a line break inside a paragraph
 
-    Anchored on the table environment rather than on a specific row, so editing
-    the template's own version rows does not break the build.
+
+def _path(value: str) -> str:
+    """Wrap a file name in ``\\path|...|`` so long names wrap instead of overflowing."""
+    return "\\path|" + value + "|"
+
+
+def _table_float(text: str, caption: str) -> tuple[int, int, str]:
+    """Locate the ``table`` float carrying ``caption``; return (start, end, block)."""
+    anchor = f"\\caption{{{caption}}}"
+    caption_at = text.index(anchor)
+    start = text.rindex(r"\begin{table}", 0, caption_at)
+    end = text.index(r"\end{table}", caption_at) + len(r"\end{table}")
+    return start, end, text[start:end]
+
+
+def insert_table_row(text: str, caption: str, row: str) -> str:
+    """Append ``row`` as the last row of the table with that caption.
+
+    Anchored on the caption rather than on a specific row, so editing the
+    template's own rows does not break the build.
     """
-    start = text.index(r"\section*{Version History}")
-    end = text.index(r"\end{table}", start)
-    block = text[start:end]
+    start, end, block = _table_float(text, caption)
     position = block.rindex(r"\bottomrule")
     row = row if row.startswith("        ") else f"        {row}"
     row = row if row.endswith(" \\\\") else f"{row} \\\\\n"
     return text[:start] + block[:position] + row + block[position:] + text[end:]
+
+
+def insert_version_history_row(text: str, row: str) -> str:
+    """Insert ``row`` into the documentation version table."""
+    return insert_table_row(text, "Versioning of the documentation", row)
 
 
 def _tex_escape(value: str) -> str:
@@ -716,6 +736,7 @@ def build_report_tex(
     config: ReportConfig = ReportConfig(),
     scat_name: str = "",
     swot_name: str = "",
+    test_name: str = "",
 ) -> str:
     """Fill ``template.tex`` so the document describes this TEST dataset."""
     text = Path(template_path).read_text(encoding="utf-8")
@@ -726,6 +747,12 @@ def build_report_tex(
     # the template supplies the words "reference TEST dataset" after this name
     dataset_name = f"{result.satellite} / SWOT / {result.scatterometer}"
     label_tex = _tex_escape(label)
+    modification = (
+        "TEST dataset extracted from the co-aligned catalogues "
+        f"(overlap $\\geq$ {config.overlap_min_pct:g}\\%, "
+        f"rain $<$ {config.rain_max_mm_h:g} mm/h, "
+        f"$\\Delta t <$ {config.time_max_min:g} min); {n} rows."
+    )
 
     # the template already provides the surrounding enumerate environment,
     # so only the \item lines are replaced.
@@ -757,15 +784,15 @@ def build_report_tex(
         ),
         (
             r"\hl{path or DOI or dataset name}",
-            f"\\path|{scat_name}|; \\path|{swot_name}|",
+            f"{_path(scat_name)}{TEX_LINEBREAK}\n    {_path(swot_name)}",
         ),
         (r"\hl{WV, IW , EW}", "WV"),
         (r"\hl{VV, VH, HH, HV }", "VV"),
         (
             r"\hl{KNMI-SCAT-HY2B-25km (scatterometer wind), altimetry-derived wave "
             r"heights, or model reanalysis data (e.g., ERA5).}",
-            f"\\path|{scat_name}| (scatterometer wind) and \\path|{swot_name}| "
-            "(KaRIn significant wave height).",
+            f"{_path(scat_name)} (scatterometer wind){TEX_LINEBREAK}\n    "
+            f"{_path(swot_name)} (KaRIn significant wave height).",
         ),
         (
             r"\item \textbf{geographic delta co-location criteria:}  \hl{to be filled}",
@@ -785,7 +812,7 @@ def build_report_tex(
             r"    \item ...",
             steps,
         ),
-        (r"\hl{github/gitlab link}", r"\texttt{/home/il/projects/SOBA}"),
+        (r"\hl{github/gitlab link}", r"\texttt{Link to Github tool}"),
         (r"\hl{to be modified}", "used for this dataset"),
         (
             r"\hl{reference parameter statistics}",
@@ -796,14 +823,11 @@ def build_report_tex(
             "label={lst:code}]\nexample of command used.\n\\end{lstlisting}",
             "\\begin{lstlisting}[caption={Command used to generate this dataset.}, "
             "label={lst:code}]\n"
-            "soba-catalogue-report \\\n"
+            "[toolbox-name] \\\n"
             f"  --scat {scat_name} \\\n"
             f"  --swot {swot_name} \\\n"
             f"  --satellite {result.satellite} "
             f"--scatterometer {result.scatterometer} \\\n"
-            f"  --overlap-min-pct {config.overlap_min_pct:g} "
-            f"--rain-max-mm-h {config.rain_max_mm_h:g} "
-            f"--time-max-min {config.time_max_min:g}\n"
             "\\end{lstlisting}",
         ),
     ]
@@ -845,11 +869,17 @@ def build_report_tex(
         "\\end{lstlisting}"
     ) + text[end:]
 
-    # version-history row for the generated document
+    # version-history rows for the generated document and its dataset file
+    today = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
     text = insert_version_history_row(
         text,
-        f"1.0.0 & {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')} & "
-        f"Generated report for the {label_tex} TEST dataset ({n} rows) & Ilias Reguig",
+        f"1.0.0 & {today} & Generated report for the {label_tex} TEST dataset "
+        f"({n} rows) & Ilias Reguig",
+    )
+    text = insert_table_row(
+        text,
+        "Versioning of test catalogue files",
+        f"{_path(test_name)} & {today} & {modification}",
     )
     return text
 

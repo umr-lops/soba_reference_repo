@@ -81,8 +81,12 @@ Pass `--keep-intermediates` to also keep the `.aux/.log/.out/.toc`; `--no-compil
 
 ```
 S1D_reference_test_dataset_WV_20260112_20260227_20260916_SV_KNMI-ASCAT-METOP-12.5km_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet
-<label>_manifest.json
+S1D_reference_test_dataset_WV_20260112_20260227_20260916_SV_KNMI-ASCAT-METOP-12.5km_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1_manifest.json
 ```
+
+The manifest is named after the parquet it describes (same convention, `_manifest.json` suffix), so
+a dataset file and its provenance always travel together — including when `--test-name` overrides
+the generated name.
 
 ### TEST dataset filename
 
@@ -122,9 +126,12 @@ otherwise pass `--test-name` explicitly.
   cohort (rounding set by `STATS_DECIMALS` in `report.py`, default 2 decimals); §1.4's column
   table is written in the template and a test fails if it stops documenting every exported
   column.
-- **Version-history rows.** The run appends its own row to the template's version table,
-  anchored on the table environment rather than on a specific row — so hand-editing the
-  template's version rows never breaks the build.
+- **Versioning tables.** The run appends a row to each of the template's two version tables: the
+  documentation table, and *Versioning of test catalogue files*, which registers the produced
+  parquet's file name, date and modifications. Both insertions are anchored on the table's
+  caption rather than on a row, so hand-editing the template's rows never breaks the build.
+- **Link boxes off.** The template sets `\hypersetup{hidelinks}`: `soba.sty` loads `hyperref`
+  without options, which would otherwise box every cross-reference, TOC entry and URL in red.
 - **WV only.** The tool implements the WV TEST layout (`:WV_<imagette>`, SLC/OCN SAFE pattern,
   WV mandatory column list). The spec's IW layout (GRD paths, `:IW2`, `ref_geometry`) is not
   implemented.
