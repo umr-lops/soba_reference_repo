@@ -1,0 +1,645 @@
+"""SOBA co-aligned / TEST dataset report tool.
+
+Cuts a SAR / scatterometer / SWOT crossing out of two coaligned catalogues,
+draws three figures, fills the SOBA LaTeX template, compiles a PDF and exports
+the spec-conformant WV TEST parquet.
+
+Spec: "Format Description for parquet co-aligned datasets" (SOBA WP3, v1.0.3).
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+import subprocess
+
+# Must be set before any geopandas/GDAL import: silences the PROJ "ERROR 1" lookup noise.
+os.environ.setdefault("CPL_LOG", "/dev/null")
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]  # .../soba-catalogue-report
+ASSET_DIR = PACKAGE_ROOT / "assets"
+DEFAULT_LAND_MAP = ASSET_DIR / "ne_110m_land.geojson"
+DEFAULT_LATEX_DIR = ASSET_DIR / "latex"
+DEFAULT_MIKTEX_BIN = Path(
+    "/mnt/c/Users/ilias/AppData/Local/Programs/MiKTeX/miktex/bin/x64"
+)
+
+# The spec uses hyphens for the path/SAFE columns while the source catalogues use
+# underscores. The exported TEST file follows the spec.
+WV_MANDATORY_COLUMNS = [
+    "primary_key", "sar_time", "sar_lat", "sar_lon", "sar_incidence_angle",
+    "sar_elevation_angle", "sar_ground_heading", "sar_distance_to_coast",
+    "sar-path-ocn", "sar-path-slc", "sar-safe-slc", "sar-safe-ocn",
+    "ref_lon", "ref_lat", "ref_time", "ref_flag", "ref_id", "legacy_usage",
+]
+WV_REF_PARAM_COLUMNS = ["windspeed_scat", "winddirection_scat", "waveheight_swot"]
+
+SCAT_COLUMNS = [
+    "sar_safe_ocn", "sar_safe_slc", "sar_time", "sar_lat", "sar_lon",
+    "sar_incidence_angle", "sar_elevation_angle", "sar_ground_heading",
+    "sar_path_ocn", "sar_path_slc",
+    "ref_time", "ref_lat", "ref_lon", "ref_param_1", "ref_param_2",
+    "ref_distance_km", "ref_flag", "ref_id",
+]
+SWOT_COLUMNS = [
+    "sar_safe_ocn", "sar_safe_slc", "sar_time", "sar_lat", "sar_lon",
+    "sar_incidence_angle", "sar_elevation_angle", "sar_distance_to_coast",
+    "sar_path_ocn", "sar_path_slc",
+    "ref_time", "ref_lat", "ref_lon", "ref_mean_hs_karin",
+    "ref_time_delta", "ref_distance_delta", "overlap_pct",
+    "mean_rainrate_IMERG", "swot_dynamic_ice_flag", "swot_rain_flag",
+    "ref_flag", "swot_cycle", "swot_pass", "legacy_usage",
+]
+
+
+@dataclass(frozen=True)
+class ReportConfig:
+    """Filter thresholds for one catalogue-report run."""
+
+    overlap_min_pct: float = 100.0
+    rain_max_mm_h: float = 0.3
+    time_max_min: float = 120.0
+
+
+@dataclass
+class CrossingResult:
+    """Everything one crossing produces."""
+
+    satellite: str
+    scatterometer: str
+    scat_rows: int
+    swot_rows: int
+    crossing: pd.DataFrame
+    filtered: pd.DataFrame
+
+
+# --------------------------------------------------------------------------- #
+# Scene key
+# --------------------------------------------------------------------------- #
+
+def make_scene_key(frame: pd.DataFrame, satellite: str) -> pd.Series:
+    """Normalise a SAFE identifier to ``<acq>_<orbit>_<datatake>:WV_<imagette>``."""
+    satellite = satellite.upper()
+    blank = r"^\s*(?:nan)?\s*$"
+    ocn = frame["sar_safe_ocn"].astype("string").replace(blank, pd.NA, regex=True)
+    slc = frame["sar_safe_slc"].astype("string").replace(blank, pd.NA, regex=True)
+    identifier = ocn.fillna(slc)
+    if identifier.isna().any():
+        raise ValueError("No SAR SAFE identifier in either sar_safe_ocn or sar_safe_slc")
+
+    leaf = identifier.str.rsplit("/", n=1).str[-1]
+    prefix = rf"^{satellite}_WV_(?:OCN__2S|SLC__1S)S[HV]_"
+    valid = leaf.str.match(prefix, na=False)
+    if not valid.all():
+        raise ValueError(
+            f"SAFE identifiers do not match mission {satellite}: "
+            f"{leaf.loc[~valid].head(3).tolist()}"
+        )
+    pieces = leaf.str.split(".SAFE:WV_", n=1, expand=True)
+    acquisition = pieces[0].str.replace(prefix, "", regex=True)
+    return acquisition.str.rsplit("_", n=1).str[0] + ":WV_" + pieces[1]
+
+
+# --------------------------------------------------------------------------- #
+# Crossing
+# --------------------------------------------------------------------------- #
+
+SCAT_RENAME = {
+    "sar_time": "sar_time_scat", "sar_lat": "sar_lat_scat", "sar_lon": "sar_lon_scat",
+    "sar_incidence_angle": "sar_incidence_angle_scat",
+    "sar_elevation_angle": "sar_elevation_angle_scat",
+    "sar_ground_heading": "sar_ground_heading_scat",
+    "sar_path_ocn": "sar_path_ocn_scat", "sar_path_slc": "sar_path_slc_scat",
+    "sar_safe_ocn": "sar_safe_ocn_scat", "sar_safe_slc": "sar_safe_slc_scat",
+    "ref_time": "scat_time", "ref_lat": "scat_lat", "ref_lon": "scat_lon",
+    "ref_param_1": "scat_wind_direction_deg", "ref_param_2": "scat_wind_speed_ms",
+    "ref_id": "scat_ref_id", "ref_flag": "scat_flag",
+}
+SWOT_RENAME = {
+    "sar_time": "sar_time_swot", "sar_lat": "sar_lat_swot", "sar_lon": "sar_lon_swot",
+    "sar_incidence_angle": "sar_incidence_angle_swot",
+    "sar_elevation_angle": "sar_elevation_angle_swot",
+    "sar_distance_to_coast": "sar_distance_to_coast_swot",
+    "sar_path_ocn": "sar_path_ocn_swot", "sar_path_slc": "sar_path_slc_swot",
+    "sar_safe_ocn": "sar_safe_ocn_swot", "sar_safe_slc": "sar_safe_slc_swot",
+    "ref_time": "swot_time", "ref_lat": "swot_lat", "ref_lon": "swot_lon",
+    "ref_mean_hs_karin": "swot_wave_height_m", "legacy_usage": "swot_legacy_usage",
+    "ref_flag": "swot_flag",
+}
+KEEP_SCAT = [
+    "scene_key", "sar_time_scat", "sar_lat_scat", "sar_lon_scat",
+    "sar_incidence_angle_scat", "sar_elevation_angle_scat", "sar_ground_heading_scat",
+    "sar_path_ocn_scat", "sar_path_slc_scat", "sar_safe_ocn_scat", "sar_safe_slc_scat",
+    "scat_time", "scat_lat", "scat_lon", "scat_wind_direction_deg",
+    "scat_wind_speed_ms", "ref_distance_km", "scat_to_sar_time_min",
+    "scat_flag", "scat_ref_id",
+]
+KEEP_SWOT = [
+    "scene_key", "sar_time_swot", "sar_lat_swot", "sar_lon_swot",
+    "sar_incidence_angle_swot", "sar_elevation_angle_swot",
+    "sar_distance_to_coast_swot", "sar_path_ocn_swot", "sar_path_slc_swot",
+    "sar_safe_ocn_swot", "sar_safe_slc_swot",
+    "swot_time", "swot_lat", "swot_lon", "swot_wave_height_m",
+    "ref_time_delta", "ref_distance_delta", "swot_to_sar_time_min",
+    "overlap_pct", "mean_rainrate_IMERG", "swot_dynamic_ice_flag",
+    "swot_rain_flag", "swot_flag", "swot_cycle", "swot_pass", "swot_legacy_usage",
+]
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    """Great-circle distance in km."""
+    lat1_rad, lat2_rad = np.radians(lat1), np.radians(lat2)
+    delta_lat = lat2_rad - lat1_rad
+    delta_lon = np.radians((lon2 - lon1 + 180) % 360 - 180)
+    a = (
+        np.sin(delta_lat / 2) ** 2
+        + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(delta_lon / 2) ** 2
+    )
+    return 6371.0088 * 2 * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
+
+
+def _dedup(frame: pd.DataFrame, time_column: str, tie_break: str) -> pd.DataFrame:
+    """Keep one row per imagette, the reference closest in time to the SAR acquisition."""
+    frame = frame.copy()
+    frame[time_column] = (
+        pd.to_datetime(frame["ref_time"], utc=True)
+        - pd.to_datetime(frame["sar_time"], utc=True)
+    ).abs().dt.total_seconds() / 60
+    return (
+        frame.sort_values(["scene_key", time_column, tie_break], na_position="last")
+        .drop_duplicates("scene_key", keep="first")
+        .copy()
+    )
+
+
+def run_crossing(
+    scat_path: Path,
+    swot_path: Path,
+    satellite: str,
+    config: ReportConfig,
+    scatterometer: str = "ASCAT",
+) -> CrossingResult:
+    """Cross a scatterometer catalogue and the SWOT catalogue through the SAR imagette."""
+    satellite = satellite.upper()
+    scatterometer = scatterometer.upper()
+
+    for name, path, columns in (
+        (scatterometer, Path(scat_path), SCAT_COLUMNS),
+        ("SWOT", Path(swot_path), SWOT_COLUMNS),
+    ):
+        available = set(pq.ParquetFile(path).schema_arrow.names)
+        missing = sorted(set(columns) - available)
+        if missing:
+            raise ValueError(f"{name} catalogue {path.name} is missing columns: {missing}")
+
+    scat = pd.read_parquet(scat_path, columns=sorted(SCAT_COLUMNS))
+    swot = pd.read_parquet(swot_path, columns=sorted(SWOT_COLUMNS))
+    for frame in (scat, swot):
+        frame["scene_key"] = make_scene_key(frame, satellite)
+
+    scat = _dedup(scat, "scat_to_sar_time_min", "ref_distance_km")
+    swot = _dedup(swot, "swot_to_sar_time_min", "ref_distance_delta")
+
+    matches = scat.rename(columns=SCAT_RENAME)[KEEP_SCAT].merge(
+        swot.rename(columns=SWOT_RENAME)[KEEP_SWOT],
+        on="scene_key", how="inner", validate="one_to_one",
+    )
+    if matches["scene_key"].duplicated().any():
+        raise ValueError("crossing is not unique per scene_key")
+
+    matches["scat_swot_distance_km"] = haversine_km(
+        matches["scat_lat"], matches["scat_lon"], matches["swot_lat"], matches["swot_lon"]
+    )
+    matches["scat_swot_time_delta_min"] = (
+        pd.to_datetime(matches["scat_time"], utc=True)
+        - pd.to_datetime(matches["swot_time"], utc=True)
+    ).abs().dt.total_seconds() / 60
+
+    filtered = matches[
+        (matches["overlap_pct"] == config.overlap_min_pct)
+        & (matches["mean_rainrate_IMERG"] < config.rain_max_mm_h)
+        & (matches["scat_swot_time_delta_min"] < config.time_max_min)
+    ].copy()
+
+    return CrossingResult(
+        satellite=satellite,
+        scatterometer=scatterometer,
+        scat_rows=len(scat),
+        swot_rows=len(swot),
+        crossing=matches,
+        filtered=filtered,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Figures
+# --------------------------------------------------------------------------- #
+
+ACCENT = "#2a626d"
+
+
+def _wrap_longitude(values):
+    return ((pd.to_numeric(values, errors="coerce") + 180.0) % 360.0) - 180.0
+
+
+def _plot_geography(result: CrossingResult, path: Path, land_map_path: Path) -> None:
+    import geopandas as gpd
+
+    frame = result.filtered
+    world = gpd.read_file(land_map_path)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    world.plot(ax=ax, color="#d9d9d9", edgecolor="#9a9a9a", linewidth=0.3, zorder=1)
+
+    if len(frame):
+        hexes = ax.hexbin(
+            frame["sar_lon_scat"], frame["sar_lat_scat"],
+            gridsize=360, extent=(-180, 180, -90, 90),
+            cmap="bone_r", bins="log", mincnt=1, linewidths=0.3, zorder=2,
+        )
+        fig.colorbar(hexes, ax=ax, shrink=0.8).set_label(
+            "Matchups per 1° hexagonal cell (log scale)"
+        )
+
+    ax.scatter(
+        frame["sar_lon_scat"], frame["sar_lat_scat"], s=4, color=ACCENT,
+        alpha=0.85, edgecolor="black", linewidth=0.4, zorder=3,
+        label=f"Filtered crossing scenes (N={len(frame):,})",
+    )
+    ax.set(
+        title=(
+            f"{result.satellite} / SWOT / {result.scatterometer}: "
+            "geographical distribution of the filtered crossing"
+        ),
+        xlabel="Longitude (°)", ylabel="Latitude (°)",
+        xlim=(-180, 180), ylim=(-90, 90),
+    )
+    ax.set_xticks(np.arange(-180, 181, 60))
+    ax.set_yticks(np.arange(-90, 91, 30))
+    ax.set_aspect("equal", adjustable="box")
+    ax.legend(loc="upper right", markerscale=2)
+    fig.tight_layout()
+    fig.savefig(path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_monthly(result: CrossingResult, path: Path) -> None:
+    frame = result.filtered
+    if len(frame):
+        months = pd.to_datetime(frame["sar_time_scat"], utc=True).dt.strftime("%Y-%m")
+        counts = months.value_counts().sort_index()
+    else:
+        counts = pd.Series(dtype="int64")
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.bar(counts.index.astype(str), counts.values, color=ACCENT, alpha=0.85)
+    ax.set(
+        title=(
+            f"{result.satellite} / SWOT / {result.scatterometer}: monthly distribution "
+            f"of the filtered crossing (N={len(frame):,})"
+        ),
+        xlabel="Month", ylabel="matchups",
+    )
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    plt.xticks(rotation=45, ha="right")
+    fig.tight_layout()
+    fig.savefig(path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_reference_distributions(result: CrossingResult, path: Path) -> None:
+    frame = result.filtered
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
+    panels = [
+        ("scat_wind_speed_ms", np.arange(0, 40.1, 1),
+         f"{result.scatterometer} wind speed (m/s)"),
+        ("scat_wind_direction_deg", np.arange(0, 360.1, 10),
+         f"{result.scatterometer} wind direction (°)"),
+        ("swot_wave_height_m", np.arange(0, 20.1, 0.5), "SWOT KaRIn wave height (m)"),
+    ]
+    for ax, (column, bins, label) in zip(axes, panels):
+        values = frame[column].dropna()
+        ax.hist(values, bins=bins, color=ACCENT, alpha=0.85)
+        ax.set_title(f"{label}\nn = {len(values):,}", fontsize=11)
+        ax.set_xlabel(label)
+        ax.set_ylabel("matchups")
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+        if len(values):
+            ax.axvline(values.mean(), color="orange", linewidth=1)
+    fig.suptitle(
+        f"{result.satellite} / SWOT / {result.scatterometer}: "
+        "reference-variable distributions of the filtered crossing",
+        y=1.04, fontsize=13,
+    )
+    fig.tight_layout()
+    fig.savefig(path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_figures(
+    result: CrossingResult,
+    figures_dir: Path,
+    land_map_path: Path = DEFAULT_LAND_MAP,
+) -> list[Path]:
+    """Draw the three report figures and return their paths."""
+    figures_dir = Path(figures_dir)
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    if not Path(land_map_path).is_file():
+        raise FileNotFoundError(f"land map not found: {land_map_path}")
+
+    paths = [
+        figures_dir / "geographical_distribution.png",
+        figures_dir / "monthly_distribution.png",
+        figures_dir / "reference_distributions.png",
+    ]
+    _plot_geography(result, paths[0], Path(land_map_path))
+    _plot_monthly(result, paths[1])
+    _plot_reference_distributions(result, paths[2])
+    return paths
+
+
+# --------------------------------------------------------------------------- #
+# TEST parquet export
+# --------------------------------------------------------------------------- #
+
+def _second_precision(values) -> pd.Series:
+    return (
+        pd.to_datetime(values, utc=True)
+        .dt.tz_convert(None)
+        .dt.strftime("%Y-%m-%d %H:%M:%S")
+    )
+
+
+def build_test_frame(result: CrossingResult) -> pd.DataFrame:
+    """Reshape the filtered crossing into the mandatory WV TEST layout."""
+    frame = result.filtered
+    ref_lon = _wrap_longitude(frame["scat_lon"])
+    ref_lat = pd.to_numeric(frame["scat_lat"])
+
+    test = pd.DataFrame({
+        # primary key: the imagette scene key. The SCAT/SWOT merge is a validated
+        # one-to-one merge, so the scene key is already unique per row.
+        "primary_key": frame["scene_key"].astype("string"),
+        "sar_time": _second_precision(frame["sar_time_scat"]),
+        "sar_lat": pd.to_numeric(frame["sar_lat_scat"]).round(6),
+        "sar_lon": _wrap_longitude(frame["sar_lon_scat"]).round(6),
+        "sar_incidence_angle": frame["sar_incidence_angle_scat"],
+        "sar_elevation_angle": frame["sar_elevation_angle_scat"],
+        "sar_ground_heading": frame["sar_ground_heading_scat"],
+        "sar_distance_to_coast": frame["sar_distance_to_coast_swot"],
+        "sar-path-ocn": frame["sar_path_ocn_scat"],
+        "sar-path-slc": frame["sar_path_slc_scat"],
+        "sar-safe-slc": frame["sar_safe_slc_scat"],
+        "sar-safe-ocn": frame["sar_safe_ocn_scat"],
+        "ref_lon": ref_lon.round(4),
+        "ref_lat": ref_lat.round(4),
+        "windspeed_scat": frame["scat_wind_speed_ms"],
+        "winddirection_scat": frame["scat_wind_direction_deg"],
+        "ref_time": _second_precision(frame["scat_time"]),
+        "ref_flag": frame["scat_flag"],
+        "ref_id": frame["scat_ref_id"],
+        "legacy_usage": frame["swot_legacy_usage"],
+        "waveheight_swot": frame["swot_wave_height_m"],
+        "swot_lon": _wrap_longitude(frame["swot_lon"]).round(4),
+        "swot_lat": pd.to_numeric(frame["swot_lat"]).round(4),
+        "swot_time": _second_precision(frame["swot_time"]),
+        "swot_flag": frame["swot_flag"],
+        "overlap_pct": frame["overlap_pct"],
+        "mean_rainrate_IMERG": frame["mean_rainrate_IMERG"],
+        "scat_swot_distance_km": frame["scat_swot_distance_km"],
+        "scat_swot_time_delta_min": frame["scat_swot_time_delta_min"],
+    })
+
+    missing = [column for column in WV_MANDATORY_COLUMNS if column not in test.columns]
+    if missing:
+        raise ValueError(f"missing mandatory WV TEST columns: {missing}")
+    if not set(WV_REF_PARAM_COLUMNS) <= set(test.columns):
+        raise ValueError("missing dataset-specific ref_param columns")
+    if not test["primary_key"].is_unique:
+        raise ValueError("primary_key is not unique")
+    if not test["primary_key"].str.match(r".*:WV_\d+$").all():
+        raise ValueError("primary_key lost the :WV_<imagette> suffix")
+    for column in ("sar_lon", "ref_lon", "swot_lon"):
+        if not test[column].between(-180, 180).all():
+            raise ValueError(f"{column} outside [-180, 180]")
+    return test
+
+
+def write_test_parquet(
+    test: pd.DataFrame,
+    target: Path,
+    source_ref: str = "ASCAT KNMI-METOP-12.5km + SWOT PODAAC-KARIN-L2-WINDWAVE",
+) -> Path:
+    """Write the TEST parquet with the SOBA global attributes."""
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    table = pa.Table.from_pandas(test, preserve_index=False)
+    metadata = dict(table.schema.metadata or {})
+    metadata[b"source_ref"] = source_ref.encode()
+    metadata[b"creation_date"] = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d").encode()
+    pq.write_table(table.replace_schema_metadata(metadata), target)
+    return target
+
+
+# --------------------------------------------------------------------------- #
+# LaTeX
+# --------------------------------------------------------------------------- #
+
+LATEX_AUXILIARY_FILES = [
+    "soba.sty", "logo_soba.png", "schema_dataflow.tex", "cpcd_definition.tex",
+]
+
+
+def stage_latex_assets(latex_dir: Path, output_dir: Path) -> list[Path]:
+    """Copy the template's companion files into the build directory.
+
+    ``soba.sty``, ``logo_soba.png`` and the two ``\\input`` files must sit next
+    to the document for pdflatex to resolve them.
+    """
+    latex_dir, output_dir = Path(latex_dir), Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    staged = []
+    for name in LATEX_AUXILIARY_FILES:
+        source = latex_dir / name
+        if not source.is_file():
+            raise FileNotFoundError(f"missing LaTeX asset: {source}")
+        target = output_dir / name
+        target.write_bytes(source.read_bytes())
+        staged.append(target)
+    return staged
+
+
+def _replace_once(text: str, anchor: str, replacement: str) -> str:
+    """Replace ``anchor`` exactly once, or fail loudly."""
+    count = text.count(anchor)
+    if count != 1:
+        raise ValueError(f"anchor not found exactly once (found {count}): {anchor!r}")
+    return text.replace(anchor, replacement)
+
+
+def build_report_tex(
+    template_path: Path,
+    result: CrossingResult,
+    label: str,
+    figure_names: list[str],
+    config: ReportConfig = ReportConfig(),
+    scat_name: str = "",
+    swot_name: str = "",
+) -> str:
+    """Fill ``template.tex`` so the document describes this TEST dataset."""
+    text = Path(template_path).read_text(encoding="utf-8")
+    frame = result.filtered
+    n = len(frame)
+    distance = frame["scat_swot_distance_km"]
+    times = frame["scat_swot_time_delta_min"]
+    dataset_name = f"{result.satellite} / SWOT / {result.scatterometer} TEST dataset"
+
+    steps = (
+        r"\begin{enumerate}" "\n"
+        r"    \item \textbf{step 1:} normalise the SAFE identifiers to a stable scene key "
+        r"(acquisition, orbit, datatake, \texttt{:WV\_<imagette>});" "\n"
+        r"    \item \textbf{step 2:} keep one row per imagette, closest in time to the "
+        r"SAR acquisition;" "\n"
+        r"    \item \textbf{step 3:} inner-join the scatterometer and SWOT catalogues on "
+        r"the scene key (validated one-to-one merge);" "\n"
+        r"    \item \textbf{step 4:} compute the direct scatterometer--SWOT distance and "
+        r"time difference;" "\n"
+        r"    \item \textbf{step 5:} apply the quality filters and export the TEST parquet."
+        "\n"
+        r"\end{enumerate}"
+    )
+
+    edits = [
+        (r"\hl{dataset name}", dataset_name),
+        (
+            r"\hl{fill this part with product name, provider, resolution, SAR mode, "
+            r"polarization, unit ...etc}",
+            f"TEST dataset derived from a {result.satellite} Wave Mode (WV) SAR crossing "
+            f"with KNMI {result.scatterometer} winds and SWOT KaRIn wave heights. "
+            f"Wind speed in m/s, significant wave height in m. Retained rows: {n}.",
+        ),
+        (r"(\hl{IW and WV modes})", r"(WV mode)"),
+        (
+            r"\hl{<geophysical parameters>}",
+            "scatterometer wind speed and direction, and SWOT KaRIn significant wave height",
+        ),
+        (
+            r"\hl{path or DOI or dataset name}",
+            f"\\texttt{{{scat_name}}}; \\texttt{{{swot_name}}}",
+        ),
+        (r"\hl{WV, IW , EW}", "WV"),
+        (r"\hl{VV, VH, HH, HV }", "VV"),
+        (
+            r"\hl{KNMI-SCAT-HY2B-25km (scatterometer wind), altimetry-derived wave "
+            r"heights, or model reanalysis data (e.g., ERA5).}",
+            f"{scat_name} (scatterometer wind) and {swot_name} "
+            "(KaRIn significant wave height).",
+        ),
+        (
+            r"\item \textbf{geographic delta co-location criteria:}  \hl{to be filled}",
+            r"\item \textbf{geographic delta co-location criteria:} no hard distance "
+            f"threshold; measured scatterometer--SWOT separation min {distance.min():.1f} km, "
+            f"median {distance.median():.1f} km, max {distance.max():.1f} km",
+        ),
+        (
+            r"\item \textbf{time delta co-location criteria:}  \hl{to be filled}",
+            r"\item \textbf{time delta co-location criteria:} direct scatterometer--SWOT "
+            f"time difference $< {config.time_max_min:g}$ min "
+            f"(max observed {times.max():.1f} min)",
+        ),
+        (
+            r"\item \textbf{step 1:} \hl{to be filled}" "\n"
+            r"    \item \textbf{step 2:} \hl{to be filled}" "\n"
+            r"    \item ...",
+            steps,
+        ),
+        (r"\hl{github/gitlab link}", r"\texttt{/home/il/projects/SOBA}"),
+        (r"\hl{to be modified}", "used for this dataset"),
+    ]
+    for anchor, replacement in edits:
+        text = _replace_once(text, anchor, replacement)
+
+    # figure placeholders -> real includegraphics
+    figure_anchors = [
+        r"\fbox{\parbox{\textwidth}{\centering \vspace{4cm} \textit{[Insert Global "
+        r"Coverage Map Image Here]} \vspace{4cm}}}",
+        r"\fbox{\parbox{0.8\textwidth}{\centering \vspace{3cm} \textit{[Insert Monthly "
+        r"Barchart Image Here]} \vspace{3cm}}}",
+        r"\fbox{\parbox{0.8\textwidth}{\centering \vspace{3cm} \textit{[Insert 1D or 2D "
+        r"Histogram of Reference Variables Here]} \vspace{3cm}}}",
+    ]
+    widths = [r"\textwidth", r"0.85\textwidth", r"\textwidth"]
+    for anchor, name, width in zip(figure_anchors, figure_names, widths):
+        text = _replace_once(
+            text, anchor, f"\\includegraphics[width={width}]{{figures/{name}}}"
+        )
+
+    # the config listing must show the values this run actually used
+    start = text.index(r"\begin{lstlisting}[caption={Example of configuration file")
+    end = text.index(r"\end{lstlisting}", start) + len(r"\end{lstlisting}")
+    text = text[:start] + (
+        "\\begin{lstlisting}[caption={Configuration used for this dataset "
+        "(config.yaml).}, label={lst:config}]\n"
+        f"# SOBA catalogue report - {label}\n"
+        'sar_products:\n  mode: "WV"\n  polarizations: ["VV"]\n\n'
+        "reference_products:\n"
+        f'  - name: "{scat_name}"\n    type: "scatterometer"\n'
+        '    variables: ["windspeed_scat", "winddirection_scat"]\n'
+        f'  - name: "{swot_name}"\n    type: "wave_height"\n'
+        '    variables: ["waveheight_swot"]\n\n'
+        "filters:\n"
+        f"  overlap_pct: {config.overlap_min_pct:g}\n"
+        f"  max_rainrate_mm_h: {config.rain_max_mm_h:g}\n"
+        f"  max_time_diff_minutes: {config.time_max_min:g}\n"
+        "\\end{lstlisting}"
+    ) + text[end:]
+
+    # version-history row for the generated document
+    text = _replace_once(
+        text,
+        "        1.0.2 & 2026-09-06 & Definition of Catalogue files and version table & "
+        "Antoine Grouazel, Ifremer \\\\\n        \\bottomrule",
+        "        1.0.2 & 2026-09-06 & Definition of Catalogue files and version table & "
+        "Antoine Grouazel, Ifremer \\\\\n"
+        f"        {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')} & Generated report for "
+        f"the {label} TEST dataset ({n} rows) & Ilias Reguig \\\\\n"
+        "        \\bottomrule",
+    )
+    return text
+
+
+def compile_pdf(output_dir: Path, stem: str, miktex_bin: Path = DEFAULT_MIKTEX_BIN) -> Path:
+    """Run pdflatex twice from the build directory; raise if no PDF appears."""
+    output_dir = Path(output_dir)
+    pdflatex = Path(miktex_bin) / "pdflatex.exe"
+    if not pdflatex.is_file():
+        raise FileNotFoundError(f"pdflatex not found: {pdflatex}")
+
+    for _ in range(2):  # twice so the table of contents is stable
+        completed = subprocess.run(
+            [str(pdflatex), "-interaction=nonstopmode", "-halt-on-error", f"{stem}.tex"],
+            cwd=output_dir, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            log = output_dir / f"{stem}.log"
+            tail = (
+                log.read_text(errors="replace")[-4000:]
+                if log.is_file()
+                else completed.stdout[-4000:]
+            )
+            raise RuntimeError(f"pdflatex failed for {stem}.tex:\n{tail}")
+
+    pdf = output_dir / f"{stem}.pdf"
+    if not pdf.is_file():
+        raise RuntimeError(f"pdflatex reported success but {pdf} is missing")
+    return pdf
