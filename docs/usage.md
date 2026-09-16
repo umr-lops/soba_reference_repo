@@ -88,6 +88,21 @@ table produces them too.
 `--no-compile` skips LaTeX entirely and still writes the figures, the `.tex` and the TEST
 parquet, which is the fast loop when tuning a plot. It also skips the byproduct cleanup.
 
+## Generated LaTeX
+
+Three things in the report are built at run time rather than written in the template:
+
+| Element | Anchor in `template.tex` | Source |
+| --- | --- | --- |
+| Figure images | the three `\fbox{...\textit{[Insert … Here]}...}` placeholders | the run's figures |
+| §1.3 reference statistics table | `\hl{reference parameter statistics}` | min/max/mean/median of the filtered cohort, `STATS_DECIMALS` decimals |
+| Version-history row | inserted before the version table's `\bottomrule` | run label, row count, date |
+
+The §1.4 catalogue-columns table is *not* generated: it is written in the template, and
+`test_the_template_column_table_documents_every_exported_column` fails if it stops listing a
+column the tool exports. `reference_statistics_table` has its own test asserting the four
+statistics per reference variable.
+
 ## Where each file ends up
 
 After a successful compile the document sources stay next to the PDF so it can be hand-edited

@@ -338,6 +338,16 @@ def _plot_reference_distributions(result: CrossingResult, path: Path) -> None:
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         if len(values):
             ax.axvline(values.mean(), color="orange", linewidth=1)
+            ax.text(
+                values.mean(),
+                0.95,
+                f"mean = {values.mean():.2f}",
+                color="orange",
+                ha="center",
+                va="top",
+                transform=ax.get_xaxis_transform(),
+                fontsize=9,
+            )
     fig.suptitle(
         f"{result.satellite} / SWOT / {result.scatterometer}: "
         "reference-variable distributions of the filtered crossing",
@@ -610,6 +620,72 @@ def _replace_once(text: str, anchor: str, replacement: str) -> str:
     return text.replace(anchor, replacement)
 
 
+# (label template, column of the filtered frame) for the reference summary table
+REFERENCE_STATISTICS = (
+    ("{scatterometer} wind speed (m/s)", "scat_wind_speed_ms"),
+    ("{scatterometer} wind direction (°)", "scat_wind_direction_deg"),
+    ("SWOT KaRIn wave height (m)", "swot_wave_height_m"),
+)
+
+STATS_DECIMALS = 2
+
+
+def reference_statistics_table(
+    result: CrossingResult, decimals: int = STATS_DECIMALS
+) -> str:
+    """LaTeX table with the min/max/mean/median of every reference variable."""
+    frame = result.filtered
+    rows = []
+    for label, column in REFERENCE_STATISTICS:
+        values = pd.to_numeric(frame[column], errors="coerce").dropna()
+        label = label.format(scatterometer=result.scatterometer)
+        if values.empty:
+            rows.append(f"    {label} & -- & -- & -- & -- \\\\")
+            continue
+        rows.append(
+            f"    {label} & {values.min():.{decimals}f} & {values.max():.{decimals}f}"
+            f" & {values.mean():.{decimals}f} & {values.median():.{decimals}f} \\\\"
+        )
+    header = (
+        "    \\textbf{Reference parameter} & \\textbf{Min} & \\textbf{Max} & "
+        "\\textbf{Mean} & \\textbf{Median} \\\\"
+    )
+    return "\n".join(
+        [
+            "\\begin{longtable}{@{}p{6.4cm}rrrr@{}}",
+            "    \\caption{Reference parameter statistics of the reference TEST dataset."
+            "\\label{tab:reference_stats}} \\\\",
+            "    \\toprule",
+            header,
+            "    \\midrule",
+            "    \\endfirsthead",
+            "    \\toprule",
+            header,
+            "    \\midrule",
+            "    \\endhead",
+            "    \\bottomrule",
+            "    \\endlastfoot",
+            *rows,
+            "\\end{longtable}",
+        ]
+    )
+
+
+def insert_version_history_row(text: str, row: str) -> str:
+    """Insert ``row`` as the last row of the template's version-history table.
+
+    Anchored on the table environment rather than on a specific row, so editing
+    the template's own version rows does not break the build.
+    """
+    start = text.index(r"\section*{Version History}")
+    end = text.index(r"\end{table}", start)
+    block = text[start:end]
+    position = block.rindex(r"\bottomrule")
+    row = row if row.startswith("        ") else f"        {row}"
+    row = row if row.endswith(" \\\\") else f"{row} \\\\\n"
+    return text[:start] + block[:position] + row + block[position:] + text[end:]
+
+
 def _tex_escape(value: str) -> str:
     """Escape LaTeX specials so injected values survive text mode.
 
@@ -712,6 +788,10 @@ def build_report_tex(
         (r"\hl{github/gitlab link}", r"\texttt{/home/il/projects/SOBA}"),
         (r"\hl{to be modified}", "used for this dataset"),
         (
+            r"\hl{reference parameter statistics}",
+            reference_statistics_table(result),
+        ),
+        (
             "\\begin{lstlisting}[caption={Example of bash cmd for data generation.}, "
             "label={lst:code}]\nexample of command used.\n\\end{lstlisting}",
             "\\begin{lstlisting}[caption={Command used to generate this dataset.}, "
@@ -766,16 +846,10 @@ def build_report_tex(
     ) + text[end:]
 
     # version-history row for the generated document
-    text = _replace_once(
+    text = insert_version_history_row(
         text,
-        "        1.0.2 & 2026-09-06 & Definition of Catalogue files and version table & "
-        "Antoine Grouazel, Ifremer \\\\\n        \\bottomrule",
-        "        1.0.2 & 2026-09-06 & Definition of Catalogue files and version table & "
-        "Antoine Grouazel, Ifremer \\\\\n"
-        f"        1.0.0 & {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')} & "
-        f"Generated report for the {label_tex} TEST dataset ({n} rows) & "
-        "Ilias Reguig \\\\\n"
-        "        \\bottomrule",
+        f"1.0.0 & {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')} & "
+        f"Generated report for the {label_tex} TEST dataset ({n} rows) & Ilias Reguig",
     )
     return text
 

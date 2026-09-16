@@ -1,4 +1,9 @@
 \documentclass[11pt,a4paper]{article}
+\usepackage[useregional]{datetime2}
+
+
+% Date Time
+\DTMsetdatestyle{iso}
 
 % Utilisation du style SOBA (défini dans soba.sty)
 \usepackage{soba}
@@ -34,6 +39,8 @@
     
     \begin{center}
     \begin{tabular}{ll}
+        \textbf{Document Version} & 1.0.0 \\
+        \textbf{Date} & \DTMtoday \\
         \textbf{Authors} & SOBA consortium \\
         \textbf{Intended Audience} & internal \\
         \textbf{Project delivrable document identifier} & TN5 \\
@@ -57,8 +64,6 @@
     \caption{SOBA Dataflow schema}
     \label{fig:dataflow}
 \end{figure}
-% Définition du concept (fichier externe cpcd_definition.tex)
-\input{cpcd_definition}
 
 \section*{Version History}
 \addcontentsline{toc}{section}{Version History}
@@ -69,9 +74,8 @@
         \toprule
         \textbf{Version} & \textbf{Date} & \textbf{Modification} & \textbf{Author} \\
         \midrule
-        1.0.0 & 2026-08-29 & Creation of the document & Antoine Grouazel, Ifremer \\
-        1.0.1 & 2026-08-30 & Update of the template and figures addition & Antoine Grouazel, Ifremer \\
-        1.0.2 & 2026-09-06 & Definition of Catalogue files and version table & Antoine Grouazel, Ifremer \\
+        1.0.0 & 2026-09-16 & Creation of the document & Antoine Grouazel, Ifremer \\
+        1.0.1 & 2026-09-16 & Update of the template and figures addition & Ilias Reguig, Ifremer \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -118,6 +122,10 @@
     \caption{Distribution of the reference parameters present in the TEST dataset.}
     \label{fig:ref_distribution}
 \end{figure}
+
+Table~\ref{tab:reference_stats} summarises the retained values.
+
+\hl{reference parameter statistics}
 
 \subsection{Catalogue Columns}
 Table~\ref{tab:columns} lists every column of the reference TEST dataset, grouped by role.

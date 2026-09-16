@@ -22,9 +22,11 @@ from soba_catalogue_report.report import (
     build_test_filename,
     build_test_frame,
     default_test_name,
+    insert_version_history_row,
     make_scene_key,
     plot_figures,
     purge_latex_byproducts,
+    reference_statistics_table,
     run_crossing,
     stage_latex_assets,
     write_test_parquet,
@@ -239,6 +241,41 @@ def test_build_report_tex_replaces_every_placeholder(tmp_path):
     assert "soba-catalogue-report" in tex  # the run command replaces the template stub
     assert "TEST dataset reference TEST dataset" not in tex  # no doubled wording
     assert "for S1D / SWOT / ASCAT reference TEST dataset" in tex
+    assert r"\label{tab:reference_stats}" in tex  # reference statistics table
+    assert r"\label{tab:columns}" in tex  # catalogue columns table
+
+
+def test_reference_statistics_table_reports_min_max_mean_median(tmp_path):
+    table = reference_statistics_table(_result(tmp_path))
+
+    assert r"\label{tab:reference_stats}" in table
+    assert r"\textbf{Min} & \textbf{Max} & \textbf{Mean} & \textbf{Median}" in table
+    assert "ASCAT wind speed (m/s) & 9.80 & 9.80 & 9.80 & 9.80" in table
+    assert "ASCAT wind direction (°) & 17.80 & 17.80 & 17.80 & 17.80" in table
+    assert "SWOT KaRIn wave height (m) & 1.90 & 1.90 & 1.90 & 1.90" in table
+
+
+def test_insert_version_history_row_survives_template_row_edits():
+    template = (
+        r"\section*{Version History}" "\n"
+        r"\begin{table}[H]" "\n"
+        r"    \begin{tabular}{@{}p{2cm}@{}}" "\n"
+        r"        \toprule" "\n"
+        r"        1.0.0 & heavily edited by hand \\" "\n"
+        r"        1.0.1 & and again \\" "\n"
+        r"        \bottomrule" "\n"
+        r"    \end{tabular}" "\n"
+        r"\end{table}" "\n"
+    )
+
+    filled = insert_version_history_row(template, "9.9.9 & generated")
+
+    assert "        9.9.9 & generated \\\\" in filled
+    assert (
+        filled.index("1.0.1 & and again")
+        < filled.index("9.9.9 & generated")
+        < filled.index(r"\bottomrule")
+    )
 
 
 def test_build_report_tex_fails_loudly_when_an_anchor_is_missing(tmp_path):
