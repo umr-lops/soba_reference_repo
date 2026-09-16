@@ -1,0 +1,103 @@
+% ==========================================================================
+% soba.sty - Style pour les documents techniques SOBA
+% ==========================================================================
+% Ce fichier contient les paramètres communs pour les documents techniques
+% du projet SOBA (Ifremer / ESA). Il définit les couleurs, l'en-tête, le
+% pied de page, la mise en forme des sections, les options pour les
+% listings, etc.
+%
+% Utilisation : \usepackage{soba}
+% ==========================================================================
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{soba}[2026/09/07 v1.0 Style for SOBA technical documents]
+
+% ---------------------------
+% Packages essentiels
+% ---------------------------
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[T1]{fontenc}
+\RequirePackage{lmodern}
+\RequirePackage[margin=1.8cm]{geometry}
+\RequirePackage{graphicx}
+\RequirePackage{booktabs}
+\RequirePackage{longtable}
+\RequirePackage{array}
+\RequirePackage{float}
+\RequirePackage{hyperref}
+\RequirePackage{xcolor}
+\RequirePackage{textcomp}
+\RequirePackage{soul}
+\RequirePackage{listings}
+\RequirePackage{caption}
+\RequirePackage{subcaption}
+\RequirePackage{enumitem}
+\RequirePackage{titlesec}
+\RequirePackage{fancyhdr}
+\RequirePackage{tcolorbox}
+\RequirePackage{tikz}
+\RequirePackage{path}
+\RequirePackage{amsmath}
+\usetikzlibrary{shapes.geometric, arrows, positioning, calc}
+
+% ---------------------------
+% Configuration des couleurs (style ESA / Ifremer)
+% ---------------------------
+\definecolor{esa_teal}{RGB}{42, 98, 109}
+\definecolor{esa_orange}{RGB}{214, 135, 55}
+\definecolor{lightgray}{RGB}{245, 245, 245}
+\definecolor{highlight_yellow}{RGB}{255, 255, 153}
+
+% ---------------------------
+% Configuration de l'en-tête et du pied de page
+% ---------------------------
+\pagestyle{fancy}
+\fancyhf{}
+% Note : le logo doit être présent dans le répertoire du document.
+\lhead{\includegraphics[height=1.5cm]{logo_soba.png}}
+\rhead{\textbf{SOBA Project} \\ Technical Documentation}
+\lfoot{Catalogue Co-aligned Dataset Description - Ifremer}
+\rfoot{\thepage}
+
+% CORRECTIF : Espace entre la ligne du header et le début du contenu
+\setlength{\headheight}{35pt}   % Assez grand pour accueillir le logo (42pt)
+\setlength{\headsep}{10pt}      % Espace raisonnable (30pt max)
+\setlength{\footskip}{20pt}     % Espace pour le footer
+
+% ---------------------------
+% Configuration des titres de sections
+% ---------------------------
+\titleformat{\section}
+  {\color{esa_teal}\normalfont\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\color{esa_teal}\normalfont\large\bfseries}{\thesubsection}{1em}{}
+
+% ---------------------------
+% Configuration pour les listings de code
+% ---------------------------
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{esa_teal}\bfseries,
+  stringstyle=\color{esa_orange},
+  commentstyle=\color{gray},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  frame=single,
+  breaklines=true,
+  captionpos=b,
+  backgroundcolor=\color{lightgray}
+}
+
+% ---------------------------
+% Environnement pour la définition CPCD (à utiliser dans le document)
+% ---------------------------
+\newtcolorbox{cpcddefinition}[1][Definition: Coaligned Parquet Catalogue Datasets (CPCD)]{
+  colback=lightgray,
+  colframe=esa_teal,
+  title=\textbf{#1},
+  fonttitle=\bfseries,
+}
+% Exemple d'utilisation : \begin{cpcddefinition} ... \end{cpcddefinition}
+
+\endinput

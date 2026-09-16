@@ -1,0 +1,14 @@
+% cpcd_definition.tex
+
+\begin{tcolorbox}[colback=lightgray, colframe=esa_teal, title=\textbf{Definition: Coaligned Parquet Catalogue Datasets (CPCD)}]
+\textbf{Coaligned Parquet Catalogue Datasets (CPCD)} are intermediate tabulated files that aim to feed both \textbf{training} and \textbf{test} tasks of the SOBA project. 
+
+They contain:
+\begin{itemize}
+    \item \textbf{Identifier information} (e.g., paths and measurement names associated to a reference dataset),
+    \item \textbf{SAR meta-information} (incidence angle, heading angle, polarization, etc.),
+    \item \textbf{Ancillary information} such as wind speed/direction (NWP), wave Hs (WW3), rain rate (IMERG), ice (SWOT), and SAR surface roughness texture classification (TenGeoP) to allow tailored datasets.
+\end{itemize}
+
+These CPCD are built from co-locations between a reference dataset and a Sentinel-1 SAR image (or piece of image). They are \textbf{agnostic on the SAR subsetting} and on the \textbf{SAR observables} targeted for training downstream tasks. These files are intended as starting points for further data pre-processing.
+\end{tcolorbox}

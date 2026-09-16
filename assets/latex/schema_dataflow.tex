@@ -1,0 +1,75 @@
+%documentclass[a4paper,landscape]{article}.txt
+%\documentclass[a4paper,landscape]{article}
+%\usepackage[margin=1cm]{geometry}
+%\usepackage{tikz}
+
+\usetikzlibrary{shapes.geometric, arrows, positioning, calc}
+
+%\begin{document}
+
+\pagestyle{empty}
+
+\tikzset{
+    input/.style = {rectangle, draw, fill=orange!30, text centered, minimum height=0.7cm, minimum width=2.2cm, rounded corners=2pt, align=center, font=\small\sffamily},
+    tool/.style  = {rectangle, draw, fill=blue!30, text centered, minimum height=0.7cm, minimum width=2.2cm, rounded corners=2pt, align=center, font=\small\sffamily},
+    dataset/.style = {rectangle, draw, fill=green!30, text centered, minimum height=0.7cm, minimum width=2.2cm, rounded corners=0pt, align=center, font=\small\sffamily},
+    highlight/.style = {dataset, draw=red!90!black, thick, font=\small\sffamily\bfseries},  % <-- nouveau style
+    arrow/.style = {thick, -stealth},
+}
+
+\begin{tikzpicture}[node distance=0.8cm and 1.5cm]
+
+% ---- Entrées ----
+\node[input] (A) {S-1 ESA products};
+\node[input, below=0.8cm of A] (B) {APIs: CDSE, \\ EODMSRapids, \\ PODAAC SWOT};
+\node[input, below=0.8cm of B] (C) {reference products\\ at Ifremer};
+
+% ---- Outil de construction des matchups ----
+\node[tool, right=1.5cm of A] (build_match) {tool to \\ build matchups};
+
+\draw[arrow] (A) -- (build_match);
+\draw[arrow] (B) -- (build_match);
+\draw[arrow] (C) -- (build_match);
+% ---- Dataset matchups ----
+\node[dataset, right=1.8cm of build_match] (matchups) {matchups files};
+
+\draw[arrow] (build_match) -- (matchups);
+
+% ---- Branche 1 : co-aligned -> split -> test (à gauche) ----
+% Départ diagonal vers le bas-gauche (angle 225°)
+\node[tool, below left=2.2cm and 1.0cm of matchups] (coalign) {tool to \\ build co-aligned};
+\node[highlight, below=0.8cm of coalign] (coaligned_dataset) {co-aligned parquet};  % <-- style highlight
+\node[tool, below=0.8cm of coaligned_dataset] (split) {tool to \\ split co-aligned};
+\node[dataset, below=0.8cm of split] (splitout) {splited listings};
+\node[tool, below=0.8cm of splitout] (gentest) {tool to \\ build test};
+\node[dataset, below=0.8cm of gentest] (test) {test dataset};
+
+\draw[arrow] (matchups.south) -- (coalign.north); % diagonale directe
+
+\draw[arrow] (coalign) -- (coaligned_dataset);
+\draw[arrow] (coaligned_dataset) -- (split);
+\draw[arrow] (split) -- (splitout);
+\draw[arrow] (splitout) -- (gentest);
+\draw[arrow] (gentest) -- (test);
+
+% ---- Branche 2 : co-locations -> training -> train & val (à droite) ----
+% Départ diagonal vers le bas-droit (angle 315°)
+\node[tool, below right=2.2cm and 1.0cm of matchups] (coloc_builder) {tool to \\ build co-locations};
+\node[dataset, below=0.8cm of coloc_builder] (coloc) {co-locations};
+\node[tool, below=0.8cm of coloc] (train_builder) {tool to \\ build training};
+\node[dataset, below left=0.6cm and 0.5cm of train_builder] (train) {train dataset};
+\node[dataset, below right=0.6cm and 0.5cm of train_builder] (val) {val dataset};
+
+\draw[arrow] (matchups.south) -- (coloc_builder.north);
+
+\draw[arrow] (coloc_builder) -- (coloc);
+\draw[arrow] (coloc) -- (train_builder);
+\draw[arrow] (train_builder) -| (train);
+\draw[arrow] (train_builder) -| (val);
+
+% ---- Jonction entre les branches : lien de splitout vers coloc_builder ----
+\draw[arrow] (splitout) -- (coloc_builder);
+
+\end{tikzpicture}
+
+%\end{document}
