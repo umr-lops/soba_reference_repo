@@ -234,6 +234,22 @@ def test_build_report_tex_fails_loudly_when_an_anchor_is_missing(tmp_path):
         _fill(tmp_path, template=broken)
 
 
+def test_build_report_tex_escapes_latex_specials(tmp_path):
+    # underscores are everywhere (SAFE names, labels, catalogue filenames) and
+    # ``_`` switches TeX into math mode, which aborts the compile.
+    tex = build_report_tex(
+        DEFAULT_LATEX_DIR / "template.tex",
+        _result(tmp_path),
+        label="s1d_swot_ascat",
+        figure_names=["a.png", "b.png", "c.png"],
+        scat_name="S1D_coaligned_catalogue.parquet",
+        swot_name="S1D_swot_catalogue.parquet",
+    )
+
+    assert r"\path|S1D_coaligned_catalogue.parquet|" in tex
+    assert r"s1d\_swot\_ascat" in tex
+
+
 # --- CLI ---------------------------------------------------------------------
 
 def test_cli_runs_end_to_end_without_compiling(tmp_path):

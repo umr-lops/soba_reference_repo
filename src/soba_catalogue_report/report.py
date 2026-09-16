@@ -487,6 +487,28 @@ def _replace_once(text: str, anchor: str, replacement: str) -> str:
     return text.replace(anchor, replacement)
 
 
+def _tex_escape(value: str) -> str:
+    """Escape LaTeX specials so injected values survive text mode.
+
+    Underscores are the common case here: SAFE names, labels and catalogue
+    filenames are full of them, and ``_`` switches TeX into math mode.
+    """
+    for old, new in (
+        ("\\", r"\textbackslash{}"),
+        ("&", r"\&"),
+        ("%", r"\%"),
+        ("$", r"\$"),
+        ("#", r"\#"),
+        ("_", r"\_"),
+        ("{", r"\{"),
+        ("}", r"\}"),
+        ("~", r"\textasciitilde{}"),
+        ("^", r"\textasciicircum{}"),
+    ):
+        value = value.replace(old, new)
+    return value
+
+
 def build_report_tex(
     template_path: Path,
     result: CrossingResult,
@@ -503,10 +525,12 @@ def build_report_tex(
     distance = frame["scat_swot_distance_km"]
     times = frame["scat_swot_time_delta_min"]
     dataset_name = f"{result.satellite} / SWOT / {result.scatterometer} TEST dataset"
+    label_tex = _tex_escape(label)
 
+    # the template already provides the surrounding enumerate environment,
+    # so only the \item lines are replaced.
     steps = (
-        r"\begin{enumerate}" "\n"
-        r"    \item \textbf{step 1:} normalise the SAFE identifiers to a stable scene key "
+        r"\item \textbf{step 1:} normalise the SAFE identifiers to a stable scene key "
         r"(acquisition, orbit, datatake, \texttt{:WV\_<imagette>});" "\n"
         r"    \item \textbf{step 2:} keep one row per imagette, closest in time to the "
         r"SAR acquisition;" "\n"
@@ -515,8 +539,6 @@ def build_report_tex(
         r"    \item \textbf{step 4:} compute the direct scatterometer--SWOT distance and "
         r"time difference;" "\n"
         r"    \item \textbf{step 5:} apply the quality filters and export the TEST parquet."
-        "\n"
-        r"\end{enumerate}"
     )
 
     edits = [
@@ -535,14 +557,14 @@ def build_report_tex(
         ),
         (
             r"\hl{path or DOI or dataset name}",
-            f"\\texttt{{{scat_name}}}; \\texttt{{{swot_name}}}",
+            f"\\path|{scat_name}|; \\path|{swot_name}|",
         ),
         (r"\hl{WV, IW , EW}", "WV"),
         (r"\hl{VV, VH, HH, HV }", "VV"),
         (
             r"\hl{KNMI-SCAT-HY2B-25km (scatterometer wind), altimetry-derived wave "
             r"heights, or model reanalysis data (e.g., ERA5).}",
-            f"{scat_name} (scatterometer wind) and {swot_name} "
+            f"\\path|{scat_name}| (scatterometer wind) and \\path|{swot_name}| "
             "(KaRIn significant wave height).",
         ),
         (
@@ -611,8 +633,9 @@ def build_report_tex(
         "Antoine Grouazel, Ifremer \\\\\n        \\bottomrule",
         "        1.0.2 & 2026-09-06 & Definition of Catalogue files and version table & "
         "Antoine Grouazel, Ifremer \\\\\n"
-        f"        {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')} & Generated report for "
-        f"the {label} TEST dataset ({n} rows) & Ilias Reguig \\\\\n"
+        f"        1.0.0 & {pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')} & "
+        f"Generated report for the {label_tex} TEST dataset ({n} rows) & "
+        "Ilias Reguig \\\\\n"
         "        \\bottomrule",
     )
     return text
