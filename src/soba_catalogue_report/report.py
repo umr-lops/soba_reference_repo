@@ -587,6 +587,21 @@ def build_report_tex(
         ),
         (r"\hl{github/gitlab link}", r"\texttt{/home/il/projects/SOBA}"),
         (r"\hl{to be modified}", "used for this dataset"),
+        (
+            "\\begin{lstlisting}[caption={Example of bash cmd for data generation.}, "
+            "label={lst:code}]\nexample of command used.\n\\end{lstlisting}",
+            "\\begin{lstlisting}[caption={Command used to generate this dataset.}, "
+            "label={lst:code}]\n"
+            "soba-catalogue-report \\\n"
+            f"  --scat {scat_name} \\\n"
+            f"  --swot {swot_name} \\\n"
+            f"  --satellite {result.satellite} "
+            f"--scatterometer {result.scatterometer} \\\n"
+            f"  --overlap-min-pct {config.overlap_min_pct:g} "
+            f"--rain-max-mm-h {config.rain_max_mm_h:g} "
+            f"--time-max-min {config.time_max_min:g}\n"
+            "\\end{lstlisting}",
+        ),
     ]
     for anchor, replacement in edits:
         text = _replace_once(text, anchor, replacement)

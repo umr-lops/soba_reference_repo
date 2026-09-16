@@ -222,6 +222,7 @@ def test_build_report_tex_replaces_every_placeholder(tmp_path):
                  "reference_distributions.png"):
         assert name in tex
     assert "120" in tex  # the time filter value must be stated
+    assert "soba-catalogue-report" in tex  # the run command replaces the template stub
 
 
 def test_build_report_tex_fails_loudly_when_an_anchor_is_missing(tmp_path):
