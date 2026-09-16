@@ -338,16 +338,24 @@ def _plot_reference_distributions(result: CrossingResult, path: Path) -> None:
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         if len(values):
             ax.axvline(values.mean(), color="orange", linewidth=1)
-            ax.text(
-                values.mean(),
-                0.95,
-                f"mean = {values.mean():.2f}",
-                color="orange",
-                ha="center",
-                va="top",
-                transform=ax.get_xaxis_transform(),
-                fontsize=9,
-            )
+            ax.text( values.mean(), 0.92, f"mean = {values.mean():.2f}", color="orange",
+                ha="center", va="top", transform=ax.get_xaxis_transform(), fontsize=9,)
+
+            xmin, xmax = ax.get_xlim()
+            section_edges = np.linspace(xmin, xmax, 4)
+            for i in range(3):
+                left = section_edges[i]
+                right = section_edges[i + 1]
+                if i == 2:
+                    count = ((values >= left) & (values <= right)).sum()
+                else:
+                    count = ((values >= left) & (values < right)).sum()
+                ax.axvspan(left, right, color="lightgray" if i % 2 == 0 else "white", alpha=0.15, zorder=-1)
+                ax.text( (left + right) / 2, 0.99, f"N = {count:,}", transform=ax.get_xaxis_transform(),
+                    ha="center", va="top", fontsize=10, fontweight="bold" )
+                if i > 0:
+                    ax.axvline(left, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
+
     fig.suptitle(
         f"{result.satellite} / SWOT / {result.scatterometer}: "
         "reference-variable distributions of the filtered crossing",
@@ -706,28 +714,6 @@ def insert_version_history_row(text: str, row: str) -> str:
     return insert_table_row(text, "Versioning of the documentation", row)
 
 
-def _tex_escape(value: str) -> str:
-    """Escape LaTeX specials so injected values survive text mode.
-
-    Underscores are the common case here: SAFE names, labels and catalogue
-    filenames are full of them, and ``_`` switches TeX into math mode.
-    """
-    for old, new in (
-        ("\\", r"\textbackslash{}"),
-        ("&", r"\&"),
-        ("%", r"\%"),
-        ("$", r"\$"),
-        ("#", r"\#"),
-        ("_", r"\_"),
-        ("{", r"\{"),
-        ("}", r"\}"),
-        ("~", r"\textasciitilde{}"),
-        ("^", r"\textasciicircum{}"),
-    ):
-        value = value.replace(old, new)
-    return value
-
-
 def build_report_tex(
     template_path: Path,
     result: CrossingResult,
@@ -746,7 +732,6 @@ def build_report_tex(
     times = frame["scat_swot_time_delta_min"]
     # the template supplies the words "reference TEST dataset" after this name
     dataset_name = f"{result.satellite} / SWOT / {result.scatterometer}"
-    label_tex = _tex_escape(label)
     modification = (
         "TEST dataset extracted from the co-aligned catalogues "
         f"(overlap $\\geq$ {config.overlap_min_pct:g}\\%, "
@@ -871,11 +856,6 @@ def build_report_tex(
 
     # version-history rows for the generated document and its dataset file
     today = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
-    text = insert_version_history_row(
-        text,
-        f"1.0.0 & {today} & Generated report for the {label_tex} TEST dataset "
-        f"({n} rows) & Ilias Reguig",
-    )
     text = insert_table_row(
         text,
         "Versioning of test catalogue files",

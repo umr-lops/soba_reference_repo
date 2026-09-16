@@ -326,9 +326,10 @@ def test_build_report_tex_fails_loudly_when_an_anchor_is_missing(tmp_path):
         _fill(tmp_path, template=broken)
 
 
-def test_build_report_tex_escapes_latex_specials(tmp_path):
-    # underscores are everywhere (SAFE names, labels, catalogue filenames) and
-    # ``_`` switches TeX into math mode, which aborts the compile.
+def test_build_report_tex_wraps_every_file_name_in_path(tmp_path):
+    # underscores are everywhere (SAFE names, catalogue filenames, the TEST name)
+    # and ``_`` switches TeX into math mode, which aborts the compile; the url
+    # package's \path|...| sets them verbatim, and lets long names wrap.
     tex = build_report_tex(
         DEFAULT_LATEX_DIR / "template.tex",
         _result(tmp_path),
@@ -336,10 +337,15 @@ def test_build_report_tex_escapes_latex_specials(tmp_path):
         figure_names=["a.png", "b.png", "c.png"],
         scat_name="S1D_coaligned_catalogue.parquet",
         swot_name="S1D_swot_catalogue.parquet",
+        test_name="S1D_reference_test_dataset_WV_20260107_SV_X_Y_0.1.parquet",
     )
 
-    assert r"\path|S1D_coaligned_catalogue.parquet|" in tex
-    assert r"s1d\_swot\_ascat" in tex
+    for name in (
+        "S1D_coaligned_catalogue.parquet",
+        "S1D_swot_catalogue.parquet",
+        "S1D_reference_test_dataset_WV_20260107_SV_X_Y_0.1.parquet",
+    ):
+        assert rf"\path|{name}|" in tex
 
 
 # --- TEST dataset naming -----------------------------------------------------

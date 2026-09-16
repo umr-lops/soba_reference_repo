@@ -39,7 +39,7 @@
     \vspace{0.5cm}
 
     \begin{minipage}{0.85\textwidth}
-        \textbf{Scope:} This document describes a reference TEST dataset produced in the framework of the SOBA project. A TEST dataset pairs Sentinel-1 SAR observations with independent reference observations, and is reserved for evaluating retrieval algorithms on data that was never used to build or tune them. It details the dataset content, and the way the dataset is extracted from the underlying co-aligned catalogues.
+        \textbf{Scope:} This document describes a reference TEST dataset produced in the framework of the SOBA project. A TEST dataset pairs Sentinel-1 SAR observations with independent reference observations. It details the dataset content, and the way the dataset is extracted from the underlying co-aligned catalogues.
     \end{minipage}
     
     \vfill
@@ -162,26 +162,26 @@ Table~\ref{tab:columns} lists every column of the reference TEST dataset, groupe
     \endlastfoot
     \multicolumn{3}{@{}l}{\textbf{Identification}} \\
     primary\_key & string & Normalised Sentinel-1 WV imagette key, \texttt{<acquisition>:WV\_<imagette>}; unique per row \\
-    sar-safe-slc & string & Sentinel-1 SLC SAFE name including the \texttt{:WV\_<imagette>} suffix \\
-    sar-path-slc & string & Absolute path of the SLC imagette measurement (GeoTIFF) \\
-    sar-safe-ocn & string & Sentinel-1 OCN SAFE name including the \texttt{:WV\_<imagette>} suffix \\
-    sar-path-ocn & string & Absolute path of the OCN imagette measurement (NetCDF) \\
-    ref\_id & string & File name of the scatterometer granule the reference came from \\
+    sar-safe-slc & string & Archive-relative L1 SLC product, \texttt{<collection>/<year>/<doy>/<SAFE>:WV\_<imagette>} \\
+    sar-path-slc & string & Absolute path of the imagette measurement (GeoTIFF) \\
+    sar-safe-ocn & string & Same, for the matching L2 OCN product \\
+    sar-path-ocn & string & Absolute path of the imagette measurement (NetCDF) \\
+    ref\_id & string & File name of the scatterometer L2 granule the reference came from \\
     \midrule
     \multicolumn{3}{@{}l}{\textbf{SAR geometry}} \\
     sar\_time & datetime & Imagette start of acquisition (UTC), \texttt{YYYY-mm-dd HH:MM:SS} \\
     sar\_lon, sar\_lat & float & Imagette footprint centroid (deg); longitude in $[-180, +180]$ \\
-    sar\_incidence\_angle & float & Incidence angle at the imagette centroid (deg) \\
-    sar\_elevation\_angle & float & Elevation angle at the imagette centroid (deg) \\
-    sar\_ground\_heading & float & Ground heading of the imagette (deg, signed as delivered by the catalogue) \\
+    sar\_incidence\_angle & float & Incidence angle at the pixel nearest the reference point (deg) \\
+    sar\_elevation\_angle & float & Elevation angle at the pixel nearest the reference point (deg) \\
+    sar\_ground\_heading & float & Ground track heading at the pixel nearest the reference point (deg, signed as delivered by the catalogue) \\
     sar\_distance\_to\_coast & float & Distance from the imagette centroid to the nearest OSM coastline (km) \\
     \midrule
     \multicolumn{3}{@{}l}{\textbf{Reference (scatterometer)}} \\
-    ref\_time & datetime & Acquisition time of the selected reference cell (UTC) \\
-    ref\_lon, ref\_lat & float & Centre of the selected reference cell (deg) \\
-    ref\_flag & integer & Source quality flag of the reference product \\
-    windspeed\_scat & float & Reference wind speed at 10\,m (m\,s$^{-1}$) \\
-    winddirection\_scat & float & Reference wind direction (deg, blowing towards, clockwise from north) \\
+    ref\_time & datetime & Acquisition time of the selected wind vector cell (UTC) \\
+    ref\_lon, ref\_lat & float & Centre of the selected wind vector cell (deg) \\
+    ref\_flag & integer & Quality bitmask of the wind vector cell as delivered by the scatterometer product (nullable) \\
+    windspeed\_scat & float & Wind speed at 10\,m (m\,s$^{-1}$) \\
+    winddirection\_scat & float & Wind direction (deg, blowing towards, clockwise from north) \\
     \midrule
     \multicolumn{3}{@{}l}{\textbf{Second reference (SWOT KaRIn)}} \\
     waveheight\_swot & float & SWOT KaRIn mean significant wave height (m) \\
@@ -196,6 +196,11 @@ Table~\ref{tab:columns} lists every column of the reference TEST dataset, groupe
     scat\_swot\_distance\_km & float & Direct scatterometer--SWOT separation (km) \\
     scat\_swot\_time\_delta\_min & float & Direct scatterometer--SWOT time difference (min) \\
 \end{longtable}
+
+\noindent\textbf{Sampling point.} \texttt{sar\_incidence\_angle}, \texttt{sar\_elevation\_angle} and
+\texttt{sar\_ground\_heading} are sampled at the image pixel nearest the selected wind vector cell,
+not at the imagette centroid, so they describe the reference point rather than the imagette as a
+whole.
 
 \newpage
 % ---------------------------

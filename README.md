@@ -132,6 +132,12 @@ otherwise pass `--test-name` explicitly.
   caption rather than on a row, so hand-editing the template's rows never breaks the build.
 - **Link boxes off.** The template sets `\hypersetup{hidelinks}`: `soba.sty` loads `hyperref`
   without options, which would otherwise box every cross-reference, TOC entry and URL in red.
+- **Column descriptions.** Every row of §1.4's table follows one of two references: columns that
+  also exist in the co-aligned catalogue reuse the co-aligned document's wording (with the TEST
+  spec's hyphens), while columns the TEST layout defines differently follow the *Format
+  Description* — `primary\_key`, `sar_distance_to_coast`, `legacy_usage` and the extra reference
+  and filter columns. Where the two documents disagree on sampling, the description states what
+  the exported value actually is, and the *Sampling point* note under the table spells it out.
 - **WV only.** The tool implements the WV TEST layout (`:WV_<imagette>`, SLC/OCN SAFE pattern,
   WV mandatory column list). The spec's IW layout (GRD paths, `:IW2`, `ref_geometry`) is not
   implemented.
