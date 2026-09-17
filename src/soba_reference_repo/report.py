@@ -10,11 +10,11 @@ Spec: "Format Description for parquet co-aligned datasets" (SOBA WP3, v1.0.3).
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
-from pathlib import Path
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 
 # Must be set before any geopandas/GDAL import: silences the PROJ "ERROR 1" lookup noise.
 os.environ.setdefault("CPL_LOG", "/dev/null")
@@ -23,11 +23,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]  # .../soba_reference_repo
 ASSET_DIR = PACKAGE_ROOT / "assets"
@@ -412,8 +412,8 @@ def _plot_reference_distributions(result: CrossingResult, path: Path) -> None:
                 if visible_right <= visible_left:
                     continue
                 count = ((values >= left) & (values < right)).sum()
-                ax.axvspan(visible_left, visible_right, color="lightgray" if i % 2 == 0 else "white",
-                           alpha=0.15, zorder=-1)
+                shading = "lightgray" if i % 2 == 0 else "white"
+                ax.axvspan(visible_left, visible_right, color=shading, alpha=0.15, zorder=-1)
                 # the sections are as narrow as the bins, so the count is written top-down:
                 # a horizontal label would collide with its neighbour
                 ax.text((visible_left + visible_right) / 2, 0.99, f"N = {count:,}",

@@ -1,0 +1,31 @@
+exclude: ^(assets/|src/soba_reference_repo/validator\.py$)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff
+        args: [--fix]
+      # - id: ruff-format  # enable to adopt its formatting; reformats 4 files today
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: /home/il/miniforge3/envs/SOBA/bin/python -m pytest -q
+        language: system
+        pass_filenames: false
+        always_run: true
+        # not part of a normal commit: the suite takes about 40s
+        stages: [manual]

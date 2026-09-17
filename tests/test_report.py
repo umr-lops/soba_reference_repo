@@ -3,30 +3,30 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
 from soba_reference_repo.report import (
+    ANCILLARY_COLUMNS,
     DEFAULT_LAND_MAP,
     DEFAULT_LATEX_DIR,
     LATEX_AUXILIARY_FILES,
-    ReportConfig,
     WV_MANDATORY_COLUMNS,
     WV_REF_PARAM_COLUMNS,
-    ANCILLARY_COLUMNS,
+    ReportConfig,
     build_report_tex,
     build_test_filename,
     build_test_frame,
     default_test_name,
     find_pdflatex,
-    insert_version_history_row,
     insert_table_row,
+    insert_version_history_row,
     make_scene_key,
     plot_figures,
     purge_latex_byproducts,
@@ -121,7 +121,9 @@ def test_scene_key_falls_back_to_slc_when_ocn_is_missing():
 
 def test_scene_key_rejects_a_foreign_mission():
     frame = pd.DataFrame({
-        "sar_safe_ocn": ["S1C_WV_OCN__2SSV_20260107T111713_20260107T114520_000927_0006BD_5A74.SAFE:WV_033"],
+        "sar_safe_ocn": [
+            "S1C_WV_OCN__2SSV_20260107T111713_20260107T114520_000927_0006BD_5A74.SAFE:WV_033"
+        ],
         "sar_safe_slc": [None],
     })
 
