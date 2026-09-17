@@ -1,5 +1,11 @@
 # soba_reference_repo
 
+[![CI](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml)
+[![Build](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml)
+[![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
+
 Generates a SOBA **reference TEST dataset** report from two co-aligned catalogues: it crosses a
 scatterometer catalogue and the SWOT KaRIn catalogue through the common Sentinel-1 Wave Mode
 imagettes, applies the collocation filters, draws three figures, fills the SOBA LaTeX template
