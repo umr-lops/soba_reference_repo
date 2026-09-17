@@ -44,6 +44,7 @@ export `MIKTEX_BIN` once in your shell profile.
 | `--swot` | **required** | SWOT KaRIn catalogue parquet |
 | `--satellite` | **required** | Sentinel-1 platform; checked against both catalogue names and the SAFE identifiers |
 | `--scatterometer` | **required** | `ASCAT` or `HSCAT` |
+| `--scene-key` | off | match the two catalogues on the normalised imagette key instead of their own `primary_key` |
 | `--label` | `<satellite>_swot_<scatterometer>` | names the report |
 | `--overlap-min-pct` | `100` | required SAR/SWOT footprint overlap |
 | `--rain-max-mm-h` | `0.3` | maximum IMERG mean rain rate |
@@ -145,6 +146,13 @@ otherwise pass `--test-name` explicitly.
 - **WV only.** The tool implements the WV TEST layout (`:WV_<imagette>`, SLC/OCN SAFE pattern,
   WV mandatory column list). The spec's IW layout (GRD paths, `:IW2`, `ref_geometry`) is not
   implemented.
+- **How the two catalogues are matched.** By default the crossing pairs rows on the catalogues'
+  own `primary_key` — the identifier both sides ship (SLC SAFE name, imagette number and the
+  reference position) and agree on for a shared imagette. `--scene-key` matches on the normalised
+  imagette key instead, which also bridges a SAFE-form or reference-point disagreement between the
+  two. On the S1A/HSCAT pair the flag recovers matches the plain key cannot see (54,551 shared
+  imagettes against 53,401, and 6,951 rows against 6,800 after filtering); on S1D/ASCAT both modes
+  deliver the same 7 rows. The mode used is recorded in the manifest as `match_on`.
 - **Two references, one `ref_*` family.** A SCAT+SWOT crossing carries two references but the
   spec has a single `ref_*` set. `ref_*` is the scatterometer wind side (`ref_id` and the wind
   params are SCAT-native); the SWOT wave height is carried as `waveheight_swot` with its own

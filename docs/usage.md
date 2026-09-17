@@ -107,6 +107,14 @@ The §1.4 catalogue-columns table is *not* generated: it is written in the templ
 column the tool exports. `reference_statistics_table` has its own test asserting the four
 statistics per reference variable.
 
+## Matching the two catalogues
+
+The crossing pairs the scatterometer and SWOT rows on the catalogues' own `primary_key` by default
+— the identifier both sides ship (SLC SAFE name, imagette number, reference position) and agree on
+for a shared imagette. `--scene-key` matches on the normalised imagette key instead, which also
+bridges a SAFE-form or reference-point disagreement between the two catalogues. Whichever mode
+runs is recorded in the manifest's `match_on`.
+
 ## Validating the output
 
 `--validate` runs the consortium SOBA validator against the parquet the run has just written and

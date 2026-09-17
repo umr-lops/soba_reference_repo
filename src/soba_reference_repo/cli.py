@@ -97,6 +97,9 @@ def parse_args(argv=None):
     parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--keep-intermediates", action="store_true",
                         help="keep the LaTeX byproducts (.aux, .log, .out, .toc)")
+    parser.add_argument("--scene-key", action="store_true",
+                        help="match the two catalogues on the normalised imagette key instead "
+                             "of their own primary_key")
     parser.add_argument("--validate", action="store_true",
                         help="run the SOBA parquet validator on the TEST file; exit 1 if it fails")
     parser.add_argument("--validator", default=None,
@@ -118,7 +121,9 @@ def main(argv=None) -> int:
     )
 
     scat_path, swot_path = Path(args.scat), Path(args.swot)
-    result = run_crossing(scat_path, swot_path, args.satellite, config, args.scatterometer)
+    result = run_crossing(
+        scat_path, swot_path, args.satellite, config, args.scatterometer, args.scene_key
+    )
     print(f"common scenes: {len(result.crossing)}  filtered: {len(result.filtered)}")
 
     test_name = args.test_name or default_test_name(
@@ -142,6 +147,7 @@ def main(argv=None) -> int:
         swot_path.name,
         test_name,
         figures_dir.name,
+        args.scene_key,
     )
     tex_path = output_dir / f"{report_stem}.tex"
     tex_path.write_text(tex, encoding="utf-8")
@@ -167,6 +173,7 @@ def main(argv=None) -> int:
         "swot": str(swot_path),
         "satellite": result.satellite,
         "scatterometer": result.scatterometer,
+        "match_on": "scene_key" if args.scene_key else "primary_key",
         "config": config.__dict__,
         "scat_rows": result.scat_rows,
         "swot_rows": result.swot_rows,
