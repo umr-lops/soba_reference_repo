@@ -18,6 +18,7 @@ from soba_reference_repo.report import (
     ReportConfig,
     WV_MANDATORY_COLUMNS,
     WV_REF_PARAM_COLUMNS,
+    ANCILLARY_COLUMNS,
     build_report_tex,
     build_test_filename,
     build_test_frame,
@@ -229,10 +230,10 @@ def test_build_test_frame_respects_the_value_conventions(tmp_path):
     # and it is the catalogue's own key, carried through rather than recomposed
     assert frame["primary_key"].iloc[0] == f"{CORE}_35F2.SAFE:WV_033_-135.4_-74.3"
     # timestamps are typed, whole-second, UTC — the validator asks for datetime64[ns]
-    for column in ("sar_time", "ref_time", "swot_time"):
+    for column in ("sar_time", "scat_time", "swot_time"):
         assert "datetime64" in str(frame[column].dtype), column
         assert (frame[column].dt.microsecond == 0).all(), column
-    for column in ("sar_lon", "ref_lon", "swot_lon"):
+    for column in ("sar_lon", "scat_lon", "swot_lon"):
         assert frame[column].between(-180, 180).all()
     # the fixture's heading is -128.2; the export is clockwise from north, in [0, 360)
     assert frame["sar_ground_heading"].iloc[0] == pytest.approx(231.8)
@@ -243,10 +244,14 @@ def test_write_test_parquet_records_the_global_attributes(tmp_path):
     frame = build_test_frame(_result(tmp_path))
     target = tmp_path / "s1d_swot_ascat_test.parquet"
 
-    write_test_parquet(frame, target)
+    write_test_parquet(frame, target, "KNMI-ASCAT-METOP-12.5km")
 
     metadata = pq.ParquetFile(target).schema_arrow.metadata or {}
-    assert b"source_ref" in metadata and b"creation_date" in metadata
+    assert metadata[b"source scat"] == b"KNMI-ASCAT-METOP-12.5km"
+    assert metadata[b"source ancillary datasets"] == b"rain: IMERG HHL v7 NASA"
+    assert metadata[b"library used to produce the parquet"] == b"soba_reference_repo"
+    assert metadata[b"library version"].startswith(b"commit ")
+    assert metadata[b"creation date"] == pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d").encode()
     assert len(pd.read_parquet(target)) == len(frame)
 
 
@@ -421,15 +426,22 @@ def test_exported_primary_key_matches_the_validator_pattern(tmp_path):
 
 
 def test_exported_frame_passes_the_bundled_validator(tmp_path):
+    """The only thing the bundled validator still rejects is the naming it lags on.
+
+    Spec v1.1.0 names the reference family after its source (``scat_lon``, ``scat_lat``,
+    ``scat_time``); the validation gist still asks for ``ref_lon``, ``ref_lat``, ``ref_time``.
+    Everything else is clean — typed timestamps, a wrapped heading, and bare SAFE names —
+    so this expectation is the drift, not a defect in the export. Delete it once the gist
+    takes the new names.
+    """
     path = write_test_parquet(build_test_frame(_result(tmp_path)), tmp_path / "test.parquet")
 
     result = SOBAParquetValidator(mode="WV", dataset_type="test").validate_file(str(path))
 
-    assert result["valid"] is True, result["errors"]
-    # the three the tool owns are clean: typed timestamps and a wrapped heading. What is
-    # left is the SAFE-name form (a question for the consortium) and the primary key.
+    assert len(result["errors"]) == 1, result["errors"]
+    assert "ref_lon, ref_lat, ref_time" in result["errors"][0], result["errors"]
     warnings = " ".join(result["warnings"])
-    for column in ("sar_time", "ref_time", "sar_ground_heading"):
+    for column in ("sar_time", "scat_time", "sar_ground_heading", "sar_safe_slc", "sar_safe_ocn"):
         assert column not in warnings, warnings
 
 
@@ -539,16 +551,77 @@ def test_the_vendored_template_describes_a_test_dataset():
     assert r"\lfoot{Reference TEST Dataset Description - Ifremer}" in text
 
 
+def test_exported_safe_columns_carry_no_archive_prefix(tmp_path):
+    """The catalogues sometimes prefix the SAFE with its archive path; the spec's examples in
+    the validator anchor the collection tag right after the satellite prefix."""
+    frame = build_test_frame(_result(tmp_path))
+
+    for column in ("sar_safe_slc", "sar_safe_ocn"):
+        assert "/" not in frame[column].iloc[0], column
+    assert frame["sar_safe_slc"].str.match(r"^S1[ABCD]_WV_SLC__1S[SVH]{2}_.*\.SAFE:WV_\d+$").all()
+    assert frame["sar_safe_ocn"].str.match(r"^S1[ABCD]_WV_OCN__2S[SVH]{2}_.*\.SAFE:WV_\d+$").all()
+
+
+def test_the_parquet_carries_the_global_attributes(tmp_path):
+    import pyarrow.parquet as pq
+
+    path = write_test_parquet(
+        build_test_frame(_result(tmp_path)), tmp_path / "test.parquet", "KNMI-ASCAT-METOP-12.5km"
+    )
+    metadata = pq.read_schema(path).metadata
+
+    assert metadata[b"source scat"] == b"KNMI-ASCAT-METOP-12.5km"
+    assert metadata[b"source ancillary datasets"] == b"rain: IMERG HHL v7 NASA"
+    assert metadata[b"library used to produce the parquet"] == b"soba_reference_repo"
+    assert metadata[b"library version"].startswith(b"commit ")
+    assert metadata[b"creation date"] == pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d").encode()
+
+
 def test_the_template_column_table_documents_every_exported_column(tmp_path):
     columns = build_test_frame(_result(tmp_path)).columns
     text = (DEFAULT_LATEX_DIR / "template.tex").read_text(encoding="utf-8")
-    table = text.split(r"\subsection{Catalogue Columns}")[1].split(r"\end{longtable}")[0]
+    section = text.split(r"\subsection{Catalogue Columns}")[1].split(r"\section{")[0]
 
-    missing = [column for column in columns if column.replace("_", r"\_") not in table]
-    assert not missing, f"columns missing from the template table: {missing}"
+    missing = [column for column in columns if column.replace("_", r"\_") not in section]
+    assert not missing, f"columns missing from the template tables: {missing}"
+
+
+def test_the_template_ancillary_table_lists_the_ancillary_columns(tmp_path):
+    text = (DEFAULT_LATEX_DIR / "template.tex").read_text(encoding="utf-8")
+    table = text.split(r"\label{tab:ancillary}")[1].split(r"\end{longtable}")[0]
+
+    missing = [column for column in ANCILLARY_COLUMNS if column.replace("_", r"\_") not in table]
+    assert not missing, f"ancillary columns missing from the ancillary table: {missing}"
 
 
 # --- CLI ---------------------------------------------------------------------
+
+def test_cli_validate_flag_reports_the_bundled_validator(tmp_path):
+    """`--validate` runs the bundled gist and gates the exit code on its verdict.
+
+    Spec v1.1.0 renamed the reference family (``scat_lon``/``scat_lat``/``scat_time``) and the
+    gist still asks for ``ref_*``, so the flag exits 1 on the naming drift alone. When the gist
+    catches up, drop the returncode expectation and keep the report assertion.
+    """
+    scat_path, swot_path = _write_pair(
+        tmp_path, scat_filename=SOURCE_SCAT_NAME, swot_filename=SOURCE_SWOT_NAME
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "soba_reference_repo.cli",
+         "--scat", str(scat_path), "--swot", str(swot_path),
+         "--satellite", "S1D", "--scatterometer", "ASCAT",
+         "--label", "validation", "--no-compile", "--validate",
+         "--output-dir", str(tmp_path / "report"), "--test-dir", str(tmp_path / "deliverables")],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, "PYTHONPATH": "src"},
+        capture_output=True, text=True, check=False,
+    )
+
+    assert "SOBA PARQUET VALIDATION REPORT" in completed.stdout
+    assert "Missing mandatory variables for TEST dataset: ref_lon, ref_lat, ref_time" in completed.stdout
+    assert completed.returncode == 1
+
 
 def test_cli_runs_end_to_end_without_compiling(tmp_path):
     scat_path, swot_path = _write_pair(
@@ -561,7 +634,7 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
         [sys.executable, "-m", "soba_reference_repo.cli",
          "--scat", str(scat_path), "--swot", str(swot_path),
          "--satellite", "S1D", "--scatterometer", "ASCAT",
-         "--label", "unit", "--no-compile", "--validate",
+         "--label", "unit", "--no-compile",
          "--output-dir", str(output_dir), "--test-dir", str(test_dir)],
         cwd=Path(__file__).resolve().parents[1],
         env={**os.environ, "PYTHONPATH": "src"},
@@ -585,9 +658,6 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
     assert (test_dir / f"{produced[0].stem}_manifest.json").is_file(), (
         sorted(p.name for p in test_dir.iterdir())
     )
-    # --validate ran the bundled validator and passed the file
-    assert "SOBA PARQUET VALIDATION REPORT" in completed.stdout
-    assert "Status: ✅ PASSED" in completed.stdout
 
 
 def test_cli_requires_satellite_and_scatterometer(tmp_path):

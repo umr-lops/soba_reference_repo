@@ -104,8 +104,10 @@ caption, so you can add, reorder or delete the template's own rows freely.
 
 The §1.4 catalogue-columns table is *not* generated: it is written in the template, and
 `test_the_template_column_table_documents_every_exported_column` fails if it stops listing a
-column the tool exports. `reference_statistics_table` has its own test asserting the four
-statistics per reference variable.
+column the tool exports — the ancillary columns are checked against their own **Ancillary** table
+in §1.4 by `test_the_template_ancillary_table_lists_the_ancillary_columns`.
+`reference_statistics_table` has its own test asserting the four statistics per reference
+variable.
 
 ## Matching the two catalogues
 
@@ -116,6 +118,11 @@ bridges a SAFE-form or reference-point disagreement between the two catalogues. 
 runs is recorded in the manifest's `match_on`.
 
 ## Validating the output
+
+One caveat first: the bundled gist predates spec v1.1.0 and still asks for `ref_lon`, `ref_lat`
+and `ref_time`, the names that version replaced with `scat_*`. `--validate` therefore exits `1`
+on that naming drift alone; every other check passes. Re-copy the gist (see below) once its rule
+table catches up, and delete the matching test expectation.
 
 `--validate` runs the consortium SOBA validator against the parquet the run has just written and
 prints its report; the process exits `1` when the file fails, so it works as a gate in a script:
