@@ -5,7 +5,7 @@
 The three filters are one expression in `run_crossing`, so adding a fourth is four small edits.
 Worked example — a minimum distance-to-coast of 10 km:
 
-1. `src/soba_catalogue_report/report.py`, `ReportConfig`: add the field.
+1. `src/soba_reference_repo/report.py`, `ReportConfig`: add the field.
 
    ```python
    @dataclass(frozen=True)
@@ -27,7 +27,7 @@ Worked example — a minimum distance-to-coast of 10 km:
    ].copy()
    ```
 
-3. `src/soba_catalogue_report/cli.py`: add the flag and thread it into `ReportConfig`.
+3. `src/soba_reference_repo/cli.py`: add the flag and thread it into `ReportConfig`.
 
    ```python
    parser.add_argument("--min-coast-km", type=float, default=10.0)
@@ -117,7 +117,7 @@ and recompiled (`cd runs/<label> && pdflatex "<test dataset file name>.tex"`, or
 | --- | --- | --- |
 | `<test dataset file name>.pdf` | kept | absent (`--no-compile`) |
 | `<test dataset file name>.tex` | kept | kept |
-| `figures/*.png` | kept | kept |
+| `images_<dataset file name>/*.png` | kept | kept |
 | `soba.sty`, `logo_soba.png`, `schema_dataflow.tex`, `cpcd_definition.tex` | kept | kept |
 | `.aux`, `.log`, `.out`, `.toc` | deleted | kept |
 | TEST parquet + `<label>_manifest.json` | written to `--test-dir` | same |
