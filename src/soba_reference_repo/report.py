@@ -57,7 +57,7 @@ SCAT_COLUMNS = [
     "ref_distance_km", "ref_flag", "ref_id",
 ]
 SWOT_COLUMNS = [
-    "sar_safe_ocn", "sar_safe_slc", "sar_time", "sar_lat", "sar_lon",
+    "primary_key", "sar_safe_ocn", "sar_safe_slc", "sar_time", "sar_lat", "sar_lon",
     "sar_incidence_angle", "sar_elevation_angle", "sar_distance_to_coast",
     "sar_path_ocn", "sar_path_slc",
     "ref_time", "ref_lat", "ref_lon", "ref_mean_hs_karin",
@@ -143,6 +143,7 @@ SCAT_RENAME = {
     "ref_id": "scat_ref_id", "ref_flag": "scat_flag",
 }
 SWOT_RENAME = {
+    "primary_key": "swot_primary_key",
     "sar_time": "sar_time_swot", "sar_lat": "sar_lat_swot", "sar_lon": "sar_lon_swot",
     "sar_incidence_angle": "sar_incidence_angle_swot",
     "sar_elevation_angle": "sar_elevation_angle_swot",
@@ -154,7 +155,7 @@ SWOT_RENAME = {
     "ref_flag": "swot_flag",
 }
 KEEP_SCAT = [
-    "scene_key", "scat_primary_key", "sar_time_scat", "sar_lat_scat", "sar_lon_scat",
+    "match_key", "scat_primary_key", "sar_time_scat", "sar_lat_scat", "sar_lon_scat",
     "sar_incidence_angle_scat", "sar_elevation_angle_scat", "sar_ground_heading_scat",
     "sar_path_ocn_scat", "sar_path_slc_scat", "sar_safe_ocn_scat", "sar_safe_slc_scat",
     "scat_time", "scat_lat", "scat_lon", "scat_wind_direction_deg",
@@ -162,7 +163,7 @@ KEEP_SCAT = [
     "scat_flag", "scat_ref_id",
 ]
 KEEP_SWOT = [
-    "scene_key", "sar_time_swot", "sar_lat_swot", "sar_lon_swot",
+    "match_key", "sar_time_swot", "sar_lat_swot", "sar_lon_swot",
     "sar_incidence_angle_swot", "sar_elevation_angle_swot",
     "sar_distance_to_coast_swot", "sar_path_ocn_swot", "sar_path_slc_swot",
     "sar_safe_ocn_swot", "sar_safe_slc_swot",
@@ -185,16 +186,16 @@ def haversine_km(lat1, lon1, lat2, lon2):
     return 6371.0088 * 2 * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
 
 
-def _dedup(frame: pd.DataFrame, time_column: str, tie_break: str) -> pd.DataFrame:
-    """Keep one row per imagette, the reference closest in time to the SAR acquisition."""
+def _dedup(frame: pd.DataFrame, key_column: str, time_column: str, tie_break: str) -> pd.DataFrame:
+    """Keep one row per key, the reference closest in time to the SAR acquisition."""
     frame = frame.copy()
     frame[time_column] = (
         pd.to_datetime(frame["ref_time"], utc=True)
         - pd.to_datetime(frame["sar_time"], utc=True)
     ).abs().dt.total_seconds() / 60
     return (
-        frame.sort_values(["scene_key", time_column, tie_break], na_position="last")
-        .drop_duplicates("scene_key", keep="first")
+        frame.sort_values([key_column, time_column, tie_break], na_position="last")
+        .drop_duplicates(key_column, keep="first")
         .copy()
     )
 
@@ -205,8 +206,16 @@ def run_crossing(
     satellite: str,
     config: ReportConfig,
     scatterometer: str = "ASCAT",
+    use_scene_key: bool = False,
 ) -> CrossingResult:
-    """Cross a scatterometer catalogue and the SWOT catalogue through the SAR imagette."""
+    """Cross a scatterometer catalogue and the SWOT catalogue through the SAR imagette.
+
+    By default the two catalogues are matched on their own ``primary_key``, the identifier
+    they both ship and agree on for a shared imagette. ``use_scene_key`` matches on the
+    normalised imagette key instead, which bridges the two ways the catalogues can disagree:
+    a different SAFE form (path prefix, checksum) or a different reference point chosen for
+    the same imagette.
+    """
     satellite = satellite.upper()
     scatterometer = scatterometer.upper()
 
@@ -222,17 +231,21 @@ def run_crossing(
     scat = pd.read_parquet(scat_path, columns=sorted(SCAT_COLUMNS))
     swot = pd.read_parquet(swot_path, columns=sorted(SWOT_COLUMNS))
     for frame in (scat, swot):
-        frame["scene_key"] = make_scene_key(frame, satellite)
+        frame["match_key"] = (
+            make_scene_key(frame, satellite)
+            if use_scene_key
+            else frame["primary_key"].astype("string")
+        )
 
-    scat = _dedup(scat, "scat_to_sar_time_min", "ref_distance_km")
-    swot = _dedup(swot, "swot_to_sar_time_min", "ref_distance_delta")
+    scat = _dedup(scat, "match_key", "scat_to_sar_time_min", "ref_distance_km")
+    swot = _dedup(swot, "match_key", "swot_to_sar_time_min", "ref_distance_delta")
 
     matches = scat.rename(columns=SCAT_RENAME)[KEEP_SCAT].merge(
         swot.rename(columns=SWOT_RENAME)[KEEP_SWOT],
-        on="scene_key", how="inner", validate="one_to_one",
+        on="match_key", how="inner", validate="one_to_one",
     )
-    if matches["scene_key"].duplicated().any():
-        raise ValueError("crossing is not unique per scene_key")
+    if matches["match_key"].duplicated().any():
+        raise ValueError("crossing is not unique per match key")
 
     matches["scat_swot_distance_km"] = haversine_km(
         matches["scat_lat"], matches["scat_lon"], matches["swot_lat"], matches["swot_lon"]
@@ -817,6 +830,7 @@ def build_report_tex(
     swot_name: str = "",
     test_name: str = "",
     figures_dir: str = "figures",
+    use_scene_key: bool = False,
 ) -> str:
     """Fill ``template.tex`` so the document describes this TEST dataset."""
     text = Path(template_path).read_text(encoding="utf-8")
@@ -835,17 +849,26 @@ def build_report_tex(
 
     # the template already provides the surrounding enumerate environment,
     # so only the \item lines are replaced.
-    steps = (
-        r"\item \textbf{step 1:} normalise the SAFE identifiers to a stable scene key "
-        r"(acquisition, orbit, datatake, \texttt{:WV\_<imagette>});" "\n"
-        r"    \item \textbf{step 2:} keep one row per imagette, closest in time to the "
-        r"SAR acquisition;" "\n"
-        r"    \item \textbf{step 3:} inner-join the scatterometer and SWOT catalogues on "
-        r"the scene key (validated one-to-one merge);" "\n"
-        r"    \item \textbf{step 4:} compute the direct scatterometer--SWOT distance and "
-        r"time difference;" "\n"
-        r"    \item \textbf{step 5:} apply the quality filters and export the TEST parquet."
+    match_on = (
+        "the normalised imagette scene key" if use_scene_key else "the catalogue primary key"
     )
+    first_step = (
+        r"\item \textbf{step 1:} normalise the SAFE identifiers to a stable imagette scene "
+        r"key (acquisition, orbit, datatake, \texttt{:WV\_<imagette>});"
+        if use_scene_key
+        else r"\item \textbf{step 1:} read the catalogue's own \texttt{primary\_key}, which "
+        r"already carries the SLC SAFE name, the imagette number and the reference position;"
+    )
+    steps = "\n".join([
+        first_step,
+        r"    \item \textbf{step 2:} keep one row per key, the reference closest in time to "
+        r"the SAR acquisition;",
+        rf"    \item \textbf{{step 3:}} inner-join the scatterometer and SWOT catalogues on "
+        rf"{match_on} (validated one-to-one merge);",
+        r"    \item \textbf{step 4:} compute the direct scatterometer--SWOT distance and "
+        r"time difference;",
+        r"    \item \textbf{step 5:} apply the quality filters and export the TEST parquet.",
+    ])
 
     edits = [
         (r"\hl{dataset name}", dataset_name),

@@ -51,7 +51,7 @@ BOTH_PRODUCTS = "KNMI-ASCAT-METOP-12.5km_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0"
 
 
 def _write_pair(tmp_path, *, overlap=100.0, rain=0.0, time_delta_min=10.0,
-                scat_filename="scat.parquet", swot_filename="swot.parquet"):
+                scat_filename="scat.parquet", swot_filename="swot.parquet", swot_primary_key=None):
     """Write a one-row SCAT/SWOT pair with a controllable collocation quality."""
     scat_rows = [{
         "primary_key": f"{CORE}_35F2.SAFE:WV_033_-135.4_-74.3",
@@ -65,6 +65,8 @@ def _write_pair(tmp_path, *, overlap=100.0, rain=0.0, time_delta_min=10.0,
         "ref_id": "ascat_20260107_103900_metopc_37200.l2.nc",
     }]
     swot_rows = [{
+        # the two catalogues agree on primary_key for a shared imagette, the default match
+        "primary_key": swot_primary_key or f"{CORE}_35F2.SAFE:WV_033_-135.4_-74.3",
         "sar_safe_ocn": f"{OCN_CORE}_6B12.SAFE:WV_033", "sar_safe_slc": f"{CORE}_D27C.SAFE:WV_033",
         "sar_time": pd.Timestamp("2026-01-07 11:33:34+00:00"),
         "sar_lat": -74.31, "sar_lon": -135.38,
@@ -86,8 +88,11 @@ def _write_pair(tmp_path, *, overlap=100.0, rain=0.0, time_delta_min=10.0,
 
 
 def _result(tmp_path, **kwargs):
+    use_scene_key = kwargs.pop("use_scene_key", False)
     scat_path, swot_path = _write_pair(tmp_path, **kwargs)
-    return run_crossing(scat_path, swot_path, "S1D", ReportConfig())
+    return run_crossing(
+        scat_path, swot_path, "S1D", ReportConfig(), use_scene_key=use_scene_key
+    )
 
 
 # --- scene key ---------------------------------------------------------------
@@ -129,8 +134,25 @@ def test_run_crossing_keeps_a_row_that_passes_every_filter(tmp_path):
 
     assert len(result.crossing) == 1
     assert len(result.filtered) == 1
-    assert result.crossing["scene_key"].iloc[0].endswith(":WV_033")
+    assert result.crossing["match_key"].iloc[0].startswith(f"{CORE}_35F2.SAFE:WV_033")
     assert result.scat_rows == 1 and result.swot_rows == 1
+
+
+def test_the_default_match_uses_the_catalogue_primary_key(tmp_path):
+    result = _result(tmp_path)
+
+    assert result.crossing["match_key"].iloc[0] == f"{CORE}_35F2.SAFE:WV_033_-135.4_-74.3"
+
+
+def test_a_reference_disagreement_needs_the_scene_key(tmp_path):
+    """Each catalogue keys a row on its own reference, so the two can disagree on it."""
+    other = f"{CORE}_35F2.SAFE:WV_033_-140.0_-70.0"
+    result = _result(tmp_path, swot_primary_key=other)
+
+    assert len(result.crossing) == 0  # no shared primary_key
+    bridged = _result(tmp_path, swot_primary_key=other, use_scene_key=True)
+    assert len(bridged.crossing) == 1  # the imagette key still pairs them
+    assert bridged.crossing["match_key"].iloc[0].endswith(":WV_033")
 
 
 def test_run_crossing_drops_a_row_that_fails_one_filter(tmp_path):
