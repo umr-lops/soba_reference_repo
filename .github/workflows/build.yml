@@ -1,0 +1,22 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  distributions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install build
+      - run: python -m build
+      - run: pip install dist/*.whl
+      - run: soba_reference_repo --help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
