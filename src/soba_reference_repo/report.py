@@ -553,11 +553,27 @@ def purge_latex_byproducts(output_dir: Path, stem: str) -> list[Path]:
 # --------------------------------------------------------------------------- #
 
 def _second_precision(values) -> pd.Series:
+    """Timestamps at whole-second precision, UTC, timezone-naive.
+
+    The spec fixes the *format* (YYYY-mm-dd HH:MM:SS, UTC). A typed timestamp renders that
+    way while staying sortable, and it is what the validator asks for — a string column
+    warns.
+    """
     return (
         pd.to_datetime(values, utc=True)
         .dt.tz_convert(None)
-        .dt.strftime("%Y-%m-%d %H:%M:%S")
+        .dt.floor("s")
+        .astype("datetime64[ns]")  # the declared dtype, whatever the source unit was
     )
+
+
+def _wrap_heading(values) -> pd.Series:
+    """Ground heading as clockwise from north, in [0, 360).
+
+    The catalogue delivers it signed — negative west of north — while the spec and the
+    validator use the 0-360 convention.
+    """
+    return pd.to_numeric(values, errors="coerce").mod(360.0).round(4)
 
 
 def build_test_frame(result: CrossingResult) -> pd.DataFrame:
@@ -575,7 +591,7 @@ def build_test_frame(result: CrossingResult) -> pd.DataFrame:
         "sar_lon": _wrap_longitude(frame["sar_lon_scat"]).round(6),
         "sar_incidence_angle": frame["sar_incidence_angle_scat"],
         "sar_elevation_angle": frame["sar_elevation_angle_scat"],
-        "sar_ground_heading": frame["sar_ground_heading_scat"],
+        "sar_ground_heading": _wrap_heading(frame["sar_ground_heading_scat"]),
         "sar_distance_to_coast": frame["sar_distance_to_coast_swot"],
         "sar_path_ocn": frame["sar_path_ocn_scat"],
         "sar_path_slc": frame["sar_path_slc_scat"],
