@@ -54,6 +54,7 @@ def _write_pair(tmp_path, *, overlap=100.0, rain=0.0, time_delta_min=10.0,
                 scat_filename="scat.parquet", swot_filename="swot.parquet"):
     """Write a one-row SCAT/SWOT pair with a controllable collocation quality."""
     scat_rows = [{
+        "primary_key": f"{CORE}_35F2.SAFE:WV_033_-135.4_-74.3",
         "sar_safe_ocn": f"{OCN_CORE}_5A74.SAFE:WV_033", "sar_safe_slc": f"{CORE}_35F2.SAFE:WV_033",
         "sar_time": pd.Timestamp("2026-01-07 11:38:27"),
         "sar_lat": -74.31, "sar_lon": -135.38,
@@ -203,6 +204,8 @@ def test_build_test_frame_respects_the_value_conventions(tmp_path):
     assert frame["primary_key"].is_unique
     # <SAFE>:WV_<imagette>_<ref_lon>_<ref_lat>, the position at one decimal
     assert frame["primary_key"].str.match(r".*\.SAFE:WV_\d+_-?\d+\.\d_-?\d+\.\d$").all()
+    # and it is the catalogue's own key, carried through rather than recomposed
+    assert frame["primary_key"].iloc[0] == f"{CORE}_35F2.SAFE:WV_033_-135.4_-74.3"
     # timestamps are typed, whole-second, UTC — the validator asks for datetime64[ns]
     for column in ("sar_time", "ref_time", "swot_time"):
         assert "datetime64" in str(frame[column].dtype), column

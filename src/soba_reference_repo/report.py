@@ -50,7 +50,7 @@ WV_MANDATORY_COLUMNS = [
 WV_REF_PARAM_COLUMNS = ["windspeed_scat", "winddirection_scat", "waveheight_swot"]
 
 SCAT_COLUMNS = [
-    "sar_safe_ocn", "sar_safe_slc", "sar_time", "sar_lat", "sar_lon",
+    "primary_key", "sar_safe_ocn", "sar_safe_slc", "sar_time", "sar_lat", "sar_lon",
     "sar_incidence_angle", "sar_elevation_angle", "sar_ground_heading",
     "sar_path_ocn", "sar_path_slc",
     "ref_time", "ref_lat", "ref_lon", "ref_param_1", "ref_param_2",
@@ -131,6 +131,7 @@ def make_scene_key(frame: pd.DataFrame, satellite: str) -> pd.Series:
 # --------------------------------------------------------------------------- #
 
 SCAT_RENAME = {
+    "primary_key": "scat_primary_key",
     "sar_time": "sar_time_scat", "sar_lat": "sar_lat_scat", "sar_lon": "sar_lon_scat",
     "sar_incidence_angle": "sar_incidence_angle_scat",
     "sar_elevation_angle": "sar_elevation_angle_scat",
@@ -153,7 +154,7 @@ SWOT_RENAME = {
     "ref_flag": "swot_flag",
 }
 KEEP_SCAT = [
-    "scene_key", "sar_time_scat", "sar_lat_scat", "sar_lon_scat",
+    "scene_key", "scat_primary_key", "sar_time_scat", "sar_lat_scat", "sar_lon_scat",
     "sar_incidence_angle_scat", "sar_elevation_angle_scat", "sar_ground_heading_scat",
     "sar_path_ocn_scat", "sar_path_slc_scat", "sar_safe_ocn_scat", "sar_safe_slc_scat",
     "scat_time", "scat_lat", "scat_lon", "scat_wind_direction_deg",
@@ -583,6 +584,27 @@ def _one_decimal(values) -> pd.Series:
     return pd.to_numeric(values, errors="coerce").round(1).map("{:.1f}".format)
 
 
+def _primary_key(frame: pd.DataFrame, ref_lon, ref_lat) -> pd.Series:
+    """The row identifier: the scatterometer catalogue's own ``primary_key``.
+
+    The catalogues ship that column in the spec's form — SLC SAFE name, imagette number and
+    the reference position at one decimal — and two catalogues agree on it for a shared
+    imagette, so it is carried through as-is instead of being recomposed. Composing it from
+    ``ref_lon``/``ref_lat`` does *not* reproduce it: the scatterometer catalogues derive those
+    key coordinates slightly differently from their own reference columns. The composition
+    stays as a fallback for a catalogue that does not ship the column.
+    """
+    if "scat_primary_key" in frame.columns:
+        keys = frame["scat_primary_key"].astype("string")
+        if keys.notna().all():
+            return keys
+    return (
+        _leaf(frame["sar_safe_slc_scat"])
+        + "_" + _one_decimal(ref_lon)
+        + "_" + _one_decimal(ref_lat)
+    )
+
+
 def _wrap_heading(values) -> pd.Series:
     """Ground heading as clockwise from north, in [0, 360).
 
@@ -599,15 +621,9 @@ def build_test_frame(result: CrossingResult) -> pd.DataFrame:
     ref_lat = pd.to_numeric(frame["scat_lat"])
 
     test = pd.DataFrame({
-        # primary key: the spec's definition — the SLC SAFE name with the imagette number,
-        # plus the position of the reference this imagette was matched to, at one decimal.
-        # Built from the prefix-free leaf so the key does not change when the catalogues
-        # drop the archive path prefix they are not supposed to carry.
-        "primary_key": (
-            _leaf(frame["sar_safe_slc_scat"])
-            + "_" + _one_decimal(ref_lon)
-            + "_" + _one_decimal(ref_lat)
-        ),
+        # primary key: the catalogue's own identifier for the matched reference — see
+        # _primary_key. It is the spec's <SAFE>:WV_<imagette>_<ref_lon>_<ref_lat> form.
+        "primary_key": _primary_key(frame, ref_lon, ref_lat),
         "sar_time": _second_precision(frame["sar_time_scat"]),
         "sar_lat": pd.to_numeric(frame["sar_lat_scat"]).round(6),
         "sar_lon": _wrap_longitude(frame["sar_lon_scat"]).round(6),
