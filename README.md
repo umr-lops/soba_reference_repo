@@ -8,12 +8,7 @@ spec-conformant WV TEST parquet under the SOBA dataset naming convention.
 
 Reference: *Format Description for parquet co-aligned datasets* (SOBA WP3, v1.0.3).
 
-The bundled `assets/latex/template.tex` is the SOBA template **rewritten for reference TEST
-datasets**: title line, scope, section wording, footer, a §1.3 *reference parameter statistics*
-table (min/max/mean/median per reference variable, filled from the filtered cohort), and a §1.4
-*Catalogue Columns* table (Column / Type / Description, grouped by role) mirroring the
-co-aligned catalogue document's column table. The upstream co-aligned template in the SOBA
-project is untouched — pass `--latex-dir <path-to-the-SOBA-project>` to use it instead.
+The bundled `assets/latex/template.tex` is the SOBA template **rewritten for reference TEST datasets**
 
 ## Install
 
@@ -136,22 +131,6 @@ otherwise pass `--test-name` explicitly.
   cp <path-to-the-SOBA-project>/{soba.sty,logo_soba.png,schema_dataflow.tex,cpcd_definition.tex} assets/latex/
   ```
 
-- **Two generated tables.** §1.3's statistics table is built at run time from the filtered
-  cohort (rounding set by `STATS_DECIMALS` in `report.py`, default 2 decimals); §1.4's column
-  table is written in the template and a test fails if it stops documenting every exported
-  column.
-- **Versioning tables.** The run appends a row to each of the template's two version tables: the
-  documentation table, and *Versioning of test catalogue files*, which registers the produced
-  parquet's file name, date and modifications. Both insertions are anchored on the table's
-  caption rather than on a row, so hand-editing the template's rows never breaks the build.
-- **Link boxes off.** The template sets `\hypersetup{hidelinks}`: `soba.sty` loads `hyperref`
-  without options, which would otherwise box every cross-reference, TOC entry and URL in red.
-- **Column descriptions.** Every row of §1.4's table follows one of two references: columns that
-  also exist in the co-aligned catalogue reuse the co-aligned document's wording (with the TEST
-  spec's hyphens), while columns the TEST layout defines differently follow the *Format
-  Description* — `primary\_key`, `sar_distance_to_coast`, `legacy_usage` and the extra reference
-  and filter columns. Where the two documents disagree on sampling, the description states what
-  the exported value actually is, and the *Sampling point* note under the table spells it out.
 - **WV only.** The tool implements the WV TEST layout (`:WV_<imagette>`, SLC/OCN SAFE pattern,
   WV mandatory column list). The spec's IW layout (GRD paths, `:IW2`, `ref_geometry`) is not
   implemented.
