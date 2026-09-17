@@ -92,6 +92,17 @@ class CrossingResult:
 # Scene key
 # --------------------------------------------------------------------------- #
 
+def _leaf(values) -> pd.Series:
+    """The SAFE identifier without any archive-relative path prefix.
+
+    The catalogues disagree on whether they store ``<collection>/<year>/<doy>/<SAFE>`` or
+    the bare ``<SAFE>``: the prefixed form is an upstream data error that is being removed,
+    so both the join key and the exported primary key are built from the leaf. That keeps a
+    key identical before and after the catalogues are fixed, and is a no-op once they are.
+    """
+    return values.astype("string").str.rsplit("/", n=1).str[-1]
+
+
 def make_scene_key(frame: pd.DataFrame, satellite: str) -> pd.Series:
     """Normalise a SAFE identifier to ``<acq>_<orbit>_<datatake>:WV_<imagette>``."""
     satellite = satellite.upper()
@@ -102,7 +113,7 @@ def make_scene_key(frame: pd.DataFrame, satellite: str) -> pd.Series:
     if identifier.isna().any():
         raise ValueError("No SAR SAFE identifier in either sar_safe_ocn or sar_safe_slc")
 
-    leaf = identifier.str.rsplit("/", n=1).str[-1]
+    leaf = _leaf(identifier)
     prefix = rf"^{satellite}_WV_(?:OCN__2S|SLC__1S)S[HV]_"
     valid = leaf.str.match(prefix, na=False)
     if not valid.all():
@@ -567,6 +578,11 @@ def _second_precision(values) -> pd.Series:
     )
 
 
+def _one_decimal(values) -> pd.Series:
+    """Fixed one-decimal string form, as the reference position takes inside a key."""
+    return pd.to_numeric(values, errors="coerce").round(1).map("{:.1f}".format)
+
+
 def _wrap_heading(values) -> pd.Series:
     """Ground heading as clockwise from north, in [0, 360).
 
@@ -583,9 +599,15 @@ def build_test_frame(result: CrossingResult) -> pd.DataFrame:
     ref_lat = pd.to_numeric(frame["scat_lat"])
 
     test = pd.DataFrame({
-        # primary key: the imagette scene key. The SCAT/SWOT merge is a validated
-        # one-to-one merge, so the scene key is already unique per row.
-        "primary_key": frame["scene_key"].astype("string"),
+        # primary key: the spec's definition — the SLC SAFE name with the imagette number,
+        # plus the position of the reference this imagette was matched to, at one decimal.
+        # Built from the prefix-free leaf so the key does not change when the catalogues
+        # drop the archive path prefix they are not supposed to carry.
+        "primary_key": (
+            _leaf(frame["sar_safe_slc_scat"])
+            + "_" + _one_decimal(ref_lon)
+            + "_" + _one_decimal(ref_lat)
+        ),
         "sar_time": _second_precision(frame["sar_time_scat"]),
         "sar_lat": pd.to_numeric(frame["sar_lat_scat"]).round(6),
         "sar_lon": _wrap_longitude(frame["sar_lon_scat"]).round(6),
@@ -623,8 +645,8 @@ def build_test_frame(result: CrossingResult) -> pd.DataFrame:
         raise ValueError("missing dataset-specific ref_param columns")
     if not test["primary_key"].is_unique:
         raise ValueError("primary_key is not unique")
-    if not test["primary_key"].str.match(r".*:WV_\d+$").all():
-        raise ValueError("primary_key lost the :WV_<imagette> suffix")
+    if not test["primary_key"].str.match(r".*\.SAFE:WV_\d+_-?\d+\.\d_-?\d+\.\d$").all():
+        raise ValueError("primary_key is not <SAFE>:WV_<imagette>_<ref_lon>_<ref_lat>")
     for column in ("sar_lon", "ref_lon", "swot_lon"):
         if not test[column].between(-180, 180).all():
             raise ValueError(f"{column} outside [-180, 180]")

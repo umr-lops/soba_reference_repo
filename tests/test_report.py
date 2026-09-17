@@ -34,7 +34,7 @@ from soba_reference_repo.report import (
     stage_latex_assets,
     write_test_parquet,
 )
-from soba_reference_repo.validator import SOBAParquetValidator
+from soba_reference_repo.validator import SOBAParquetValidator, SOBAValidationRules
 
 CORE = "S1D_WV_SLC__1S/2026/007/S1D_WV_SLC__1SSV_20260107T111713_20260107T114520_000927_0006BD"
 OCN_CORE = "S1D_WV_OCN__2S/2026/007/S1D_WV_OCN__2SSV_20260107T111713_20260107T114520_000927_0006BD"
@@ -201,7 +201,8 @@ def test_build_test_frame_respects_the_value_conventions(tmp_path):
     frame = build_test_frame(_result(tmp_path))
 
     assert frame["primary_key"].is_unique
-    assert frame["primary_key"].str.match(r".*:WV_\d+$").all()
+    # <SAFE>:WV_<imagette>_<ref_lon>_<ref_lat>, the position at one decimal
+    assert frame["primary_key"].str.match(r".*\.SAFE:WV_\d+_-?\d+\.\d_-?\d+\.\d$").all()
     # timestamps are typed, whole-second, UTC — the validator asks for datetime64[ns]
     for column in ("sar_time", "ref_time", "swot_time"):
         assert "datetime64" in str(frame[column].dtype), column
@@ -386,6 +387,13 @@ def test_build_report_tex_wraps_every_file_name_in_path(tmp_path):
 
 
 # --- validator ---------------------------------------------------------------
+
+def test_exported_primary_key_matches_the_validator_pattern(tmp_path):
+    frame = build_test_frame(_result(tmp_path))
+    pattern = SOBAValidationRules.COMMON_MANDATORY["primary_key"]["pattern"]
+
+    assert frame["primary_key"].str.match(pattern).all(), frame["primary_key"].tolist()
+
 
 def test_exported_frame_passes_the_bundled_validator(tmp_path):
     path = write_test_parquet(build_test_frame(_result(tmp_path)), tmp_path / "test.parquet")

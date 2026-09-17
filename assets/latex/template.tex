@@ -161,7 +161,7 @@ Table~\ref{tab:columns} lists every column of the reference TEST dataset, groupe
     \bottomrule
     \endlastfoot
     \multicolumn{3}{@{}l}{\textbf{Identification}} \\
-    primary\_key & string & Normalised Sentinel-1 WV imagette key, \texttt{<acquisition>:WV\_<imagette>}; unique per row \\
+    primary\_key & string & Sentinel-1 SLC SAFE name, imagette number and the reference position at one decimal, \texttt{<SAFE>:WV\_<imagette>\_<ref\_lon>\_<ref\_lat>}; unique per row \\
     sar\_safe\_slc & string & Archive-relative L1 SLC product, \texttt{<collection>/<year>/<doy>/<SAFE>:WV\_<imagette>} \\
     sar\_path\_slc & string & Absolute path of the imagette measurement (GeoTIFF) \\
     sar\_safe\_ocn & string & Same, for the matching L2 OCN product \\
