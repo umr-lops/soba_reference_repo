@@ -57,6 +57,8 @@ export `MIKTEX_BIN` once in your shell profile.
 | `--miktex-bin` | `$MIKTEX_BIN`, else `PATH` | directory holding the `pdflatex` executable |
 | `--compile` / `--no-compile` | `--compile` | skip LaTeX to iterate on figures fast |
 | `--keep-intermediates` | off | keep the LaTeX byproducts (`.aux`, `.log`, `.out`, `.toc`) |
+| `--validate` | off | run the SOBA parquet validator on the TEST file; exit 1 if it fails |
+| `--validator` | bundled copy | path to a validator module to use instead of that copy |
 
 ## Outputs
 
@@ -131,6 +133,15 @@ otherwise pass `--test-name` explicitly.
   cp <path-to-the-SOBA-project>/{soba.sty,logo_soba.png,schema_dataflow.tex,cpcd_definition.tex} assets/latex/
   ```
 
+- **Column names follow the validator.** The *Format Description* writes the path and SAFE
+  columns with hyphens (`sar-path-ocn`), but the source catalogues and the consortium
+  validator use underscores (`sar_path_ocn`), and the validator is the acceptance gate — so
+  the export uses underscores. The reasoning sits next to `WV_MANDATORY_COLUMNS` in
+  `report.py`.
+- **Vendored validator.** `src/soba_reference_repo/validator.py` is the consortium validation
+  gist, kept verbatim below its header. `--validate` runs it against the file just written and
+  exits non-zero when it fails; `--validator PATH` runs a newer copy from disk. Refresh by
+  re-copying the gist and keeping the diff to that header.
 - **WV only.** The tool implements the WV TEST layout (`:WV_<imagette>`, SLC/OCN SAFE pattern,
   WV mandatory column list). The spec's IW layout (GRD paths, `:IW2`, `ref_geometry`) is not
   implemented.

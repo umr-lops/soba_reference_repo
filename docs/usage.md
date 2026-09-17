@@ -107,6 +107,20 @@ The §1.4 catalogue-columns table is *not* generated: it is written in the templ
 column the tool exports. `reference_statistics_table` has its own test asserting the four
 statistics per reference variable.
 
+## Validating the output
+
+`--validate` runs the consortium SOBA validator against the parquet the run has just written and
+prints its report; the process exits `1` when the file fails, so it works as a gate in a script:
+
+```bash
+soba_reference_repo --scat … --swot … --satellite S1D --scatterometer ASCAT --validate
+```
+
+Warnings do not fail the file — only errors do. `src/soba_reference_repo/validator.py` is the
+consortium gist vendored verbatim below its provenance header; `--validator /path/to/newer.py`
+runs an updated copy without touching the package. To refresh the bundled one, re-copy the gist
+and keep the diff to that header only.
+
 ## Where each file ends up
 
 After a successful compile the document sources stay next to the PDF so it can be hand-edited
