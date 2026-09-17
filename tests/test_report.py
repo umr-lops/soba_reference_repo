@@ -12,7 +12,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
-from soba_catalogue_report.report import (
+from soba_reference_repo.report import (
     DEFAULT_LAND_MAP,
     DEFAULT_LATEX_DIR,
     ReportConfig,
@@ -30,6 +30,7 @@ from soba_catalogue_report.report import (
     purge_latex_byproducts,
     reference_statistics_table,
     run_crossing,
+    section_bounds,
     stage_latex_assets,
     write_test_parquet,
 )
@@ -144,6 +145,20 @@ def test_run_crossing_rejects_a_catalogue_missing_a_column(tmp_path):
 
     with pytest.raises(ValueError, match="legacy_usage"):
         run_crossing(scat_path, swot_path, "S1D", ReportConfig())
+
+
+# --- reference-distribution sections -----------------------------------------
+
+def test_section_bounds_uses_the_requested_reference_bins():
+    inf = float("inf")
+
+    # wind speed: 0-5, 5-10, 10-15, >15 m/s
+    assert list(section_bounds("scat_wind_speed_ms", 0.0, 12.0)) == [-inf, 5.0, 10.0, 15.0, inf]
+    # wave height: 0-1, 1-3, 3-5, 5-10, >10 m
+    assert list(section_bounds("swot_wave_height_m", 0.0, 5.0)) == [
+        -inf, 1.0, 3.0, 5.0, 10.0, inf]
+    # wind direction has no fixed bins: equal thirds of the axis
+    assert list(section_bounds("scat_wind_direction_deg", 0.0, 360.0)) == [-inf, 120.0, 240.0, inf]
 
 
 # --- figures -----------------------------------------------------------------
@@ -268,6 +283,20 @@ def test_reference_statistics_table_reports_min_max_mean_median(tmp_path):
     assert "ASCAT wind speed (m/s) & 9.80 & 9.80 & 9.80 & 9.80" in table
     assert "ASCAT wind direction (°) & 17.80 & 17.80 & 17.80 & 17.80" in table
     assert "SWOT KaRIn wave height (m) & 1.90 & 1.90 & 1.90 & 1.90" in table
+
+
+def test_build_report_tex_points_includegraphics_at_the_given_figures_folder(tmp_path):
+    folder = "images_S1D_reference_test_dataset_WV_20260107_SV_X_Y_0.1"
+    tex = build_report_tex(
+        DEFAULT_LATEX_DIR / "template.tex",
+        _result(tmp_path),
+        label="s1d_swot_ascat",
+        figure_names=["a.png", "b.png", "c.png"],
+        figures_dir=folder,
+    )
+
+    assert rf"\includegraphics[width=\textwidth]{{{folder}/a.png}}" in tex
+    assert "{figures/" not in tex
 
 
 def test_insert_version_history_row_survives_template_row_edits():
@@ -464,7 +493,7 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
     test_dir = tmp_path / "deliverables"
 
     completed = subprocess.run(
-        [sys.executable, "-m", "soba_catalogue_report.cli",
+        [sys.executable, "-m", "soba_reference_repo.cli",
          "--scat", str(scat_path), "--swot", str(swot_path),
          "--satellite", "S1D", "--scatterometer", "ASCAT",
          "--label", "unit", "--no-compile",
@@ -480,7 +509,8 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
     assert len(produced) == 1, sorted(p.name for p in test_dir.iterdir())
     # the report carries the same name as the dataset file it documents
     assert (output_dir / f"{produced[0].stem}.tex").is_file()
-    assert len(list((output_dir / "figures").glob("*.png"))) == 3
+    # the figures live in a folder named after it too
+    assert len(list((output_dir / f"images_{produced[0].stem}").glob("*.png"))) == 3
     assert re.fullmatch(
         r"S1D_reference_test_dataset_WV_20260107_20260107_\d{8}_SV_"
         r"KNMI-ASCAT-METOP-12\.5km_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0\.1\.parquet",
@@ -496,7 +526,7 @@ def test_cli_requires_satellite_and_scatterometer(tmp_path):
     scat_path, swot_path = _write_pair(tmp_path, scat_filename=SOURCE_SCAT_NAME)
 
     completed = subprocess.run(
-        [sys.executable, "-m", "soba_catalogue_report.cli",
+        [sys.executable, "-m", "soba_reference_repo.cli",
          "--scat", str(scat_path), "--swot", str(swot_path), "--no-compile"],
         cwd=Path(__file__).resolve().parents[1],
         env={**os.environ, "PYTHONPATH": "src"},

@@ -1,4 +1,4 @@
-# soba-catalogue-report
+# soba_reference_repo
 
 Generates a SOBA **reference TEST dataset** report from two co-aligned catalogues: it crosses a
 scatterometer catalogue and the SWOT KaRIn catalogue through the common Sentinel-1 Wave Mode
@@ -21,7 +21,7 @@ Install into an environment that already has the SOBA stack (numpy, pandas, pyar
 matplotlib, geopandas):
 
 ```bash
-cd soba-catalogue-report
+cd soba_reference_repo
 python -m pip install -e . --no-deps
 ```
 
@@ -30,14 +30,14 @@ python -m pip install -e . --no-deps
 ## Run
 
 ```bash
-soba-catalogue-report \
+soba_reference_repo \
   --satellite S1D --scatterometer ASCAT \
   --scat  <data-dir>/S1D_coaligned_catalogue_WV_20260107_20260414_20260908_SV_KNMI-ASCAT-METOP-12.5km_0.2.parquet \
   --swot  <data-dir>/S1D_coaligned_catalogue_WV_20260107_20260808_20260902_SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \
   --test-dir test_datasets
 ```
 
-Without the install, `PYTHONPATH=src python -m soba_catalogue_report.cli …` works the same way.
+Without the install, `PYTHONPATH=src python -m soba_reference_repo.cli …` works the same way.
 If `pdflatex` is not on `PATH`, point the tool at it — `--miktex-bin /path/to/miktex/bin/x64`, or
 export `MIKTEX_BIN` once in your shell profile.
 
@@ -72,7 +72,7 @@ and recompiled:
 ```
 <test dataset file name>.pdf    the report, named after the parquet it documents
 <test dataset file name>.tex    filled template, editable
-figures/*.png                   the three figures
+images_<dataset file name>/*.png  the three figures
 soba.sty  logo_soba.png  schema_dataflow.tex  cpcd_definition.tex
 ```
 

@@ -29,7 +29,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[2]  # .../soba-catalogue-report
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]  # .../soba_reference_repo
 ASSET_DIR = PACKAGE_ROOT / "assets"
 DEFAULT_LAND_MAP = ASSET_DIR / "ne_110m_land.geojson"
 DEFAULT_LATEX_DIR = ASSET_DIR / "latex"
@@ -319,6 +319,26 @@ def _plot_monthly(result: CrossingResult, path: Path) -> None:
     plt.close(fig)
 
 
+# Section boundaries of the reference-distribution figure, per reference variable. The
+# last boundary of each tuple is followed by an open-ended section; variables without an
+# entry split into equal thirds of the axis.
+REFERENCE_BINS: dict[str, tuple[float, ...]] = {
+    "scat_wind_speed_ms": (5.0, 10.0, 15.0),        # 0-5, 5-10, 10-15, >15 m/s
+    "swot_wave_height_m": (1.0, 3.0, 5.0, 10.0),    # 0-1, 1-3, 3-5, 5-10, >10 m
+}
+
+
+def section_bounds(column: str, xmin: float, xmax: float) -> np.ndarray:
+    """Section boundaries for one reference variable, as ``-inf … +inf`` edges.
+
+    Fixed bins where the variable calls for them (wind speed, wave height), equal thirds
+    of the axis otherwise (wind direction).
+    """
+    fixed = REFERENCE_BINS.get(column)
+    edges = np.asarray(fixed, dtype=float) if fixed else np.linspace(xmin, xmax, 4)[1:-1]
+    return np.concatenate(([-np.inf], edges, [np.inf]))
+
+
 def _plot_reference_distributions(result: CrossingResult, path: Path) -> None:
     frame = result.filtered
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
@@ -341,18 +361,32 @@ def _plot_reference_distributions(result: CrossingResult, path: Path) -> None:
             ax.text(values.median(), 0.92, f"median = {values.median():.2f}", color="orange",
                 ha="center", va="top", transform=ax.get_xaxis_transform(), fontsize=9,)
 
+            # sections: fixed bins for wind speed and wave height, equal thirds otherwise.
+            # Only the part of a section inside the axis can be drawn, so an empty
+            # open-ended section (e.g. "> 15 m/s") simply does not appear.
             xmin, xmax = ax.get_xlim()
-            section_edges = np.linspace(xmin, xmax, 4)
-            for i in range(3):
-                left = section_edges[i]
-                right = section_edges[i + 1]
-                if i == 2:
-                    count = ((values >= left) & (values <= right)).sum()
+            bounds = section_bounds(column, xmin, xmax)
+            span = (xmax - xmin) or 1.0
+            previous_centre, row = None, 0
+            for i in range(len(bounds) - 1):
+                left, right = bounds[i], bounds[i + 1]
+                visible_left, visible_right = max(left, xmin), min(right, xmax)
+                if visible_right <= visible_left:
+                    continue
+                count = ((values >= left) & (values < right)).sum()
+                ax.axvspan(visible_left, visible_right, color="lightgray" if i % 2 == 0 else "white",
+                           alpha=0.15, zorder=-1)
+                centre = (visible_left + visible_right) / 2
+                # the bins are not evenly spaced, so narrow ones would overlap: drop the
+                # label to a second row whenever two sections sit close together
+                if previous_centre is not None and (centre - previous_centre) / span < 0.11:
+                    row = 1 - row
                 else:
-                    count = ((values >= left) & (values < right)).sum()
-                ax.axvspan(left, right, color="lightgray" if i % 2 == 0 else "white", alpha=0.15, zorder=-1)
-                ax.text( (left + right) / 2, 0.99, f"N = {count:,}", transform=ax.get_xaxis_transform(),
+                    row = 0
+                ax.text(centre, 0.99 if row == 0 else 0.86, f"N = {count:,}",
+                    transform=ax.get_xaxis_transform(),
                     ha="center", va="top", fontsize=10, fontweight="bold" )
+                previous_centre = centre
                 if i > 0:
                     ax.axvline(left, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
 
@@ -723,6 +757,7 @@ def build_report_tex(
     scat_name: str = "",
     swot_name: str = "",
     test_name: str = "",
+    figures_dir: str = "figures",
 ) -> str:
     """Fill ``template.tex`` so the document describes this TEST dataset."""
     text = Path(template_path).read_text(encoding="utf-8")
@@ -831,7 +866,7 @@ def build_report_tex(
     widths = [r"\textwidth", r"0.85\textwidth", r"\textwidth"]
     for anchor, name, width in zip(figure_anchors, figure_names, widths):
         text = _replace_once(
-            text, anchor, f"\\includegraphics[width={width}]{{figures/{name}}}"
+            text, anchor, f"\\includegraphics[width={width}]{{{figures_dir}/{name}}}"
         )
 
     # the config listing must show the values this run actually used

@@ -2,7 +2,7 @@
 
 Example:
 
-    python -m soba_catalogue_report.cli \\
+    python -m soba_reference_repo.cli \\
         --scat /path/to/SCAT_catalogue.parquet \\
         --swot /path/to/SWOT_catalogue.parquet \\
         --satellite S1D --scatterometer ASCAT
@@ -101,7 +101,9 @@ def main(argv=None) -> int:
     # the report carries the same name as the dataset file it documents
     report_stem = Path(test_name).stem
 
-    figures = plot_figures(result, output_dir / "figures", Path(args.land_map))
+    # the figures live in a folder named after the dataset file
+    figures_dir = output_dir / f"images_{report_stem}"
+    figures = plot_figures(result, figures_dir, Path(args.land_map))
     stage_latex_assets(latex_dir, output_dir)
 
     tex = build_report_tex(
@@ -113,6 +115,7 @@ def main(argv=None) -> int:
         scat_path.name,
         swot_path.name,
         test_name,
+        figures_dir.name,
     )
     tex_path = output_dir / f"{report_stem}.tex"
     tex_path.write_text(tex, encoding="utf-8")
