@@ -34,8 +34,10 @@ from soba_reference_repo.report import (
     stage_latex_assets,
     write_test_parquet,
 )
+from soba_reference_repo.validator import SOBAParquetValidator
 
 CORE = "S1D_WV_SLC__1S/2026/007/S1D_WV_SLC__1SSV_20260107T111713_20260107T114520_000927_0006BD"
+OCN_CORE = "S1D_WV_OCN__2S/2026/007/S1D_WV_OCN__2SSV_20260107T111713_20260107T114520_000927_0006BD"
 SCAT_REF_TIME = pd.Timestamp("2026-01-07 11:54:46", tz="UTC")
 SOURCE_SCAT_NAME = (
     "S1D_coaligned_catalogue_WV_20260107_20260414_20260916_"
@@ -52,7 +54,7 @@ def _write_pair(tmp_path, *, overlap=100.0, rain=0.0, time_delta_min=10.0,
                 scat_filename="scat.parquet", swot_filename="swot.parquet"):
     """Write a one-row SCAT/SWOT pair with a controllable collocation quality."""
     scat_rows = [{
-        "sar_safe_ocn": None, "sar_safe_slc": f"{CORE}_35F2.SAFE:WV_033",
+        "sar_safe_ocn": f"{OCN_CORE}_5A74.SAFE:WV_033", "sar_safe_slc": f"{CORE}_35F2.SAFE:WV_033",
         "sar_time": pd.Timestamp("2026-01-07 11:38:27"),
         "sar_lat": -74.31, "sar_lon": -135.38,
         "sar_incidence_angle": 22.9, "sar_elevation_angle": 20.4, "sar_ground_heading": -128.2,
@@ -62,7 +64,7 @@ def _write_pair(tmp_path, *, overlap=100.0, rain=0.0, time_delta_min=10.0,
         "ref_id": "ascat_20260107_103900_metopc_37200.l2.nc",
     }]
     swot_rows = [{
-        "sar_safe_ocn": None, "sar_safe_slc": f"{CORE}_D27C.SAFE:WV_033",
+        "sar_safe_ocn": f"{OCN_CORE}_6B12.SAFE:WV_033", "sar_safe_slc": f"{CORE}_D27C.SAFE:WV_033",
         "sar_time": pd.Timestamp("2026-01-07 11:33:34+00:00"),
         "sar_lat": -74.31, "sar_lon": -135.38,
         "sar_incidence_angle": 22.9, "sar_elevation_angle": 20.4,
@@ -192,7 +194,7 @@ def test_build_test_frame_has_every_mandatory_wv_column(tmp_path):
 
     assert set(WV_MANDATORY_COLUMNS) <= set(frame.columns)
     assert set(WV_REF_PARAM_COLUMNS) <= set(frame.columns)
-    assert {"sar-path-ocn", "sar-path-slc", "sar-safe-slc", "sar-safe-ocn"} <= set(frame.columns)
+    assert {"sar_path_ocn", "sar_path_slc", "sar_safe_slc", "sar_safe_ocn"} <= set(frame.columns)
 
 
 def test_build_test_frame_respects_the_value_conventions(tmp_path):
@@ -378,6 +380,26 @@ def test_build_report_tex_wraps_every_file_name_in_path(tmp_path):
         assert rf"\path|{name}|" in tex
 
 
+# --- validator ---------------------------------------------------------------
+
+def test_exported_frame_passes_the_bundled_validator(tmp_path):
+    path = write_test_parquet(build_test_frame(_result(tmp_path)), tmp_path / "test.parquet")
+
+    result = SOBAParquetValidator(mode="WV", dataset_type="test").validate_file(str(path))
+
+    assert result["valid"] is True, result["errors"]
+
+
+def test_bundled_validator_rejects_a_frame_missing_a_mandatory_column(tmp_path):
+    path = tmp_path / "incomplete.parquet"
+    pd.DataFrame({"primary_key": ["a"], "sar_time": ["2026-01-01 00:00:00"]}).to_parquet(path)
+
+    result = SOBAParquetValidator(mode="WV", dataset_type="test").validate_file(str(path))
+
+    assert result["valid"] is False
+    assert any("Missing mandatory variables" in error for error in result["errors"])
+
+
 # --- LaTeX discovery ---------------------------------------------------------
 
 def test_find_pdflatex_prefers_the_named_directory(tmp_path):
@@ -496,7 +518,7 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
         [sys.executable, "-m", "soba_reference_repo.cli",
          "--scat", str(scat_path), "--swot", str(swot_path),
          "--satellite", "S1D", "--scatterometer", "ASCAT",
-         "--label", "unit", "--no-compile",
+         "--label", "unit", "--no-compile", "--validate",
          "--output-dir", str(output_dir), "--test-dir", str(test_dir)],
         cwd=Path(__file__).resolve().parents[1],
         env={**os.environ, "PYTHONPATH": "src"},
@@ -520,6 +542,9 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
     assert (test_dir / f"{produced[0].stem}_manifest.json").is_file(), (
         sorted(p.name for p in test_dir.iterdir())
     )
+    # --validate ran the bundled validator and passed the file
+    assert "SOBA PARQUET VALIDATION REPORT" in completed.stdout
+    assert "Status: ✅ PASSED" in completed.stdout
 
 
 def test_cli_requires_satellite_and_scatterometer(tmp_path):

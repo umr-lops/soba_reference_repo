@@ -15,6 +15,7 @@ itself is located through --miktex-bin / $MIKTEX_BIN, or PATH.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,27 @@ from .report import (
     stage_latex_assets,
     write_test_parquet,
 )
+
+
+def run_validation(parquet_path: Path, validator_path: str | None = None) -> bool:
+    """Run the SOBA validator over ``parquet_path``; print its report, return validity.
+
+    ``validator_path`` loads a newer copy of the validator from disk instead of the bundled
+    one, so a gist update does not have to wait for a release of this package.
+    """
+    if validator_path:
+        spec = importlib.util.spec_from_file_location("soba_external_validator", validator_path)
+        if spec is None or spec.loader is None:
+            raise FileNotFoundError(f"not a loadable validator module: {validator_path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    else:
+        from . import validator as module
+
+    validator = module.SOBAParquetValidator(mode="WV", dataset_type="test")
+    result = validator.validate_file(str(parquet_path))
+    validator.print_report()
+    return bool(result["valid"])
 
 
 def parse_args(argv=None):
@@ -75,6 +97,10 @@ def parse_args(argv=None):
     parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--keep-intermediates", action="store_true",
                         help="keep the LaTeX byproducts (.aux, .log, .out, .toc)")
+    parser.add_argument("--validate", action="store_true",
+                        help="run the SOBA parquet validator on the TEST file; exit 1 if it fails")
+    parser.add_argument("--validator", default=None,
+                        help="path to a validator module to use instead of the bundled copy")
     return parser.parse_args(argv)
 
 
@@ -122,6 +148,10 @@ def main(argv=None) -> int:
 
     test_path = write_test_parquet(build_test_frame(result), test_dir / test_name)
 
+    validated = True
+    if args.validate:
+        validated = run_validation(test_path, args.validator)
+
     pdf_path = None
     if args.compile:
         pdf_path = compile_pdf(output_dir, report_stem, args.miktex_bin)
@@ -151,6 +181,9 @@ def main(argv=None) -> int:
     print(f"pdf:  {pdf_path}")
     print(f"test: {test_path}")
     print(f"run:  {manifest}")
+    if args.validate and not validated:
+        print("validation: FAILED (see the report above)")
+        return 1
     return 0
 
 

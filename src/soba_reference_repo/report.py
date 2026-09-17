@@ -37,12 +37,14 @@ DEFAULT_TEST_DIR = PACKAGE_ROOT / "test_datasets"
 # LaTeX is not assumed to be installed: --miktex-bin / $MIKTEX_BIN names a directory
 # holding the pdflatex executable, otherwise it is taken from PATH (see find_pdflatex).
 
-# The spec uses hyphens for the path/SAFE columns while the source catalogues use
-# underscores. The exported TEST file follows the spec.
+# Column names for the exported TEST file. The *Format Description* PDF writes the path and
+# SAFE columns with hyphens (sar-path-ocn, sar-safe-slc), but the source catalogues and the
+# consortium validator use underscores, and the validator is the acceptance gate — so the
+# export follows the validator. Every other name is the spec's, unchanged.
 WV_MANDATORY_COLUMNS = [
     "primary_key", "sar_time", "sar_lat", "sar_lon", "sar_incidence_angle",
     "sar_elevation_angle", "sar_ground_heading", "sar_distance_to_coast",
-    "sar-path-ocn", "sar-path-slc", "sar-safe-slc", "sar-safe-ocn",
+    "sar_path_ocn", "sar_path_slc", "sar_safe_slc", "sar_safe_ocn",
     "ref_lon", "ref_lat", "ref_time", "ref_flag", "ref_id", "legacy_usage",
 ]
 WV_REF_PARAM_COLUMNS = ["windspeed_scat", "winddirection_scat", "waveheight_swot"]
@@ -575,10 +577,10 @@ def build_test_frame(result: CrossingResult) -> pd.DataFrame:
         "sar_elevation_angle": frame["sar_elevation_angle_scat"],
         "sar_ground_heading": frame["sar_ground_heading_scat"],
         "sar_distance_to_coast": frame["sar_distance_to_coast_swot"],
-        "sar-path-ocn": frame["sar_path_ocn_scat"],
-        "sar-path-slc": frame["sar_path_slc_scat"],
-        "sar-safe-slc": frame["sar_safe_slc_scat"],
-        "sar-safe-ocn": frame["sar_safe_ocn_scat"],
+        "sar_path_ocn": frame["sar_path_ocn_scat"],
+        "sar_path_slc": frame["sar_path_slc_scat"],
+        "sar_safe_slc": frame["sar_safe_slc_scat"],
+        "sar_safe_ocn": frame["sar_safe_ocn_scat"],
         "ref_lon": ref_lon.round(4),
         "ref_lat": ref_lat.round(4),
         "windspeed_scat": frame["scat_wind_speed_ms"],
