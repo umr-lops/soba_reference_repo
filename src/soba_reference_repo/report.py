@@ -23,7 +23,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -358,16 +358,25 @@ def _plot_reference_distributions(result: CrossingResult, path: Path) -> None:
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         if len(values):
             ax.axvline(values.median(), color="orange", linewidth=1)
-            ax.text(values.median(), 0.92, f"median = {values.median():.2f}", color="orange",
+            ax.text(values.median(), 0.80, f"median = {values.median():.2f}", color="orange",
                 ha="center", va="top", transform=ax.get_xaxis_transform(), fontsize=9,)
 
             # sections: fixed bins for wind speed and wave height, equal thirds otherwise.
             # Only the part of a section inside the axis can be drawn, so an empty
             # open-ended section (e.g. "> 15 m/s") simply does not appear.
+            # zoom to the data, keeping the last bin edge visible when the data stops
+            # short of it: an empty top bin should not own most of the axis
+            fixed = REFERENCE_BINS.get(column)
+            if fixed:
+                ax.set_xlim(0, max(float(values.max()), float(fixed[-1])))
+            elif column == "scat_wind_direction_deg":
+                ax.set_xlim(0, 360)  # the natural domain of a direction
             xmin, xmax = ax.get_xlim()
             bounds = section_bounds(column, xmin, xmax)
-            span = (xmax - xmin) or 1.0
-            previous_centre, row = None, 0
+            # tick the section boundaries, so the bins are readable off the axis
+            inner = bounds[np.isfinite(bounds)]
+            ax.set_xticks(np.unique(np.round(np.concatenate([[xmin, xmax], inner]), 6)))
+            ax.xaxis.set_major_formatter(FormatStrFormatter("%g"))
             for i in range(len(bounds) - 1):
                 left, right = bounds[i], bounds[i + 1]
                 visible_left, visible_right = max(left, xmin), min(right, xmax)
@@ -376,17 +385,11 @@ def _plot_reference_distributions(result: CrossingResult, path: Path) -> None:
                 count = ((values >= left) & (values < right)).sum()
                 ax.axvspan(visible_left, visible_right, color="lightgray" if i % 2 == 0 else "white",
                            alpha=0.15, zorder=-1)
-                centre = (visible_left + visible_right) / 2
-                # the bins are not evenly spaced, so narrow ones would overlap: drop the
-                # label to a second row whenever two sections sit close together
-                if previous_centre is not None and (centre - previous_centre) / span < 0.11:
-                    row = 1 - row
-                else:
-                    row = 0
-                ax.text(centre, 0.99 if row == 0 else 0.86, f"N = {count:,}",
-                    transform=ax.get_xaxis_transform(),
+                # the sections are as narrow as the bins, so the count is written top-down:
+                # a horizontal label would collide with its neighbour
+                ax.text((visible_left + visible_right) / 2, 0.99, f"N = {count:,}",
+                    transform=ax.get_xaxis_transform(), rotation=90,
                     ha="center", va="top", fontsize=10, fontweight="bold" )
-                previous_centre = centre
                 if i > 0:
                     ax.axvline(left, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
 
@@ -843,7 +846,7 @@ def build_report_tex(
             "label={lst:code}]\nexample of command used.\n\\end{lstlisting}",
             "\\begin{lstlisting}[caption={Command used to generate this dataset.}, "
             "label={lst:code}]\n"
-            "[toolbox-name] \\\n"
+            "soba_reference_repo \\\n"
             f"  --scat {scat_name} \\\n"
             f"  --swot {swot_name} \\\n"
             f"  --satellite {result.satellite} "

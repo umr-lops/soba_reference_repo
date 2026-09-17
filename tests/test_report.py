@@ -256,7 +256,7 @@ def test_build_report_tex_replaces_every_placeholder(tmp_path):
                  "reference_distributions.png"):
         assert name in tex
     assert "120" in tex  # the time filter value must be stated
-    assert "[toolbox-name]" in tex  # the run command replaces the template stub
+    assert "soba_reference_repo" in tex  # the generated command names the tool
     assert "TEST dataset reference TEST dataset" not in tex  # no doubled wording
     assert "for S1D / SWOT / ASCAT reference TEST dataset" in tex
     assert r"\label{tab:reference_stats}" in tex  # reference statistics table
