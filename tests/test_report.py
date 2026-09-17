@@ -15,6 +15,7 @@ import pytest
 from soba_reference_repo.report import (
     DEFAULT_LAND_MAP,
     DEFAULT_LATEX_DIR,
+    LATEX_AUXILIARY_FILES,
     ReportConfig,
     WV_MANDATORY_COLUMNS,
     WV_REF_PARAM_COLUMNS,
@@ -262,9 +263,10 @@ def test_stage_latex_assets_copies_everything_the_template_needs(tmp_path):
 
     staged = stage_latex_assets(DEFAULT_LATEX_DIR, build)
 
-    for name in ("soba.sty", "logo_soba.png", "schema_dataflow.tex", "cpcd_definition.tex"):
-        assert (build / name).is_file(), name
-    assert len(staged) == 4
+    for name in LATEX_AUXILIARY_FILES:
+        assert (DEFAULT_LATEX_DIR / name).is_file(), f"missing source asset: {name}"
+        assert (build / name).is_file(), f"not staged: {name}"
+    assert len(staged) == len(LATEX_AUXILIARY_FILES)
     assert (build / "logo_soba.png").stat().st_size > 100_000
 
 
@@ -426,23 +428,39 @@ def test_exported_primary_key_matches_the_validator_pattern(tmp_path):
 
 
 def test_exported_frame_passes_the_bundled_validator(tmp_path):
-    """The only thing the bundled validator still rejects is the naming it lags on.
+    """The export is clean against the validator once it is told which reference family to check.
 
-    Spec v1.1.0 names the reference family after its source (``scat_lon``, ``scat_lat``,
-    ``scat_time``); the validation gist still asks for ``ref_lon``, ``ref_lat``, ``ref_time``.
-    Everything else is clean — typed timestamps, a wrapped heading, and bare SAFE names —
-    so this expectation is the drift, not a defect in the export. Delete it once the gist
-    takes the new names.
+    The bundled copy carries a marked local change: its mandatory reference columns follow the
+    source (`scat_lon`/`scat_lat`/`scat_time`) instead of the retired `ref_lon`/`ref_lat`/
+    `ref_time`. The gist itself still asks for `ref_*`; see the header of `validator.py`.
     """
     path = write_test_parquet(build_test_frame(_result(tmp_path)), tmp_path / "test.parquet")
 
-    result = SOBAParquetValidator(mode="WV", dataset_type="test").validate_file(str(path))
+    result = SOBAParquetValidator(
+        mode="WV", dataset_type="test", reference="scat"
+    ).validate_file(str(path))
 
-    assert len(result["errors"]) == 1, result["errors"]
-    assert "ref_lon, ref_lat, ref_time" in result["errors"][0], result["errors"]
+    assert result["valid"] is True, result["errors"]
     warnings = " ".join(result["warnings"])
     for column in ("sar_time", "scat_time", "sar_ground_heading", "sar_safe_slc", "sar_safe_ocn"):
         assert column not in warnings, warnings
+
+
+def test_the_validator_checks_the_reference_families_it_is_given(tmp_path):
+    path = write_test_parquet(build_test_frame(_result(tmp_path)), tmp_path / "test.parquet")
+
+    for reference in ("scat", "swot", "scat,swot", ("scat", "swot")):
+        result = SOBAParquetValidator(
+            mode="WV", dataset_type="test", reference=reference
+        ).validate_file(str(path))
+        assert result["valid"] is True, (reference, result["errors"])
+
+
+def test_the_validator_rejects_a_reference_source_outside_scat_and_swot():
+    # the spec names alti_* too, but this tool has no ALTI crossing, so it is not offered
+    for source in ("gnss", "alti"):
+        with pytest.raises(ValueError, match="unsupported reference source"):
+            SOBAValidationRules.get_reference_columns(source)
 
 
 def test_bundled_validator_rejects_a_frame_missing_a_mandatory_column(tmp_path):
@@ -586,23 +604,21 @@ def test_the_template_column_table_documents_every_exported_column(tmp_path):
     assert not missing, f"columns missing from the template tables: {missing}"
 
 
-def test_the_template_ancillary_table_lists_the_ancillary_columns(tmp_path):
+def test_the_ancillary_columns_sit_under_the_second_reference(tmp_path):
     text = (DEFAULT_LATEX_DIR / "template.tex").read_text(encoding="utf-8")
-    table = text.split(r"\label{tab:ancillary}")[1].split(r"\end{longtable}")[0]
+    table = text.split(r"\subsection{Catalogue Columns}")[1].split(r"\section{")[0]
+    group = table.split(r"\textbf{Ancillary}")[1]
 
-    missing = [column for column in ANCILLARY_COLUMNS if column.replace("_", r"\_") not in table]
-    assert not missing, f"ancillary columns missing from the ancillary table: {missing}"
+    missing = [column for column in ANCILLARY_COLUMNS if column.replace("_", r"\_") not in group]
+    assert not missing, f"ancillary columns missing from the Ancillary group: {missing}"
 
 
 # --- CLI ---------------------------------------------------------------------
 
 def test_cli_validate_flag_reports_the_bundled_validator(tmp_path):
-    """`--validate` runs the bundled gist and gates the exit code on its verdict.
-
-    Spec v1.1.0 renamed the reference family (``scat_lon``/``scat_lat``/``scat_time``) and the
-    gist still asks for ``ref_*``, so the flag exits 1 on the naming drift alone. When the gist
-    catches up, drop the returncode expectation and keep the report assertion.
-    """
+    """`--validate` runs the bundled validator against the file just written and gates the
+    exit code on its verdict; the tool's crossing is scatterometer-referenced, so it passes
+    `scat` as the reference family."""
     scat_path, swot_path = _write_pair(
         tmp_path, scat_filename=SOURCE_SCAT_NAME, swot_filename=SOURCE_SWOT_NAME
     )
@@ -619,8 +635,30 @@ def test_cli_validate_flag_reports_the_bundled_validator(tmp_path):
     )
 
     assert "SOBA PARQUET VALIDATION REPORT" in completed.stdout
-    assert "Missing mandatory variables for TEST dataset: ref_lon, ref_lat, ref_time" in completed.stdout
-    assert completed.returncode == 1
+    assert "Status: ✅ PASSED" in completed.stdout
+    assert completed.returncode == 0
+
+
+def test_cli_reference_flag_overrides_the_validated_families(tmp_path):
+    """The validated families default to the catalogues given — scat,swot here — and
+    `--reference` overrides them."""
+    scat_path, swot_path = _write_pair(
+        tmp_path, scat_filename=SOURCE_SCAT_NAME, swot_filename=SOURCE_SWOT_NAME
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "soba_reference_repo.cli",
+         "--scat", str(scat_path), "--swot", str(swot_path),
+         "--satellite", "S1D", "--scatterometer", "ASCAT",
+         "--label", "reference", "--no-compile", "--validate", "--reference", "swot",
+         "--output-dir", str(tmp_path / "report"), "--test-dir", str(tmp_path / "deliverables")],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, "PYTHONPATH": "src"},
+        capture_output=True, text=True, check=False,
+    )
+
+    assert "Status: ✅ PASSED" in completed.stdout
+    assert completed.returncode == 0
 
 
 def test_cli_runs_end_to_end_without_compiling(tmp_path):

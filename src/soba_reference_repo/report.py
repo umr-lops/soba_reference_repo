@@ -47,7 +47,7 @@ WV_MANDATORY_COLUMNS = [
     "sar_path_ocn", "sar_path_slc", "sar_safe_slc", "sar_safe_ocn",
     "scat_lon", "scat_lat", "scat_time", "scat_flag", "scat_id", "legacy_usage",
 ]
-WV_REF_PARAM_COLUMNS = ["windspeed_scat", "winddirection_scat", "waveheight_swot"]
+WV_REF_PARAM_COLUMNS = ["scat_windspeed", "scat_winddirection", "swot_waveheight"]
 ANCILLARY_COLUMNS = ["ecmwf_overlap", "ecmwf_rain_rate"]
 ANCILLARY_SOURCE = "rain: IMERG HHL v7 NASA"
 
@@ -657,13 +657,13 @@ def build_test_frame(result: CrossingResult) -> pd.DataFrame:
         # <ref> = scat for the scatterometer and swot for the KaRIn side (spec v1.1.0).
         "scat_lon": ref_lon.round(4),
         "scat_lat": ref_lat.round(4),
-        "windspeed_scat": frame["scat_wind_speed_ms"],
-        "winddirection_scat": frame["scat_wind_direction_deg"],
+        "scat_windspeed": frame["scat_wind_speed_ms"],
+        "scat_winddirection": frame["scat_wind_direction_deg"],
         "scat_time": _second_precision(frame["scat_time"]),
         "scat_flag": frame["scat_flag"],
         "scat_id": frame["scat_ref_id"],
         "legacy_usage": frame["swot_legacy_usage"],
-        "waveheight_swot": frame["swot_wave_height_m"],
+        "swot_waveheight": frame["swot_wave_height_m"],
         "swot_lon": _wrap_longitude(frame["swot_lon"]).round(4),
         "swot_lat": pd.to_numeric(frame["swot_lat"]).round(4),
         "swot_time": _second_precision(frame["swot_time"]),
@@ -741,7 +741,7 @@ def write_test_parquet(test: pd.DataFrame, target: Path, source_scat: str = "") 
 # --------------------------------------------------------------------------- #
 
 LATEX_AUXILIARY_FILES = [
-    "soba.sty", "logo_soba.png", "schema_dataflow.tex", "cpcd_definition.tex",
+    "soba.sty", "logo_soba.png"
 ]
 
 
@@ -999,9 +999,9 @@ def build_report_tex(
         'sar_products:\n  mode: "WV"\n  polarizations: ["VV"]\n\n'
         "reference_products:\n"
         f'  - name: "{scat_name}"\n    type: "scatterometer"\n'
-        '    variables: ["windspeed_scat", "winddirection_scat"]\n'
+        '    variables: ["scat_windspeed", "scat_winddirection"]\n'
         f'  - name: "{swot_name}"\n    type: "wave_height"\n'
-        '    variables: ["waveheight_swot"]\n\n'
+        '    variables: ["swot_waveheight"]\n\n'
         "filters:\n"
         f"  overlap_pct: {config.overlap_min_pct:g}\n"
         f"  max_rainrate_mm_h: {config.rain_max_mm_h:g}\n"

@@ -71,7 +71,7 @@ and recompiled:
 <test dataset file name>.pdf    the report, named after the parquet it documents
 <test dataset file name>.tex    filled template, editable
 images_<dataset file name>/*.png  the three figures
-soba.sty  logo_soba.png  schema_dataflow.tex  cpcd_definition.tex
+soba.sty  logo_soba.png
 ```
 
 Pass `--keep-intermediates` to also keep the `.aux/.log/.out/.toc`; `--no-compile` skips LaTeX
@@ -131,7 +131,7 @@ otherwise pass `--test-name` explicitly.
   template rewritten for TEST datasets. Refresh the unmodified companions with:
 
   ```bash
-  cp <path-to-the-SOBA-project>/{soba.sty,logo_soba.png,schema_dataflow.tex,cpcd_definition.tex} assets/latex/
+  cp <path-to-the-SOBA-project>/{soba.sty,logo_soba.png} assets/latex/
   ```
 
 - **Column names follow the validator.** The *Format Description* writes the path and SAFE
@@ -140,9 +140,10 @@ otherwise pass `--test-name` explicitly.
   the export uses underscores. The reasoning sits next to `WV_MANDATORY_COLUMNS` in
   `report.py`.
 - **Vendored validator.** `src/soba_reference_repo/validator.py` is the consortium validation
-  gist, kept verbatim below its header. `--validate` runs it against the file just written and
-  exits non-zero when it fails; `--validator PATH` runs a newer copy from disk. Refresh by
-  re-copying the gist and keeping the diff to that header.
+  gist, kept verbatim below its header apart from one marked change — the reference family, see
+  above. `--validate` runs it against the file just written and exits non-zero when it fails;
+  `--validator PATH` runs a newer copy from disk. Refresh by re-copying the gist and reapplying
+  the marked change.
 - **WV only.** The tool implements the WV TEST layout (`:WV_<imagette>`, SLC/OCN SAFE pattern,
   WV mandatory column list). The spec's IW layout (GRD paths, `:IW2`, `ref_geometry`) is not
   implemented.
@@ -153,23 +154,23 @@ otherwise pass `--test-name` explicitly.
   two. On the S1A/HSCAT pair the flag recovers matches the plain key cannot see (54,551 shared
   imagettes against 53,401, and 6,951 rows against 6,800 after filtering); on S1D/ASCAT both modes
   deliver the same 7 rows. The mode used is recorded in the manifest as `match_on`.
-- **Reference and ancillary names.** Spec v1.1.0 names the reference family after its source —
-  `scat_lon`, `scat_lat`, `scat_time`, `scat_flag`, `scat_id`, with the SWOT side already
-  `swot_*` — and puts the rain rate and the footprint overlap in their own **Ancillary** table
-  as `ecmwf_rain_rate` and `ecmwf_overlap`. The SAFE columns carry the SAFE name alone, with no
-  archive path prefix, because the validator's patterns anchor the collection tag immediately
-  after the satellite prefix.
-- **The bundled validator lags the spec on one point.** The gist still requires `ref_lon`,
-  `ref_lat` and `ref_time`, the names v1.1.0 retired, so `--validate` exits 1 on that drift alone
-  — every other check (typed timestamps, wrapped heading, bare SAFE names, unique primary key)
-  passes. The test suite records the drift as an expectation to delete once the gist catches up,
-  not as a defect in the export.
+- **Reference and ancillary names.** Spec v1.1.0 names every reference column after its source —
+  `scat_lon`, `scat_lat`, `scat_time`, `scat_flag`, `scat_id`, `scat_windspeed`,
+  `scat_winddirection` on the scatterometer side and `swot_lon`, `swot_lat`, `swot_time`,
+  `swot_flag`, `swot_waveheight` on the SWOT side — with the rain rate and the footprint overlap
+  (`ecmwf_rain_rate`, `ecmwf_overlap`) in an **Ancillary** group under the second reference in the
+  columns table. The SAFE columns carry the SAFE name alone, with no archive path prefix, because
+  the validator's patterns anchor the collection tag immediately after the satellite prefix.
+- **The bundled validator takes a reference family.** Its mandatory reference columns follow the
+  source — `scat_lon`/`scat_lat`/`scat_time` and `swot_*` — instead of the retired `ref_*`.
+  `--validate` passes `scat` (the reference this crossing is built on); the standalone validator
+  exposes it as `--reference`. That is a marked local deviation from the gist, which still asks
+  for `ref_*`; the header of `validator.py` says so and the tests cover both families.
 - **Global attributes.** `write_test_parquet` puts the five mandatory attributes into the
   parquet's own metadata under the spec's wording: `source scat`, `source ancillary datasets`,
   `library used to produce the parquet`, `library version` (the git commit when running from a
   checkout) and `creation date`.
-- **Two references, one `ref_*` family.** A SCAT+SWOT crossing carries two references but the
-  spec has a single `ref_*` set. `ref_*` is the scatterometer wind side (`ref_id` and the wind
-  params are SCAT-native); the SWOT wave height is carried as `waveheight_swot` with its own
+- **Two references, one `<ref>_` family.** A SCAT+SWOT crossing carries two references but the
+  spec has a single reference family. `<ref>_` is the scatterometer side (`scat_id` and the wind
+  params are SCAT-native); the SWOT wave height is carried as `swot_waveheight` with its own
   coordinates.
-- See `docs/usage.md` for how to add a filter and how to troubleshoot a failed compile.

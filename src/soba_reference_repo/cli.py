@@ -38,8 +38,12 @@ from .report import (
 )
 
 
-def run_validation(parquet_path: Path, validator_path: str | None = None) -> bool:
+def run_validation(parquet_path: Path, validator_path: str | None = None,
+                   references: str = "scat") -> bool:
     """Run the SOBA validator over ``parquet_path``; print its report, return validity.
+
+    ``references`` names the reference families whose columns are mandatory — one per catalogue
+    the file was crossed from, so ``"scat,swot"`` for a scatterometer+SWOT crossing.
 
     ``validator_path`` loads a newer copy of the validator from disk instead of the bundled
     one, so a gist update does not have to wait for a release of this package.
@@ -53,7 +57,9 @@ def run_validation(parquet_path: Path, validator_path: str | None = None) -> boo
     else:
         from . import validator as module
 
-    validator = module.SOBAParquetValidator(mode="WV", dataset_type="test")
+    validator = module.SOBAParquetValidator(
+        mode="WV", dataset_type="test", reference=references
+    )
     result = validator.validate_file(str(parquet_path))
     validator.print_report()
     return bool(result["valid"])
@@ -101,6 +107,9 @@ def parse_args(argv=None):
     parser.add_argument("--scene-key", action="store_true",
                         help="match the two catalogues on the normalised imagette key instead "
                              "of their own primary_key")
+    parser.add_argument("--reference", default=None,
+                        help="reference families to validate against; defaults to the "
+                             "catalogues given (e.g. 'scat,swot')")
     parser.add_argument("--validate", action="store_true",
                         help="run the SOBA parquet validator on the TEST file; exit 1 if it fails")
     parser.add_argument("--validator", default=None,
@@ -163,7 +172,8 @@ def main(argv=None) -> int:
 
     validated = True
     if args.validate:
-        validated = run_validation(test_path, args.validator)
+        references = args.reference or "scat,swot"
+        validated = run_validation(test_path, args.validator, references)
 
     pdf_path = None
     if args.compile:

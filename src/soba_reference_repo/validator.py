@@ -1,10 +1,13 @@
 """SOBA Parquet validation — vendored from the consortium gist.
 
 Source: the validator gist shared with the project (``gistfile1.py`` in the shared folder),
-kept verbatim apart from this header. It is the acceptance gate for delivered TEST files:
-``--validate`` runs it against the parquet the tool has just written, and ``--validator
-PATH`` runs a newer copy instead of this one. Refresh by re-copying the gist, keeping the
-diff to this header only.
+kept verbatim apart from this header and one marked change: the mandatory reference columns are
+built per reference source (``scat_``/``swot_``) instead of the retired ``ref_lon``,
+``ref_lat`` and ``ref_time``, following SOBA spec v1.1.0. The change sits between the
+``--- local change`` markers in ``SOBAValidationRules``. It is the acceptance gate for delivered
+TEST files: ``--validate`` runs it against the parquet the tool has just written, and
+``--validator PATH`` runs a newer copy instead of this one. Refresh by re-copying the gist and
+reapplying the marked change.
 
 validate_soba_parquet.py
 Validation script for SOBA Parquet files - supports both IW and WV acquisition modes
@@ -76,23 +79,6 @@ class SOBAValidationRules:
             'dtype': 'object',
             'description': 'Full path of OCN measurement',
             'nullable': False
-        },
-        'ref_lon': {
-            'dtype': 'float32',
-            'description': 'Reference longitude [°]',
-            'nullable': False,
-            'range': [-180, 180]
-        },
-        'ref_lat': {
-            'dtype': 'float32',
-            'description': 'Reference latitude [°]',
-            'nullable': False,
-            'range': [-90, 90]
-        },
-        'ref_time': {
-            'dtype': 'datetime64[ns]',
-            'description': 'Time of reference measurement',
-            'nullable': False
         }
     }
     
@@ -161,13 +147,73 @@ class SOBAValidationRules:
         # Example: 'Hs_predicted', 'wind_speed_predicted', etc.
     }
     
+    # --- local change (SOBA spec v1.1.0) ------------------------------------- #
+    REFERENCE_SOURCES = ('scat', 'swot')
+
+    REFERENCE_COLUMN_SUFFIXES = {
+        '_lon': {
+            'dtype': 'float32',
+            'description': 'Longitude of the reference measurement [°]',
+            'nullable': False,
+            'range': [-180, 180]
+        },
+        '_lat': {
+            'dtype': 'float32',
+            'description': 'Latitude of the reference measurement [°]',
+            'nullable': False,
+            'range': [-90, 90]
+        },
+        '_time': {
+            'dtype': 'datetime64[ns]',
+            'description': 'Time of reference measurement',
+            'nullable': False
+        }
+    }
+
     @classmethod
-    def get_rules_for_mode(cls, mode: str) -> Dict:
-        """Get validation rules for specific SAR mode"""
+    def normalise_references(cls, reference='scat') -> tuple:
+        """One or more reference sources, from a string ('scat,swot') or an iterable"""
+        if reference is None or reference == '':
+            return ('scat',)
+        if isinstance(reference, str):
+            sources = [part.strip().lower() for part in reference.split(',')]
+        else:
+            sources = [str(part).strip().lower() for part in reference]
+        sources = [source for source in sources if source]
+        if not sources:
+            return ('scat',)
+        unknown = [source for source in sources if source not in cls.REFERENCE_SOURCES]
+        if unknown:
+            raise ValueError(
+                f"unsupported reference source(s) {', '.join(unknown)}; expected one or more "
+                f"of {', '.join(cls.REFERENCE_SOURCES)}"
+            )
+        return tuple(dict.fromkeys(sources))
+
+    @classmethod
+    def get_reference_columns(cls, reference='scat') -> Dict:
+        """Mandatory reference columns for the given reference source(s)
+
+        A crossing can carry more than one reference — a scatterometer and SWOT, say — so the
+        rule table is the union over the sources given.
+        """
+        columns = {}
+        for source in cls.normalise_references(reference):
+            columns.update({
+                f"{source}{suffix}": dict(spec)
+                for suffix, spec in cls.REFERENCE_COLUMN_SUFFIXES.items()
+            })
+        return columns
+    # --- end local change ---------------------------------------------------- #
+
+    @classmethod
+    def get_rules_for_mode(cls, mode: str, reference='scat') -> Dict:
+        """Get validation rules for a SAR mode and reference source"""
+        reference_columns = cls.get_reference_columns(reference)
         if mode.upper() == 'IW':
-            return {**cls.COMMON_MANDATORY, **cls.IW_SPECIFIC}
+            return {**cls.COMMON_MANDATORY, **reference_columns, **cls.IW_SPECIFIC}
         elif mode.upper() == 'WV':
-            return {**cls.COMMON_MANDATORY, **cls.WV_SPECIFIC}
+            return {**cls.COMMON_MANDATORY, **reference_columns, **cls.WV_SPECIFIC}
         else:
             raise ValueError(f"Unsupported SAR mode: {mode}. Must be IW or WV.")
     
@@ -193,7 +239,7 @@ class SOBAParquetValidator:
     """Validator for SOBA Parquet files supporting IW and WV modes"""
     
     def __init__(self, mode: str = 'WV', verbose: bool = False, 
-                 dataset_type: str = 'test'):
+                 dataset_type: str = 'test', reference: str = 'scat'):
         """
         Initialize validator
         
@@ -205,16 +251,21 @@ class SOBAParquetValidator:
             Enable verbose logging
         dataset_type : str
             Type of dataset ('test' or 'challenger')
+        reference : str or iterable
+            Reference source(s) whose columns are mandatory — 'scat' or 'swot',
+            comma-separated or as an iterable when the file carries both
         """
         self.mode = mode.upper()
         self.dataset_type = dataset_type.lower()
         self.verbose = verbose
-        self.rules = SOBAValidationRules.get_rules_for_mode(self.mode)
+        self.reference = SOBAValidationRules.normalise_references(reference)
+        self.rules = SOBAValidationRules.get_rules_for_mode(self.mode, self.reference)
         
         self.results = {
             'file_path': None,
             'mode': self.mode,
             'dataset_type': self.dataset_type,
+            'reference': ','.join(self.reference),
             'valid': False,
             'errors': [],
             'warnings': [],
@@ -299,7 +350,7 @@ class SOBAParquetValidator:
             logging.warning(warning_msg)
             self.results['warnings'].append(warning_msg)
             self.mode = detected_mode
-            self.rules = SOBAValidationRules.get_rules_for_mode(self.mode)
+            self.rules = SOBAValidationRules.get_rules_for_mode(self.mode, self.reference)
             logging.info(f"Switching to {self.mode} mode for validation")
         
         # Step 4: Validate based on dataset type
@@ -558,7 +609,8 @@ class SOBAParquetValidator:
 def validate_parquet_files(file_or_dir: str, mode: str = 'WV', 
                           dataset_type: str = 'test',
                           pattern: str = "*.parquet", 
-                          verbose: bool = False) -> List[Dict]:
+                          verbose: bool = False,
+                          reference: str = 'scat') -> List[Dict]:
     """
     Validate one or multiple Parquet files
     
@@ -595,7 +647,7 @@ def validate_parquet_files(file_or_dir: str, mode: str = 'WV',
     logging.info(f"Found {len(files)} file(s) to validate")
     
     validator = SOBAParquetValidator(mode=mode, verbose=verbose, 
-                                   dataset_type=dataset_type)
+                                   dataset_type=dataset_type, reference=reference)
     results = []
     
     for file_path in sorted(files):
@@ -631,6 +683,9 @@ if __name__ == "__main__":
     parser.add_argument("--dataset-type", type=str, choices=['test', 'challenger'], 
                        default='test',
                        help="Dataset type (test or challenger)")
+    parser.add_argument("--reference", type=str, default='scat',
+                       help="Reference source(s) whose columns are mandatory: scat or swot, "
+                            "comma-separated for both (default: scat)")
     parser.add_argument("--pattern", type=str, default="*.parquet",
                        help="Pattern for matching files in directory")
     parser.add_argument("--verbose", action="store_true",
@@ -670,7 +725,8 @@ if __name__ == "__main__":
         mode=args.mode,
         dataset_type=args.dataset_type,
         pattern=args.pattern,
-        verbose=args.verbose
+        verbose=args.verbose,
+        reference=args.reference
     )
     
     # Save report if requested

@@ -180,14 +180,18 @@ Table~\ref{tab:columns} lists every column of the reference TEST dataset, groupe
     scat\_time & datetime & Acquisition time of the selected wind vector cell (UTC) \\
     scat\_lon, scat\_lat & float & Centre of the selected wind vector cell (deg) \\
     scat\_flag & integer & Quality bitmask of the wind vector cell as delivered by the scatterometer product (nullable) \\
-    windspeed\_scat & float & Wind speed at 10\,m (m\,s$^{-1}$) \\
-    winddirection\_scat & float & Wind direction (deg, blowing towards, clockwise from north) \\
+    scat\_windspeed & float & Wind speed at 10\,m (m\,s$^{-1}$) \\
+    scat\_winddirection & float & Wind direction (deg, blowing towards, clockwise from north) \\
     \midrule
     \multicolumn{3}{@{}l}{\textbf{Second reference (SWOT KaRIn)}} \\
-    waveheight\_swot & float & SWOT KaRIn mean significant wave height (m) \\
+    swot\_waveheight & float & SWOT KaRIn mean significant wave height (m) \\
     swot\_lon, swot\_lat & float & SWOT reference position (deg) \\
     swot\_time & datetime & SWOT reference time (UTC) \\
     swot\_flag & string & SWOT reference quality flag \\
+    \midrule
+    \multicolumn{3}{@{}l}{\textbf{Ancillary}} \\
+    ecmwf\_overlap & float & SAR/SWOT footprint overlap (\%) \\
+    ecmwf\_rain\_rate & float & Mean rain rate over the matchup from the ancillary rain product (mm\,h$^{-1}$) \\
     \midrule
     \multicolumn{3}{@{}l}{\textbf{Provenance and filters}} \\
     legacy\_usage & string & Set to \texttt{train} when the case was already consumed by a previous training exercise \\
@@ -199,23 +203,6 @@ Table~\ref{tab:columns} lists every column of the reference TEST dataset, groupe
 \texttt{sar\_ground\_heading} are sampled at the image pixel nearest the selected wind vector cell,
 not at the imagette centroid, so they describe the reference point rather than the imagette as a
 whole.
-
-\begin{longtable}{@{}p{4.1cm}p{1.9cm}p{8.6cm}@{}}
-    \caption{Ancillary variables of the reference TEST dataset.\label{tab:ancillary}} \\
-    \toprule
-    \textbf{Column} & \textbf{Type} & \textbf{Description} \\
-    \midrule
-    \endfirsthead
-    \toprule
-    \textbf{Column} & \textbf{Type} & \textbf{Description} \\
-    \midrule
-    \endhead
-    \bottomrule
-    \endlastfoot
-    \multicolumn{3}{@{}l}{\textbf{Ancillary}} \\
-    ecmwf\_overlap & float & SAR/SWOT footprint overlap (\%) \\
-    ecmwf\_rain\_rate & float & Mean rain rate over the matchup from the ancillary rain product (mm\,h$^{-1}$) \\
-\end{longtable}
 
 \newpage
 % ---------------------------
@@ -272,7 +259,7 @@ sar_products:
 reference_products:
   - name: "KNMI-SCAT-HY2B-25km"
     type: "scatterometer"
-    variables: ["windspeed_scat", "winddirection_scat"]
+    variables: ["scat_windspeed", "scat_winddirection"]
     
 filters:
   max_time_diff_minutes: 30
