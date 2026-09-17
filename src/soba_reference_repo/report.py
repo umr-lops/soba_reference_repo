@@ -45,9 +45,11 @@ WV_MANDATORY_COLUMNS = [
     "primary_key", "sar_time", "sar_lat", "sar_lon", "sar_incidence_angle",
     "sar_elevation_angle", "sar_ground_heading", "sar_distance_to_coast",
     "sar_path_ocn", "sar_path_slc", "sar_safe_slc", "sar_safe_ocn",
-    "ref_lon", "ref_lat", "ref_time", "ref_flag", "ref_id", "legacy_usage",
+    "scat_lon", "scat_lat", "scat_time", "scat_flag", "scat_id", "legacy_usage",
 ]
 WV_REF_PARAM_COLUMNS = ["windspeed_scat", "winddirection_scat", "waveheight_swot"]
+ANCILLARY_COLUMNS = ["ecmwf_overlap", "ecmwf_rain_rate"]
+ANCILLARY_SOURCE = "rain: IMERG HHL v7 NASA"
 
 SCAT_COLUMNS = [
     "primary_key", "sar_safe_ocn", "sar_safe_slc", "sar_time", "sar_lat", "sar_lon",
@@ -646,23 +648,29 @@ def build_test_frame(result: CrossingResult) -> pd.DataFrame:
         "sar_distance_to_coast": frame["sar_distance_to_coast_swot"],
         "sar_path_ocn": frame["sar_path_ocn_scat"],
         "sar_path_slc": frame["sar_path_slc_scat"],
-        "sar_safe_slc": frame["sar_safe_slc_scat"],
-        "sar_safe_ocn": frame["sar_safe_ocn_scat"],
-        "ref_lon": ref_lon.round(4),
-        "ref_lat": ref_lat.round(4),
+        # the SAFE columns carry the name alone: the archive path prefix the catalogues
+        # sometimes prepend is not part of the SAFE name, and the validator's patterns
+        # anchor on the collection tag immediately after the satellite prefix.
+        "sar_safe_slc": _leaf(frame["sar_safe_slc_scat"]),
+        "sar_safe_ocn": _leaf(frame["sar_safe_ocn_scat"]),
+        # the reference family is named after its source: <ref>_lon / _lat / _time, with
+        # <ref> = scat for the scatterometer and swot for the KaRIn side (spec v1.1.0).
+        "scat_lon": ref_lon.round(4),
+        "scat_lat": ref_lat.round(4),
         "windspeed_scat": frame["scat_wind_speed_ms"],
         "winddirection_scat": frame["scat_wind_direction_deg"],
-        "ref_time": _second_precision(frame["scat_time"]),
-        "ref_flag": frame["scat_flag"],
-        "ref_id": frame["scat_ref_id"],
+        "scat_time": _second_precision(frame["scat_time"]),
+        "scat_flag": frame["scat_flag"],
+        "scat_id": frame["scat_ref_id"],
         "legacy_usage": frame["swot_legacy_usage"],
         "waveheight_swot": frame["swot_wave_height_m"],
         "swot_lon": _wrap_longitude(frame["swot_lon"]).round(4),
         "swot_lat": pd.to_numeric(frame["swot_lat"]).round(4),
         "swot_time": _second_precision(frame["swot_time"]),
         "swot_flag": frame["swot_flag"],
-        "overlap_pct": frame["overlap_pct"],
-        "mean_rainrate_IMERG": frame["mean_rainrate_IMERG"],
+        # ancillary products, kept in their own table in the report
+        "ecmwf_overlap": frame["overlap_pct"],
+        "ecmwf_rain_rate": frame["mean_rainrate_IMERG"],
         "scat_swot_distance_km": frame["scat_swot_distance_km"],
         "scat_swot_time_delta_min": frame["scat_swot_time_delta_min"],
     })
@@ -676,24 +684,54 @@ def build_test_frame(result: CrossingResult) -> pd.DataFrame:
         raise ValueError("primary_key is not unique")
     if not test["primary_key"].str.match(r".*\.SAFE:WV_\d+_-?\d+\.\d_-?\d+\.\d$").all():
         raise ValueError("primary_key is not <SAFE>:WV_<imagette>_<ref_lon>_<ref_lat>")
-    for column in ("sar_lon", "ref_lon", "swot_lon"):
+    for column in ("sar_lon", "scat_lon", "swot_lon"):
         if not test[column].between(-180, 180).all():
             raise ValueError(f"{column} outside [-180, 180]")
     return test
 
 
-def write_test_parquet(
-    test: pd.DataFrame,
-    target: Path,
-    source_ref: str = "ASCAT KNMI-METOP-12.5km + SWOT PODAAC-KARIN-L2-WINDWAVE",
-) -> Path:
-    """Write the TEST parquet with the SOBA global attributes."""
+def library_version() -> str:
+    """The version recorded in the parquet's global attributes.
+
+    Prefers the git commit when the package runs from a checkout — the spec's example is
+    ``commit <sha>`` or a tag — and falls back to the installed distribution version.
+    """
+    repository = Path(__file__).resolve().parents[2]
+    try:
+        described = subprocess.run(
+            ["git", "-C", str(repository), "describe", "--tags", "--always", "--dirty"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if described.returncode == 0 and described.stdout.strip():
+            return f"commit {described.stdout.strip()}"
+    except OSError:
+        pass
+    try:
+        from importlib.metadata import version
+
+        return f"version {version('soba_reference_repo')}"
+    except Exception:
+        return "unknown"
+
+
+def write_test_parquet(test: pd.DataFrame, target: Path, source_scat: str = "") -> Path:
+    """Write the TEST parquet with the SOBA mandatory global attributes.
+
+    Attribute names follow the spec verbatim: ``source <ref>`` — ``<ref>`` replaced by the
+    reference's short name, ``scat`` here — ``source ancillary datasets``, ``library used to
+    produce the parquet``, ``library version`` and ``creation date``.
+    """
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     table = pa.Table.from_pandas(test, preserve_index=False)
     metadata = dict(table.schema.metadata or {})
-    metadata[b"source_ref"] = source_ref.encode()
-    metadata[b"creation_date"] = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d").encode()
+    metadata.update({
+        b"source scat": (source_scat or "unknown").encode(),
+        b"source ancillary datasets": ANCILLARY_SOURCE.encode(),
+        b"library used to produce the parquet": b"soba_reference_repo",
+        b"library version": library_version().encode(),
+        b"creation date": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d").encode(),
+    })
     pq.write_table(table.replace_schema_metadata(metadata), target)
     return target
 

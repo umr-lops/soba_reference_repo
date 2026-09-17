@@ -153,6 +153,21 @@ otherwise pass `--test-name` explicitly.
   two. On the S1A/HSCAT pair the flag recovers matches the plain key cannot see (54,551 shared
   imagettes against 53,401, and 6,951 rows against 6,800 after filtering); on S1D/ASCAT both modes
   deliver the same 7 rows. The mode used is recorded in the manifest as `match_on`.
+- **Reference and ancillary names.** Spec v1.1.0 names the reference family after its source —
+  `scat_lon`, `scat_lat`, `scat_time`, `scat_flag`, `scat_id`, with the SWOT side already
+  `swot_*` — and puts the rain rate and the footprint overlap in their own **Ancillary** table
+  as `ecmwf_rain_rate` and `ecmwf_overlap`. The SAFE columns carry the SAFE name alone, with no
+  archive path prefix, because the validator's patterns anchor the collection tag immediately
+  after the satellite prefix.
+- **The bundled validator lags the spec on one point.** The gist still requires `ref_lon`,
+  `ref_lat` and `ref_time`, the names v1.1.0 retired, so `--validate` exits 1 on that drift alone
+  — every other check (typed timestamps, wrapped heading, bare SAFE names, unique primary key)
+  passes. The test suite records the drift as an expectation to delete once the gist catches up,
+  not as a defect in the export.
+- **Global attributes.** `write_test_parquet` puts the five mandatory attributes into the
+  parquet's own metadata under the spec's wording: `source scat`, `source ancillary datasets`,
+  `library used to produce the parquet`, `library version` (the git commit when running from a
+  checkout) and `creation date`.
 - **Two references, one `ref_*` family.** A SCAT+SWOT crossing carries two references but the
   spec has a single `ref_*` set. `ref_*` is the scatterometer wind side (`ref_id` and the wind
   params are SCAT-native); the SWOT wave height is carried as `waveheight_swot` with its own

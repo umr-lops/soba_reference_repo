@@ -27,6 +27,7 @@ from .report import (
     ReportConfig,
     build_report_tex,
     build_test_frame,
+    parse_source_catalogue_name,
     compile_pdf,
     default_test_name,
     plot_figures,
@@ -152,7 +153,13 @@ def main(argv=None) -> int:
     tex_path = output_dir / f"{report_stem}.tex"
     tex_path.write_text(tex, encoding="utf-8")
 
-    test_path = write_test_parquet(build_test_frame(result), test_dir / test_name)
+    try:
+        source_scat = parse_source_catalogue_name(scat_path.name)["ref_product"]
+    except ValueError:
+        source_scat = args.scatterometer
+    test_path = write_test_parquet(
+        build_test_frame(result), test_dir / test_name, source_scat
+    )
 
     validated = True
     if args.validate:

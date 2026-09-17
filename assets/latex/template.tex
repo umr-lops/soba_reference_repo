@@ -162,11 +162,11 @@ Table~\ref{tab:columns} lists every column of the reference TEST dataset, groupe
     \endlastfoot
     \multicolumn{3}{@{}l}{\textbf{Identification}} \\
     primary\_key & string & Sentinel-1 SLC SAFE name, imagette number and the reference position at one decimal, \texttt{<SAFE>:WV\_<imagette>\_<ref\_lon>\_<ref\_lat>}; unique per row \\
-    sar\_safe\_slc & string & Archive-relative L1 SLC product, \texttt{<collection>/<year>/<doy>/<SAFE>:WV\_<imagette>} \\
+    sar\_safe\_slc & string & Sentinel-1 SLC SAFE name with the imagette number, \texttt{<SAFE>:WV\_<imagette>} \\
     sar\_path\_slc & string & Absolute path of the imagette measurement (GeoTIFF) \\
-    sar\_safe\_ocn & string & Same, for the matching L2 OCN product \\
+    sar\_safe\_ocn & string & Sentinel-1 OCN SAFE name with the imagette number, \texttt{<SAFE>:WV\_<imagette>} \\
     sar\_path\_ocn & string & Absolute path of the imagette measurement (NetCDF) \\
-    ref\_id & string & File name of the scatterometer L2 granule the reference came from \\
+    scat\_id & string & File name of the scatterometer L2 granule the reference came from \\
     \midrule
     \multicolumn{3}{@{}l}{\textbf{SAR geometry}} \\
     sar\_time & datetime & Imagette start of acquisition (UTC), \texttt{YYYY-mm-dd HH:MM:SS} \\
@@ -177,9 +177,9 @@ Table~\ref{tab:columns} lists every column of the reference TEST dataset, groupe
     sar\_distance\_to\_coast & float & Distance from the imagette centroid to the nearest OSM coastline (km) \\
     \midrule
     \multicolumn{3}{@{}l}{\textbf{Reference (scatterometer)}} \\
-    ref\_time & datetime & Acquisition time of the selected wind vector cell (UTC) \\
-    ref\_lon, ref\_lat & float & Centre of the selected wind vector cell (deg) \\
-    ref\_flag & integer & Quality bitmask of the wind vector cell as delivered by the scatterometer product (nullable) \\
+    scat\_time & datetime & Acquisition time of the selected wind vector cell (UTC) \\
+    scat\_lon, scat\_lat & float & Centre of the selected wind vector cell (deg) \\
+    scat\_flag & integer & Quality bitmask of the wind vector cell as delivered by the scatterometer product (nullable) \\
     windspeed\_scat & float & Wind speed at 10\,m (m\,s$^{-1}$) \\
     winddirection\_scat & float & Wind direction (deg, blowing towards, clockwise from north) \\
     \midrule
@@ -191,8 +191,6 @@ Table~\ref{tab:columns} lists every column of the reference TEST dataset, groupe
     \midrule
     \multicolumn{3}{@{}l}{\textbf{Provenance and filters}} \\
     legacy\_usage & string & Set to \texttt{train} when the case was already consumed by a previous training exercise \\
-    overlap\_pct & float & SAR/SWOT footprint overlap (\%) \\
-    mean\_rainrate\_IMERG & float & IMERG mean rain rate over the matchup (mm\,h$^{-1}$) \\
     scat\_swot\_distance\_km & float & Direct scatterometer--SWOT separation (km) \\
     scat\_swot\_time\_delta\_min & float & Direct scatterometer--SWOT time difference (min) \\
 \end{longtable}
@@ -201,6 +199,23 @@ Table~\ref{tab:columns} lists every column of the reference TEST dataset, groupe
 \texttt{sar\_ground\_heading} are sampled at the image pixel nearest the selected wind vector cell,
 not at the imagette centroid, so they describe the reference point rather than the imagette as a
 whole.
+
+\begin{longtable}{@{}p{4.1cm}p{1.9cm}p{8.6cm}@{}}
+    \caption{Ancillary variables of the reference TEST dataset.\label{tab:ancillary}} \\
+    \toprule
+    \textbf{Column} & \textbf{Type} & \textbf{Description} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Column} & \textbf{Type} & \textbf{Description} \\
+    \midrule
+    \endhead
+    \bottomrule
+    \endlastfoot
+    \multicolumn{3}{@{}l}{\textbf{Ancillary}} \\
+    ecmwf\_overlap & float & SAR/SWOT footprint overlap (\%) \\
+    ecmwf\_rain\_rate & float & Mean rain rate over the matchup from the ancillary rain product (mm\,h$^{-1}$) \\
+\end{longtable}
 
 \newpage
 % ---------------------------
