@@ -202,10 +202,15 @@ def test_build_test_frame_respects_the_value_conventions(tmp_path):
 
     assert frame["primary_key"].is_unique
     assert frame["primary_key"].str.match(r".*:WV_\d+$").all()
-    assert frame["sar_time"].str.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$").all()
-    assert frame["ref_time"].str.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$").all()
+    # timestamps are typed, whole-second, UTC — the validator asks for datetime64[ns]
+    for column in ("sar_time", "ref_time", "swot_time"):
+        assert "datetime64" in str(frame[column].dtype), column
+        assert (frame[column].dt.microsecond == 0).all(), column
     for column in ("sar_lon", "ref_lon", "swot_lon"):
         assert frame[column].between(-180, 180).all()
+    # the fixture's heading is -128.2; the export is clockwise from north, in [0, 360)
+    assert frame["sar_ground_heading"].iloc[0] == pytest.approx(231.8)
+    assert frame["sar_ground_heading"].between(0, 360, inclusive="left").all()
 
 
 def test_write_test_parquet_records_the_global_attributes(tmp_path):
@@ -388,6 +393,11 @@ def test_exported_frame_passes_the_bundled_validator(tmp_path):
     result = SOBAParquetValidator(mode="WV", dataset_type="test").validate_file(str(path))
 
     assert result["valid"] is True, result["errors"]
+    # the three the tool owns are clean: typed timestamps and a wrapped heading. What is
+    # left is the SAFE-name form (a question for the consortium) and the primary key.
+    warnings = " ".join(result["warnings"])
+    for column in ("sar_time", "ref_time", "sar_ground_heading"):
+        assert column not in warnings, warnings
 
 
 def test_bundled_validator_rejects_a_frame_missing_a_mandatory_column(tmp_path):
