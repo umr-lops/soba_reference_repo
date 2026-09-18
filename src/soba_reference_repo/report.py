@@ -520,7 +520,7 @@ def build_test_filename(
         else pd.Timestamp.now(tz="UTC")
     )
     return (
-        f"{satellite.upper()}_reference_test_dataset_{sar_mode}_"
+        f"{satellite.upper()}_{REFERENCE_DATASET_TOKEN}_{sar_mode}_"
         f"{times.min().strftime('%Y%m%d')}_{times.max().strftime('%Y%m%d')}_"
         f"{production.strftime('%Y%m%d')}_{polarization}_{ref_product}_{version}.parquet"
     )
@@ -554,6 +554,20 @@ def default_test_name(
         satellite, sar_mode, polarization, "_".join(references),
         frame["sar_time_scat"], version,
     )
+
+
+REFERENCE_DATASET_TOKEN = "reference_test_dataset"
+CHALLENGER_DATASET_TOKEN = "challenger_dataset"
+
+
+def challenger_dataset_name(test_name: str) -> str:
+    """The CHALLENGER filename for a TEST filename.
+
+    Same convention throughout — only the dataset token changes, from
+    ``reference_test_dataset`` to ``challenger_dataset`` — so a challenger sits beside the
+    reference it is scored against and the two stay sorted together.
+    """
+    return test_name.replace(REFERENCE_DATASET_TOKEN, CHALLENGER_DATASET_TOKEN)
 
 
 LATEX_BYPRODUCT_SUFFIXES = (".aux", ".log", ".out", ".toc")
@@ -690,6 +704,33 @@ def build_test_frame(result: CrossingResult) -> pd.DataFrame:
     return test
 
 
+def build_challenger_frame(result: CrossingResult) -> pd.DataFrame:
+    """Reshape the filtered crossing into the mandatory WV CHALLENGER layout.
+
+    A challenger carries a prediction to be scored against the reference, so it holds the
+    identifier the scoring joins on plus the reference parameters, and nothing else. The
+    identifier is the same one the TEST dataset carries, so the two files pair row for row.
+    """
+    frame = result.filtered
+    ref_lon = _wrap_longitude(frame["scat_lon"])
+    ref_lat = pd.to_numeric(frame["scat_lat"])
+
+    challenger = pd.DataFrame({
+        "primary_key": _primary_key(frame, ref_lon, ref_lat),
+        "scat_windspeed": frame["scat_wind_speed_ms"],
+        "scat_winddirection": frame["scat_wind_direction_deg"],
+        "swot_waveheight": frame["swot_wave_height_m"],
+    })
+
+    if not set(WV_REF_PARAM_COLUMNS) <= set(challenger.columns):
+        raise ValueError("missing dataset-specific ref_param columns")
+    if not challenger["primary_key"].is_unique:
+        raise ValueError("primary_key is not unique")
+    if not challenger["primary_key"].str.match(r".*\.SAFE:WV_\d+_-?\d+\.\d_-?\d+\.\d$").all():
+        raise ValueError("primary_key is not <SAFE>:WV_<imagette>_<ref_lon>_<ref_lat>")
+    return challenger
+
+
 def library_version() -> str:
     """The version recorded in the parquet's global attributes.
 
@@ -714,8 +755,8 @@ def library_version() -> str:
         return "unknown"
 
 
-def write_test_parquet(test: pd.DataFrame, target: Path, source_scat: str = "") -> Path:
-    """Write the TEST parquet with the SOBA mandatory global attributes.
+def _write_parquet_with_attributes(frame: pd.DataFrame, target: Path, source_scat: str) -> Path:
+    """Write ``frame`` with the SOBA mandatory global attributes and return the path.
 
     Attribute names follow the spec verbatim: ``source <ref>`` — ``<ref>`` replaced by the
     reference's short name, ``scat`` here — ``source ancillary datasets``, ``library used to
@@ -723,7 +764,7 @@ def write_test_parquet(test: pd.DataFrame, target: Path, source_scat: str = "") 
     """
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    table = pa.Table.from_pandas(test, preserve_index=False)
+    table = pa.Table.from_pandas(frame, preserve_index=False)
     metadata = dict(table.schema.metadata or {})
     metadata.update({
         b"source scat": (source_scat or "unknown").encode(),
@@ -734,6 +775,18 @@ def write_test_parquet(test: pd.DataFrame, target: Path, source_scat: str = "") 
     })
     pq.write_table(table.replace_schema_metadata(metadata), target)
     return target
+
+
+def write_test_parquet(test: pd.DataFrame, target: Path, source_scat: str = "") -> Path:
+    """Write the TEST parquet with the SOBA mandatory global attributes."""
+    return _write_parquet_with_attributes(test, target, source_scat)
+
+
+def write_challenger_parquet(
+    challenger: pd.DataFrame, target: Path, source_scat: str = ""
+) -> Path:
+    """Write the CHALLENGER parquet with the SOBA mandatory global attributes."""
+    return _write_parquet_with_attributes(challenger, target, source_scat)
 
 
 # --------------------------------------------------------------------------- #

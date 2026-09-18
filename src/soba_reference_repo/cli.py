@@ -25,8 +25,10 @@ from .report import (
     DEFAULT_LATEX_DIR,
     DEFAULT_TEST_DIR,
     ReportConfig,
+    build_challenger_frame,
     build_report_tex,
     build_test_frame,
+    challenger_dataset_name,
     compile_pdf,
     default_test_name,
     parse_source_catalogue_name,
@@ -34,16 +36,18 @@ from .report import (
     purge_latex_byproducts,
     run_crossing,
     stage_latex_assets,
+    write_challenger_parquet,
     write_test_parquet,
 )
 
 
 def run_validation(parquet_path: Path, validator_path: str | None = None,
-                   references: str = "scat") -> bool:
+                   references: str = "scat", dataset_type: str = "test") -> bool:
     """Run the SOBA validator over ``parquet_path``; print its report, return validity.
 
     ``references`` names the reference families whose columns are mandatory — one per catalogue
-    the file was crossed from, so ``"scat,swot"`` for a scatterometer+SWOT crossing.
+    the file was crossed from, so ``"scat,swot"`` for a scatterometer+SWOT crossing. It is
+    ignored for ``dataset_type="challenger"``, whose only fixed column is the primary key.
 
     ``validator_path`` loads a newer copy of the validator from disk instead of the bundled
     one, so a gist update does not have to wait for a release of this package.
@@ -58,7 +62,7 @@ def run_validation(parquet_path: Path, validator_path: str | None = None,
         from . import validator as module
 
     validator = module.SOBAParquetValidator(
-        mode="WV", dataset_type="test", reference=references
+        mode="WV", dataset_type=dataset_type, reference=references
     )
     result = validator.validate_file(str(parquet_path))
     validator.print_report()
@@ -93,6 +97,8 @@ def parse_args(argv=None):
                         help="override the generated TEST filename")
     parser.add_argument("--dataset-version", default="0.1",
                         help="<version> field of the TEST filename (X.Y)")
+    parser.add_argument("--challenger", action="store_true",
+                        help="also write the CHALLENGER dataset beside the TEST parquet")
 
     # inputs
     parser.add_argument("--latex-dir", default=str(DEFAULT_LATEX_DIR),
@@ -170,10 +176,23 @@ def main(argv=None) -> int:
         build_test_frame(result), test_dir / test_name, source_scat
     )
 
+    challenger_path = None
+    if args.challenger:
+        challenger_path = write_challenger_parquet(
+            build_challenger_frame(result),
+            test_dir / challenger_dataset_name(test_name),
+            source_scat,
+        )
+
     validated = True
     if args.validate:
         references = args.reference or "scat,swot"
         validated = run_validation(test_path, args.validator, references)
+        if challenger_path is not None:
+            # the challenger is validated as a challenger: primary key plus predictions
+            validated = run_validation(
+                challenger_path, args.validator, references, dataset_type="challenger"
+            ) and validated
 
     pdf_path = None
     if args.compile:
