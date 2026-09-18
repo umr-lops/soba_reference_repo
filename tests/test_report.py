@@ -757,6 +757,23 @@ def test_cli_requires_satellite_and_scatterometer(tmp_path):
     assert "--scatterometer" in completed.stderr
 
 
+# --- container ---------------------------------------------------------------
+
+def test_the_container_definition_copies_what_the_tool_needs():
+    """The definition copies the tree instead of installing a wheel: the tool resolves its
+    LaTeX templates relative to the package, so ``src/`` and ``assets/`` have to travel
+    together — and the template's TeX packages have to be installed in the image."""
+    definition = (
+        Path(__file__).resolve().parents[1] / "apptainer.def"
+    ).read_text(encoding="utf-8")
+    copied = definition.split("%files")[1].split("%")[0]
+
+    assert "src" in copied and "assets" in copied
+    assert "pyproject.toml" in copied
+    assert "texlive-latex-extra" in definition
+    assert "%runscript" in definition
+
+
 # --- challenger dataset ------------------------------------------------------
 
 def test_the_challenger_frame_carries_the_key_and_the_reference_parameters(tmp_path):

@@ -1,0 +1,59 @@
+Bootstrap: docker
+From: python:3.11-slim
+
+# Build from a checkout of this repository:
+#
+#     apptainer build /tmp/soba_reference_repo.sif apptainer.def
+#
+# then run it like the console script:
+#
+#     apptainer run /tmp/soba_reference_repo.sif --help
+#
+# The tree is copied in rather than pip-installed from a wheel: the tool locates its LaTeX
+# templates relative to the package, so it needs the repository layout to sit next to src/.
+
+%files
+    pyproject.toml /opt/soba_reference_repo/pyproject.toml
+    README.md /opt/soba_reference_repo/README.md
+    LICENSE /opt/soba_reference_repo/LICENSE
+    src /opt/soba_reference_repo/src
+    assets /opt/soba_reference_repo/assets
+
+%post
+    apt-get update
+    # the last two are not pulled in by the others, and the template needs both:
+    # datetime2 loads tracklang (plain-generic) and the body font is Latin Modern
+    apt-get install -y --no-install-recommends \
+        texlive-latex-recommended \
+        texlive-latex-extra \
+        texlive-pictures \
+        texlive-fonts-recommended \
+        texlive-plain-generic \
+        lmodern
+    rm -rf /var/lib/apt/lists/*
+
+    python -m pip install --no-cache-dir -e /opt/soba_reference_repo
+
+%environment
+    export MPLBACKEND=Agg
+    export PYTHONUNBUFFERED=1
+
+%runscript
+    exec soba_reference_repo "$@"
+
+%labels
+    org.soba.tool soba_reference_repo
+    org.soba.description SOBA co-aligned / TEST dataset report generator
+
+%help
+    Generates a SOBA reference TEST dataset report from two co-aligned catalogues: figures,
+    a LaTeX PDF and the spec-conformant TEST parquet, plus the CHALLENGER dataset with
+    --challenger.
+
+    Run it like the console script, with the catalogues mounted in:
+
+        apptainer run --bind /path/to/data:/data soba_reference_repo.sif \
+            --scat /data/SCAT_catalogue.parquet \
+            --swot /data/SWOT_catalogue.parquet \
+            --satellite S1D --scatterometer ASCAT \
+            --test-dir /data/deliverables

@@ -10,5 +10,8 @@ build/
 runs/
 test_datasets/
 
+# container images, built with `apptainer build <name>.sif apptainer.def`
+*.sif
+
 # local knowledge graph: rebuild with `graphify extract . --code-only`
 graphify-out/
