@@ -24,6 +24,9 @@ dependencies = [
   "geopandas",
 ]
 
+[project.optional-dependencies]
+docs = ["sphinx", "furo", "myst-parser"]
+
 [project.scripts]
 soba_reference_repo = "soba_reference_repo.cli:main"
 

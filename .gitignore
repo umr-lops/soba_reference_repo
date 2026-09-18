@@ -10,5 +10,8 @@ build/
 runs/
 test_datasets/
 
+# generated documentation, rebuilt by `make -C docs html`
+docs/_build/
+
 # local knowledge graph: rebuild with `graphify extract . --code-only`
 graphify-out/
