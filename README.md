@@ -130,6 +130,37 @@ otherwise pass `--test-name` explicitly.
 - Remote writes are explicit: pushing a branch, opening a PR, merging on GitHub or deleting a
   remote branch each get confirmed first.
 
+## Container
+
+`apptainer.def` packages the tool with Python and TeX Live into a single image, for running it
+on infrastructure where neither is installed. Build it from a checkout:
+
+```bash
+apptainer build soba_reference_repo.sif apptainer.def
+apptainer run soba_reference_repo.sif --help
+```
+
+The definition copies `src/` and `assets/` into the image instead of installing a wheel,
+because the tool resolves its LaTeX templates relative to the package. Bind the data and the
+deliverables directory, so the run can read the catalogues and write outside the image:
+
+```bash
+apptainer run --bind /path/to/data:/data soba_reference_repo.sif \
+  --scat /data/S1D_coaligned_catalogue_WV_..._KNMI-ASCAT-METOP-12.5km_0.2.parquet \
+  --swot /data/S1D_coaligned_catalogue_WV_..._PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \
+  --satellite S1D --scatterometer ASCAT \
+  --test-dir /data/deliverables
+```
+
+On WSL the catalogue directory and `~/shared` are usually symlinks onto `/mnt/z`. Apptainer
+binds `$HOME` but not `/mnt/z`, so those symlinks resolve on the host and dangle inside the
+image: the run reports `chdir … no such file or directory` and then cannot find the
+catalogue. Bind the mount too:
+
+```bash
+apptainer run --bind /mnt/z:/mnt/z soba_reference_repo.sif ...
+```
+
 ## Notes
 
 - **LaTeX toolchain.** `template.tex` is a pdfLaTeX document, and the tool finds pdflatex
