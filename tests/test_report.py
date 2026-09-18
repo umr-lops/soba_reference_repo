@@ -448,6 +448,40 @@ def test_exported_frame_passes_the_bundled_validator(tmp_path):
         assert column not in warnings, warnings
 
 
+def test_the_legacy_fallback_covers_one_reference_family(tmp_path):
+    """The retired trio was family-agnostic, so it stands for one family only: asking for a
+    second reference the file does not carry still fails."""
+    frame = build_test_frame(_result(tmp_path)).rename(
+        columns={"scat_lon": "ref_lon", "scat_lat": "ref_lat", "scat_time": "ref_time"}
+    ).drop(columns=["swot_lon", "swot_lat", "swot_time"])
+    path = write_test_parquet(frame, tmp_path / "legacy_one_family.parquet")
+
+    result = SOBAParquetValidator(
+        mode="WV", dataset_type="test", reference="scat,swot"
+    ).validate_file(str(path))
+
+    assert result["valid"] is False
+    assert any(
+        "swot_lon, swot_lat, swot_time" in error for error in result["errors"]
+    ), result["errors"]
+
+
+def test_the_validator_falls_back_to_the_legacy_ref_names(tmp_path):
+    """A file written before the <ref>_ rename carries ref_lon/ref_lat/ref_time. It validates,
+    and the substitution is reported rather than hidden."""
+    frame = build_test_frame(_result(tmp_path)).rename(
+        columns={"scat_lon": "ref_lon", "scat_lat": "ref_lat", "scat_time": "ref_time"}
+    )
+    path = write_test_parquet(frame, tmp_path / "legacy.parquet")
+
+    result = SOBAParquetValidator(
+        mode="WV", dataset_type="test", reference="scat"
+    ).validate_file(str(path))
+
+    assert result["valid"] is True, result["errors"]
+    assert any("legacy name 'ref_lon'" in note for note in result["info"]), result["info"]
+
+
 def test_the_validator_checks_the_reference_families_it_is_given(tmp_path):
     path = write_test_parquet(build_test_frame(_result(tmp_path)), tmp_path / "test.parquet")
 

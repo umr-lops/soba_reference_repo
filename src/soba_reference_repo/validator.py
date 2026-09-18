@@ -3,7 +3,8 @@
 Source: the validator gist shared with the project (``gistfile1.py`` in the shared folder),
 kept verbatim apart from this header and one marked change: the mandatory reference columns are
 built per reference source (``scat_``/``swot_``) instead of the retired ``ref_lon``,
-``ref_lat`` and ``ref_time``, following SOBA spec v1.1.0. The change sits between the
+``ref_lat`` and ``ref_time``, following SOBA spec v1.1.0; those retired names still satisfy the
+rules as a fallback, so files written before the rename validate too. The change sits between the
 ``--- local change`` markers in ``SOBAValidationRules``. It is the acceptance gate for delivered
 TEST files: ``--validate`` runs it against the parquet the tool has just written, and
 ``--validator PATH`` runs a newer copy instead of this one. Refresh by re-copying the gist and
@@ -149,6 +150,29 @@ class SOBAValidationRules:
     
     # --- local change (SOBA spec v1.1.0) ------------------------------------- #
     REFERENCE_SOURCES = ('scat', 'swot')
+
+    # Files written before the <ref>_ rename, or by other tooling, still carry the old
+    # ref_lon/ref_lat/ref_time names. Those satisfy the same rule when the <ref>_ column is
+    # absent, so such a file validates instead of failing on the rename.
+    LEGACY_REFERENCE_SUFFIXES = ('lon', 'lat', 'time')
+
+    @classmethod
+    def alternative_for(cls, variable: str, only: Optional[str] = None) -> Optional[str]:
+        """The legacy ref_* name that can stand in for a <ref>_lon/_lat/_time column
+
+        The retired trio was family-agnostic, so it stands for one family only — the caller
+        passes ``only`` to say which. A file carrying a legacy trio plus a <ref>_ trio for its
+        other reference therefore still has that other reference checked.
+        """
+        for source in cls.REFERENCE_SOURCES:
+            if only and source != only:
+                continue
+            prefix = f"{source}_"
+            if variable.startswith(prefix):
+                suffix = variable[len(prefix):]
+                if suffix in cls.LEGACY_REFERENCE_SUFFIXES:
+                    return f"ref_{suffix}"
+        return None
 
     REFERENCE_COLUMN_SUFFIXES = {
         '_lon': {
@@ -384,16 +408,36 @@ class SOBAParquetValidator:
         
         return self.results
     
+    def _resolved_rules(self, df: pd.DataFrame) -> Dict:
+        """Rules keyed by the column actually present, legacy ref_* names included"""
+        resolved = {}
+        for variable, specs in self.rules.items():
+            if variable in df.columns:
+                resolved[variable] = specs
+                continue
+            alternative = SOBAValidationRules.alternative_for(variable, only=self.reference[0])
+            if alternative and alternative in df.columns:
+                resolved[alternative] = specs
+        return resolved
+
     def _validate_test_dataset(self, df: pd.DataFrame):
         """Validate TEST dataset (contains all mandatory columns)"""
         logging.info("Validating as TEST dataset")
         self.results['info'].append("Dataset type: TEST")
         
-        # Check for all mandatory variables
+        # Check for all mandatory variables, accepting the legacy ref_* names in place of
+        # the <ref>_ ones so files written before the rename still validate.
         missing_vars = []
         for var in self.rules.keys():
-            if var not in df.columns:
-                missing_vars.append(var)
+            if var in df.columns:
+                continue
+            alternative = SOBAValidationRules.alternative_for(var, only=self.reference[0])
+            if alternative and alternative in df.columns:
+                note = f"Reference column '{var}' taken from the legacy name '{alternative}'"
+                logging.info(note)
+                self.results['info'].append(note)
+                continue
+            missing_vars.append(var)
         
         if missing_vars:
             error_msg = f"Missing mandatory variables for TEST dataset: {', '.join(missing_vars)}"
@@ -430,7 +474,7 @@ class SOBAParquetValidator:
     
     def _validate_data_types(self, df: pd.DataFrame):
         """Validate data types (accepts 'str' as valid for 'object' type)"""
-        for var, specs in self.rules.items():
+        for var, specs in self._resolved_rules(df).items():
             if var not in df.columns:
                 continue
             
@@ -468,7 +512,7 @@ class SOBAParquetValidator:
     
     def _validate_ranges(self, df: pd.DataFrame):
         """Validate data ranges"""
-        for var, specs in self.rules.items():
+        for var, specs in self._resolved_rules(df).items():
             if var not in df.columns:
                 continue
             
@@ -534,7 +578,7 @@ class SOBAParquetValidator:
     
     def _validate_null_values(self, df: pd.DataFrame):
         """Check for null values in mandatory variables"""
-        for var, specs in self.rules.items():
+        for var, specs in self._resolved_rules(df).items():
             if var not in df.columns:
                 continue
             
