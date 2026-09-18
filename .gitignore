@@ -10,6 +10,9 @@ build/
 runs/
 test_datasets/
 
+# generated documentation, rebuilt by `make -C docs html`
+docs/_build/
+
 # container images, built with `apptainer build <name>.sif apptainer.def`
 *.sif
 

@@ -12,7 +12,9 @@ imagettes, applies the collocation filters, draws three figures, fills the SOBA 
 with those figures and the run's real metadata, compiles a PDF, and exports the
 spec-conformant WV TEST parquet under the SOBA dataset naming convention.
 
-Reference: *Format Description for parquet co-aligned datasets* (SOBA WP3, v1.0.3).
+Reference: *Format Description for parquet co-aligned datasets* (SOBA WP3, v1.1.0).
+
+Documentation sources live in `docs/` — `make -C docs html` builds the site.
 
 The bundled `assets/latex/template.tex` is the SOBA template **rewritten for reference TEST datasets**
 
