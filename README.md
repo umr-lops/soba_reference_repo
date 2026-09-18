@@ -170,8 +170,11 @@ otherwise pass `--test-name` explicitly.
 - **The bundled validator takes a reference family.** Its mandatory reference columns follow the
   source — `scat_lon`/`scat_lat`/`scat_time` and `swot_*` — instead of the retired `ref_*`.
   `--validate` passes `scat` (the reference this crossing is built on); the standalone validator
-  exposes it as `--reference`. That is a marked local deviation from the gist, which still asks
-  for `ref_*`; the header of `validator.py` says so and the tests cover both families.
+  exposes it as `--reference`. The retired `ref_lon`/`ref_lat`/`ref_time` names still satisfy
+  one family's columns when the `<ref>_` form is absent, so files written before the rename
+  validate too — while a second reference the file does not carry is still reported missing.
+  That is a marked local deviation from the gist, which still asks for `ref_*`; the header
+  of `validator.py` says so and the tests cover both families.
 - **Global attributes.** `write_test_parquet` puts the five mandatory attributes into the
   parquet's own metadata under the spec's wording: `source scat`, `source ancillary datasets`,
   `library used to produce the parquet`, `library version` (the git commit when running from a
