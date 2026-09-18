@@ -5,6 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
+[![Docs](https://readthedocs.org/projects/soba-reference-repo/badge/?version=latest)](https://soba-reference-repo.readthedocs.io/en/latest/?badge=latest)
 
 Generates a SOBA **reference TEST dataset** report from two co-aligned catalogues: it crosses a
 scatterometer catalogue and the SWOT KaRIn catalogue through the common Sentinel-1 Wave Mode
@@ -14,7 +15,9 @@ spec-conformant WV TEST parquet under the SOBA dataset naming convention.
 
 Reference: *Format Description for parquet co-aligned datasets* (SOBA WP3, v1.1.0).
 
-Documentation sources live in `docs/` — `make -C docs html` builds the site.
+Documentation: <https://soba-reference-repo.readthedocs.io/en/latest/> — sources in `docs/`, built
+locally with `make -C docs html` and in CI by the `Docs` workflow. `.readthedocs.yaml` is in place for
+Read the Docs.
 
 The bundled `assets/latex/template.tex` is the SOBA template **rewritten for reference TEST datasets**
 
