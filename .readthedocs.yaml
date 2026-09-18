@@ -1,0 +1,23 @@
+# Read the Docs configuration.
+# Reference: https://docs.readthedocs.io/en/stable/config-file/v2.html
+#
+# The project needs this file to build at all: Read the Docs requires the v2 schema even for a
+# standard Sphinx layout. `fail_on_warning` mirrors the `Docs` workflow, which runs sphinx-build -W.
+
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.11"
+
+sphinx:
+  configuration: docs/conf.py
+  fail_on_warning: true
+
+python:
+  install:
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
