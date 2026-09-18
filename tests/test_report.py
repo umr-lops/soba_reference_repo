@@ -20,9 +20,11 @@ from soba_reference_repo.report import (
     WV_MANDATORY_COLUMNS,
     WV_REF_PARAM_COLUMNS,
     ReportConfig,
+    build_challenger_frame,
     build_report_tex,
     build_test_filename,
     build_test_frame,
+    challenger_dataset_name,
     default_test_name,
     find_pdflatex,
     insert_table_row,
@@ -34,6 +36,7 @@ from soba_reference_repo.report import (
     run_crossing,
     section_bounds,
     stage_latex_assets,
+    write_challenger_parquet,
     write_test_parquet,
 )
 from soba_reference_repo.validator import SOBAParquetValidator, SOBAValidationRules
@@ -732,6 +735,10 @@ def test_cli_runs_end_to_end_without_compiling(tmp_path):
     assert (test_dir / f"{produced[0].stem}_manifest.json").is_file(), (
         sorted(p.name for p in test_dir.iterdir())
     )
+    # the challenger only appears when --challenger asks for it
+    assert not list(test_dir.glob("S1D_challenger_dataset_*.parquet")), (
+        sorted(p.name for p in test_dir.iterdir())
+    )
 
 
 def test_cli_requires_satellite_and_scatterometer(tmp_path):
@@ -748,3 +755,103 @@ def test_cli_requires_satellite_and_scatterometer(tmp_path):
     assert completed.returncode != 0
     assert "--satellite" in completed.stderr
     assert "--scatterometer" in completed.stderr
+
+
+# --- challenger dataset ------------------------------------------------------
+
+def test_the_challenger_frame_carries_the_key_and_the_reference_parameters(tmp_path):
+    """A challenger holds the identifier the scoring joins on plus the reference parameters,
+    and nothing else — so it pairs row for row with the TEST file it is scored against."""
+    result = _result(tmp_path)
+
+    challenger = build_challenger_frame(result)
+
+    assert list(challenger.columns) == [
+        "primary_key", "scat_windspeed", "scat_winddirection", "swot_waveheight"
+    ]
+    assert challenger["primary_key"].is_unique
+    key = challenger["primary_key"].iloc[0]
+    assert re.fullmatch(r".*\.SAFE:WV_\d+_-?\d+\.\d_-?\d+\.\d", key), key
+    # straight off the filtered crossing, so the values are the reference's
+    assert challenger["swot_waveheight"].iloc[0] == (
+        result.filtered["swot_wave_height_m"].iloc[0]
+    )
+    assert challenger["scat_windspeed"].iloc[0] == (
+        result.filtered["scat_wind_speed_ms"].iloc[0]
+    )
+
+
+def test_the_challenger_name_swaps_only_the_dataset_token():
+    """Same convention as the reference it sits beside, down to the dates and the two
+    reference product names."""
+    name = (
+        "S1D_reference_test_dataset_WV_20260107_20260107_20260916_SV_"
+        "KNMI-ASCAT-METOP-12.5km_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet"
+    )
+
+    challenger = challenger_dataset_name(name)
+
+    assert challenger == name.replace("reference_test_dataset", "challenger_dataset")
+    assert challenger.startswith("S1D_challenger_dataset_WV_")
+
+
+def test_the_challenger_parquet_carries_the_global_attributes(tmp_path):
+    path = write_challenger_parquet(
+        build_challenger_frame(_result(tmp_path)),
+        tmp_path / "challenger.parquet",
+        "KNMI-ASCAT-METOP-12.5km",
+    )
+
+    metadata = pq.read_schema(path).metadata
+    assert metadata[b"source scat"] == b"KNMI-ASCAT-METOP-12.5km"
+    assert metadata[b"source ancillary datasets"] == b"rain: IMERG HHL v7 NASA"
+    assert metadata[b"library used to produce the parquet"] == b"soba_reference_repo"
+    assert metadata[b"library version"].startswith(b"commit ")
+    assert metadata[b"creation date"] == (
+        pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d").encode()
+    )
+
+
+def test_the_challenger_file_passes_the_validator_as_a_challenger(tmp_path):
+    """The bundled validator's own verdict on the file the tool writes, which is the point of
+    the format side of this: a challenger needs only its primary key and its predictions."""
+    path = write_challenger_parquet(
+        build_challenger_frame(_result(tmp_path)), tmp_path / "challenger.parquet"
+    )
+
+    result = SOBAParquetValidator(
+        mode="WV", dataset_type="challenger", reference="scat"
+    ).validate_file(str(path))
+
+    assert result["valid"] is True, result["errors"]
+
+
+def test_cli_challenger_flag_writes_the_challenger_dataset(tmp_path):
+    """`--challenger` adds the challenger beside the TEST file under the matching name, and
+    `--validate` covers both files."""
+    scat_path, swot_path = _write_pair(
+        tmp_path, scat_filename=SOURCE_SCAT_NAME, swot_filename=SOURCE_SWOT_NAME
+    )
+    test_dir = tmp_path / "deliverables"
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "soba_reference_repo.cli",
+         "--scat", str(scat_path), "--swot", str(swot_path),
+         "--satellite", "S1D", "--scatterometer", "ASCAT",
+         "--label", "challenger", "--no-compile", "--challenger", "--validate",
+         "--output-dir", str(tmp_path / "report"), "--test-dir", str(test_dir)],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, "PYTHONPATH": "src"},
+        capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    produced = list(test_dir.glob("S1D_reference_test_dataset_*.parquet"))
+    challenger = list(test_dir.glob("S1D_challenger_dataset_*.parquet"))
+    assert len(produced) == 1 and len(challenger) == 1, sorted(
+        p.name for p in test_dir.iterdir()
+    )
+    assert challenger[0].name == challenger_dataset_name(produced[0].name)
+    # both files were validated, each as what it is
+    assert "Status: ✅ PASSED" in completed.stdout
+    assert "Validating as CHALLENGER dataset" in completed.stdout + completed.stderr

@@ -64,7 +64,8 @@ export `MIKTEX_BIN` once in your shell profile.
 | `--miktex-bin` | `$MIKTEX_BIN`, else `PATH` | directory holding the `pdflatex` executable |
 | `--compile` / `--no-compile` | `--compile` | skip LaTeX to iterate on figures fast |
 | `--keep-intermediates` | off | keep the LaTeX byproducts (`.aux`, `.log`, `.out`, `.toc`) |
-| `--validate` | off | run the SOBA parquet validator on the TEST file; exit 1 if it fails |
+| `--challenger` | off | also write the CHALLENGER dataset beside the TEST parquet |
+| `--validate` | off | run the SOBA parquet validator on the TEST file (and the CHALLENGER, if written); exit 1 if either fails |
 | `--validator` | bundled copy | path to a validator module to use instead of that copy |
 
 ## Outputs
