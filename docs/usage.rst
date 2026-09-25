@@ -26,6 +26,56 @@ Without the install, ``PYTHONPATH=src python -m soba_reference_repo.cli`` behave
 ``pdflatex`` is not on ``PATH``, point the tool at it with ``--miktex-bin /path/to/miktex/bin/x64``
 or by exporting ``MIKTEX_BIN``.
 
+Merged SWOT-only TEST/TARGET export
+-----------------------------------
+
+Use the ``swot-test`` subcommand to merge one SWOT WV catalogue for each of S1A, S1C, and S1D.
+The existing SCAT×SWOT workflow remains available through the command shown above. Set
+``DATA_DIR`` to the catalogue directory; each wildcard below must resolve to exactly one file::
+
+   DATA_DIR=/path/to/coaligned
+   soba_reference_repo swot-test \\
+     --swot-catalogue "$DATA_DIR"/S1A_coaligned_catalogue_WV_*_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \\
+     --swot-catalogue "$DATA_DIR"/S1C_coaligned_catalogue_WV_*_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \\
+     --swot-catalogue "$DATA_DIR"/S1D_coaligned_catalogue_WV_*_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \\
+     --test-dir test_datasets --report-dir runs/swot_merged --version 0.1 --no-compile
+
+The command defaults to the current UTC production date. Add ``--production-date YYYYMMDD`` to
+reproduce a fixed name. It writes one dated directory containing exactly:
+
+.. code-block:: text
+
+   S1_WV_<date>_swh_0.1/
+     S1_reference_test_dataset_WV_<date>_swh_0.1.parquet
+     S1_target_dataset_WV_<date>_swh_0.1.parquet
+
+TEST contains ``primary_key``, SAR time/position/angles/coast distance, ``sar_safe_slc``,
+``sar_safe_ocn``, ``swot_lon``, ``swot_lat``, ``swot_waveheight``, ``swot_time``, and
+``swot_source``. TARGET contains only the key, the two SAFE fields, SWOT coordinates, and SWOT time.
+The primary key combines the SLC SAFE identifier with ``swot_lon`` and ``swot_lat`` rounded to
+one decimal. Before these schema/key checks, the tool applies thirteen NECTAR filters in
+order: land/coast, no dynamic ice, present time delta, positive KaRIn/OCN/nearest-altimeter/WW3
+wave heights, present S1 classification, time delta under two hours, complete overlap, no
+IMERG/SWOT rain, and allowed S1 classes (AF, BS, MCC, OF, POS, RC, WS). Complete overlap uses
+``overlap_pct >= 100`` because the source never exceeds 100; ``> 100`` would retain nothing.
+``ref_hs_alti_closest`` substitutes for unavailable SWOT nadir height, and positive SAR coast
+distance stands in for the unavailable direct SWOT land flag. S1D has no classified source
+rows, so the full filter set retains none of its rows. The report and manifest record each
+cumulative filter count. The tool then excludes rows missing required values, keeps the
+closest-time duplicate within each mission, and fails on cross-mission key collisions.
+``swot_source`` comes from ``swot_path``; ``sar_ground_heading`` remains null.
+
+Each Parquet has only the five global attributes ``source swot``, ``source ancillary datasets``,
+``library used to produce the parquet``, ``library version``, and ``creation date``. A separate
+``runs/swot_merged/<TEST-stem>/`` directory holds the editable LaTeX source, its three figures, and
+a provenance manifest. The report uses the existing SOBA TEST-document layout. The coverage
+map plots every retained row in one color. The monthly count and SWOT wave-height figures use
+distinct, consistent colors and legends for the missions present (S1A and S1C in the current
+strict-filter run). S1D is supplied but has no classified rows; S1B has no input catalogue.
+The PDF is written there when LaTeX is installed and compilation is enabled.
+This export validates its own schema, metadata, and paired keys; it does not use the separate
+SCAT/SWOT validator because that validator checks a different schema.
+
 Flags
 -----
 
