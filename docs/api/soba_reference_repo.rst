@@ -9,6 +9,7 @@ Submodules
 
    soba_reference_repo.cli
    soba_reference_repo.report
+   soba_reference_repo.swot_test
 
 Module contents
 ---------------

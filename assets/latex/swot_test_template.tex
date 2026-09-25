@@ -1,0 +1,280 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[useregional]{datetime2}
+
+
+% Date Time
+\DTMsetdatestyle{iso}
+
+% Utilisation du style SOBA (défini dans soba.sty)
+\usepackage{soba}
+% soba.sty loads hyperref without options, which draws a red box around every
+% cross-reference, table-of-contents entry and URL.
+\hypersetup{hidelinks}
+% This document describes a reference TEST dataset, so it overrides the style's
+% default co-aligned catalogue footer.
+\lfoot{Reference TEST Dataset Description - Ifremer}
+
+% ---------------------------
+% DÉBUT DU DOCUMENT
+% ---------------------------
+\begin{document}
+
+% Page de garde
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+
+    % Logo
+    \includegraphics[width=0.4\textwidth]{logo_soba.png}
+
+    \vspace{2cm}
+
+    {\Huge \textbf{SOBA Project} \par}
+    \vspace{1cm}
+    {\Large \textbf{Technical documentation for @@DATASET_NAME@@ reference TEST dataset} \par}
+
+    \vspace{2cm}
+
+    \textbf{Work Package 3: Datasets Preparation} \\
+    \vspace{0.5cm}
+
+    \begin{minipage}{0.85\textwidth}
+        \textbf{Scope:} This document describes a reference TEST dataset produced in the framework of the SOBA project. A TEST dataset pairs Sentinel-1 SAR observations with independent reference observations. It details the dataset content, and the way the dataset is extracted from the underlying co-aligned catalogues.
+    \end{minipage}
+
+    \vfill
+
+    \begin{center}
+    \begin{tabular}{ll}
+        \textbf{Document Version} & 1.0.0 \\
+        \textbf{Date} & \DTMtoday \\
+        \textbf{Authors} & SOBA consortium \\
+        \textbf{Intended Audience} & internal \\
+        \textbf{Project delivrable document identifier} & TN5 \\
+    \end{tabular}
+    \end{center}
+
+    \vspace{1cm}
+\end{titlepage}
+
+\tableofcontents
+
+\newpage
+
+% Utilisation du diagramme avec légende
+
+%\begin{figure}[htbp]
+%    \centering
+%    \input{schema_dataflow}
+%    \caption{SOBA Dataflow schema}
+%    \label{fig:dataflow}
+%\end{figure}
+
+\section*{Version History}
+\addcontentsline{toc}{section}{Version History}
+
+\begin{table}[H]
+    \centering
+    \caption{Versioning of the documentation}
+    \label{tab:versioning_documentation}
+    \begin{tabular}{@{}p{2cm}p{3cm}p{8cm}p{4cm}@{}}
+        \toprule
+        \textbf{Version} & \textbf{Date} & \textbf{Modification} & \textbf{Author} \\
+        \midrule
+        1.0.0 & \DTMtoday & Creation of the SWOT TEST dataset document & Ilias Reguig \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{Versioning of test catalogue files}
+    \label{tab:versioning_catalogue_files}
+    \begin{tabular}{@{}p{6.6cm}p{2.4cm}p{8cm}@{}}
+        \toprule
+        \textbf{File name} & \textbf{Date} & \textbf{Modifications} \\
+        \midrule
+        @@FILE_VERSION_ROW@@
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\newpage
+
+% ---------------------------
+% SECTION 1 : Dataset Content Description
+% ---------------------------
+
+\section{Dataset Content Description}
+\textbf{Dataset general description:} @@GENERAL_DESCRIPTION@@
+
+\subsection{Global Coverage Map}
+\textbf{Description:} The TEST dataset contains Sentinel-1 WV SAR imagettes matched with SWOT KaRIn wave heights. The map shows the retained matchup locations.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{@@COVERAGE_FIGURE@@}
+    \caption{Global spatial distribution of all retained SAR/SWOT matchups in the TEST dataset, shown in one color.}
+    \label{fig:coverage_map}
+\end{figure}
+
+\subsection{Monthly Distribution of Matchups}
+\textbf{Description:} This figure shows the number of retained SAR/SWOT matchups by SAR acquisition month.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{@@MONTHLY_FIGURE@@}
+    \caption{Monthly count of retained SAR/SWOT matchups, stacked by Sentinel-1 mission.}
+    \label{fig:monthly_distribution}
+\end{figure}
+
+\subsection{Reference Parameter Distribution}
+\textbf{Description:} The histogram shows the distribution of SWOT KaRIn significant wave height in the retained TEST rows.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{@@SWH_FIGURE@@}
+    \caption{Distribution of SWOT KaRIn significant wave height, stacked by Sentinel-1 mission.}
+    \label{fig:ref_distribution}
+\end{figure}
+
+Table~\ref{tab:reference_stats} summarises the retained SWOT wave heights.
+@@REFERENCE_STATS_TABLE@@
+
+\subsection{Catalogue Columns}
+Table~\ref{tab:columns} lists every column of the reference TEST dataset, grouped by role.
+\begin{longtable}{@{}p{4.1cm}p{1.9cm}p{8.6cm}@{}}
+    \caption{Columns of the reference TEST dataset.\label{tab:columns}} \\
+    \toprule
+    \textbf{Column} & \textbf{Type} & \textbf{Description} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Column} & \textbf{Type} & \textbf{Description} \\
+    \midrule
+    \endhead
+    \bottomrule
+    \endlastfoot
+@@TEST_COLUMNS@@
+\end{longtable}
+
+\noindent\textbf{Sampling point.} SAR geometry values come from the co-aligned source catalogue. The source does not provide \texttt{sar\_ground\_heading}, so that column is null.
+
+\subsection{Global Metadata}
+The five global attributes below are stored in both the TEST and TARGET Parquets.
+\begin{longtable}{@{}p{5.4cm}p{8.9cm}@{}}
+    \caption{Global attributes of the TEST and TARGET files.\label{tab:metadata}} \\
+    \toprule
+    \textbf{Attribute} & \textbf{Value} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Attribute} & \textbf{Value} \\
+    \midrule
+    \endhead
+    \bottomrule
+    \endlastfoot
+@@METADATA_ROWS@@
+\end{longtable}
+
+\newpage
+% ---------------------------
+% SECTION 2 : Dataset Production Steps
+% ---------------------------
+\section{Dataset Production Steps}
+\subsection{Selected Products}
+The TEST dataset merges three co-aligned Sentinel-1 WV catalogues with SWOT KaRIn reference observations.
+\begin{itemize}
+    \item \textbf{Input co-aligned datasets:}
+    \begin{itemize}
+@@SOURCE_FILES@@
+    \end{itemize}
+    \item \textbf{SAR acquisition mode:} WV
+    \item \textbf{Polarization:} SV, as encoded in the catalogue names
+\end{itemize}
+\textbf{Reference Product:} SWOT KaRIn L2 WindWave PGD0 and PID0 (D0), significant wave height in metres.
+
+\subsection{Selection of Tiles / Filtered Co-locations}
+The source catalogues provide the SAR/SWOT co-alignments; this export then applies the quality criteria below.
+\begin{enumerate}
+    \item \textbf{Geographic co-location criterion:} full footprint overlap (\texttt{overlap\_pct} $\geq 100$); no additional distance cutoff.
+    \item \textbf{Time co-location criterion:} \texttt{ref\_time\_delta} $< 7200$ seconds; for duplicate keys within a mission, keep the reference time closest to the SAR acquisition.
+\end{enumerate}
+The primary key is @@KEY_FORMULA@@. TEST and TARGET contain identical ordered keys.
+
+\textbf{Quality filters, applied cumulatively to all input rows in this order:}
+\begin{longtable}{@{}p{3.3cm}p{6.6cm}rr@{}}
+    \caption{Sequential quality-filter counts.\label{tab:quality_filters}} \\
+    \toprule
+    \textbf{Filter} & \textbf{Rule on source catalogue} & \textbf{Remaining} & \textbf{Removed} \\
+    \midrule
+    \endfirsthead
+    \toprule
+    \textbf{Filter} & \textbf{Rule on source catalogue} & \textbf{Remaining} & \textbf{Removed} \\
+    \midrule
+    \endhead
+    \bottomrule
+    \endlastfoot
+@@QUALITY_FILTER_ROWS@@
+\end{longtable}
+\noindent The input \texttt{overlap\_pct} never exceeds 100, so $\geq 100$ means complete overlap; a literal $>100$ would select no rows. The catalogues lack a direct SWOT land flag and SWOT nadir height: the first criterion uses S1 land coverage with positive SAR distance to coast as a sea proxy, and the height criterion uses \texttt{ref\_hs\_alti\_closest}, the nearest altimeter measurement. Rows without an S1 classification fail the classification-present criterion.
+
+\textbf{Accepted rows by mission:}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lr}
+        \toprule
+        \textbf{Mission} & \textbf{TEST rows} \\
+        \midrule
+@@MISSION_ROWS@@
+        \midrule
+        Total & @@ROW_COUNT@@ \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\textbf{Excluded rows after the quality filters (key, required fields, duplicate):}
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lr}
+        \toprule
+        \textbf{Reason} & \textbf{Rows} \\
+        \midrule
+@@EXCLUSION_ROWS@@
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\textbf{Processing Steps:}
+\begin{enumerate}
+@@PROCESS_STEPS@@
+\end{enumerate}
+
+\subsection{Libraries and Commands Used}
+The command below reproduces this dataset using \texttt{soba\_reference\_repo}. Set \texttt{DATA\_DIR}, \texttt{TEST\_DIR}, and \texttt{REPORT\_DIR} to your local catalogue and output directories before running it:
+\begin{lstlisting}[caption={Command used to generate this dataset.}, label={lst:code}]
+@@COMMAND@@
+\end{lstlisting}
+
+\subsection{Configuration Files}
+No external YAML or JSON configuration file is used; the command specifies the inputs and output paths. The run settings are recorded below.
+\begin{lstlisting}[caption={Settings recorded for this dataset.}, label={lst:config}]
+@@RUN_CONFIG@@
+\end{lstlisting}
+
+\newpage
+% ---------------------------
+% BIBLIOGRAPHIE
+% ---------------------------
+\newpage
+\section*{References}
+\addcontentsline{toc}{section}{References}
+
+\begin{thebibliography}{9}
+
+\bibitem{soba_format}
+SOBA Consortium.
+\textit{Format Description for parquet co-aligned datasets}.
+Technical Document, Ifremer / Galeio, 2026.
+Available at: \url{https://docs.google.com/document/d/1h4bLs1Z67MLL5ws3ckL2zrdYkajXCRGQKpSfnLGABes/edit?usp=sharing}
+
+\end{thebibliography}
+
+\end{document}

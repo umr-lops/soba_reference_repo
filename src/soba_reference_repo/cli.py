@@ -18,6 +18,7 @@ import argparse
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 
 from .report import (
@@ -124,6 +125,11 @@ def parse_args(argv=None):
 
 
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "swot-test":
+        from .swot_test import main as swot_test_main
+
+        return swot_test_main(argv[1:])
     args = parse_args(argv)
     label = args.label or f"{args.satellite.lower()}_swot_{args.scatterometer.lower()}"
     output_dir = Path(args.output_dir) if args.output_dir else Path("runs") / label
