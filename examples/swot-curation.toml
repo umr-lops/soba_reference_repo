@@ -1,0 +1,41 @@
+# Copy this file to runs/recipe.toml, then set the three catalogue paths.
+# All 13 existing SWOT filters apply to each mission unless changed below.
+reference = "swot"
+output_dir = "swot-WV-20260930-0.1"
+production_date = "20260930"
+version = "0.1"
+compile = false  # Set true to build the PDF (requires pdflatex or Tectonic).
+
+[[catalogues]]
+mission = "S1A"
+path = "/path/to/S1A_coaligned_catalogue_WV_SWOT.parquet"
+
+# Add one filter only for S1A (uncomment to use):
+# [[catalogues.rules]]
+# id = "far_from_coast"
+# name = "SAR distance to coast > 50 km"
+# clauses = [["sar_distance_to_coast", "gt", 50]]
+
+[[catalogues]]
+mission = "S1C"
+path = "/path/to/S1C_coaligned_catalogue_WV_SWOT.parquet"
+
+# Override S1C's default no-rain rule (example threshold, not a recommendation):
+# [[catalogues.rules]]
+# id = "imerg_rain"
+# clauses = [["max_rainrate_IMERG", "le", 0.1]]
+
+[[catalogues]]
+mission = "S1D"
+path = "/path/to/S1D_coaligned_catalogue_WV_SWOT.parquet"
+
+# Add two filters only for S1D (uncomment to use):
+# [[catalogues.rules]]
+# id = "moderate_swh"
+# name = "SWOT KaRIn Hs <= 8 m"
+# clauses = [["ref_mean_hs_karin", "le", 8]]
+#
+# [[catalogues.rules]]
+# id = "within_one_hour"
+# name = "Time delta < 1 hour"
+# clauses = [["ref_time_delta", "lt", 3600]]

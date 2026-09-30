@@ -180,7 +180,7 @@ The five global attributes below are stored in both the TEST and TARGET Parquets
 % ---------------------------
 \section{Dataset Production Steps}
 \subsection{Selected Products}
-The TEST dataset merges three co-aligned Sentinel-1 WV catalogues with SWOT KaRIn reference observations.
+@@SELECTED_PRODUCTS@@
 \begin{itemize}
     \item \textbf{Input co-aligned datasets:}
     \begin{itemize}
@@ -194,27 +194,13 @@ The TEST dataset merges three co-aligned Sentinel-1 WV catalogues with SWOT KaRI
 \subsection{Selection of Tiles / Filtered Co-locations}
 The source catalogues provide the SAR/SWOT co-alignments; this export then applies the quality criteria below.
 \begin{enumerate}
-    \item \textbf{Geographic co-location criterion:} full footprint overlap (\texttt{overlap\_pct} $\geq 100$); no additional distance cutoff.
-    \item \textbf{Time co-location criterion:} \texttt{ref\_time\_delta} $< 7200$ seconds; for duplicate keys within a mission, keep the reference time closest to the SAR acquisition.
+    \item @@GEO_CRITERION@@
+    \item @@TIME_CRITERION@@
 \end{enumerate}
 The primary key is @@KEY_FORMULA@@. TEST and TARGET contain identical ordered keys.
 
-\textbf{Quality filters, applied cumulatively to all input rows in this order:}
-\begin{longtable}{@{}p{3.3cm}p{6.6cm}rr@{}}
-    \caption{Sequential quality-filter counts.\label{tab:quality_filters}} \\
-    \toprule
-    \textbf{Filter} & \textbf{Rule on source catalogue} & \textbf{Remaining} & \textbf{Removed} \\
-    \midrule
-    \endfirsthead
-    \toprule
-    \textbf{Filter} & \textbf{Rule on source catalogue} & \textbf{Remaining} & \textbf{Removed} \\
-    \midrule
-    \endhead
-    \bottomrule
-    \endlastfoot
-@@QUALITY_FILTER_ROWS@@
-\end{longtable}
-\noindent The input \texttt{overlap\_pct} never exceeds 100, so $\geq 100$ means complete overlap; a literal $>100$ would select no rows. The catalogues lack a direct SWOT land flag and SWOT nadir height: the first criterion uses S1 land coverage with positive SAR distance to coast as a sea proxy, and the height criterion uses \texttt{ref\_hs\_alti\_closest}, the nearest altimeter measurement. Rows without an S1 classification fail the classification-present criterion.
+@@FILTER_INTRO@@
+@@QUALITY_FILTER_TABLES@@
 
 \textbf{Accepted rows by mission:}
 \begin{table}[H]
@@ -248,13 +234,13 @@ The primary key is @@KEY_FORMULA@@. TEST and TARGET contain identical ordered ke
 \end{enumerate}
 
 \subsection{Libraries and Commands Used}
-The command below reproduces this dataset using \texttt{soba\_reference\_repo}. Set \texttt{DATA\_DIR}, \texttt{TEST\_DIR}, and \texttt{REPORT\_DIR} to your local catalogue and output directories before running it:
+@@COMMAND_INTRO@@
 \begin{lstlisting}[caption={Command used to generate this dataset.}, label={lst:code}]
 @@COMMAND@@
 \end{lstlisting}
 
 \subsection{Configuration Files}
-No external YAML or JSON configuration file is used; the command specifies the inputs and output paths. The run settings are recorded below.
+@@CONFIG_INTRO@@
 \begin{lstlisting}[caption={Settings recorded for this dataset.}, label={lst:config}]
 @@RUN_CONFIG@@
 \end{lstlisting}
