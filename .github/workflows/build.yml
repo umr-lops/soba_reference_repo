@@ -17,6 +17,7 @@ jobs:
       - run: pip install dist/*.whl
       - run: |
           python -I -c 'from soba_reference_repo.report import DEFAULT_LAND_MAP, DEFAULT_LATEX_DIR; from soba_reference_repo.swot_test import DEFAULT_SWOT_TEMPLATE; assert DEFAULT_LAND_MAP.is_file() and DEFAULT_SWOT_TEMPLATE.is_file() and all((DEFAULT_LATEX_DIR / name).is_file() for name in ("template.tex", "soba.sty", "logo_soba.png"))'
+          python -I -c 'from pathlib import Path; from soba_reference_repo.report import DEFAULT_TEST_DIR; from soba_reference_repo.swot_test import parse_args; args = parse_args([item for mission in ("S1A", "S1C", "S1D") for item in ("--swot-catalogue", f"{mission}_coaligned_catalogue_WV_20260107_20260109_20260925_SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet")]); assert DEFAULT_TEST_DIR == args.test_dir == Path("test_datasets") and args.report_dir == Path("runs/swot_merged")'
       - run: soba_reference_repo --help
       - uses: actions/upload-artifact@v7
         with:

@@ -35,7 +35,7 @@ if not ASSET_DIR.is_dir():  # editable source checkout keeps assets at the repos
     ASSET_DIR = PACKAGE_ROOT / "assets"
 DEFAULT_LAND_MAP = ASSET_DIR / "ne_110m_land.geojson"
 DEFAULT_LATEX_DIR = ASSET_DIR / "latex"
-DEFAULT_TEST_DIR = PACKAGE_ROOT / "test_datasets"
+DEFAULT_TEST_DIR = Path("test_datasets")
 # LaTeX is not assumed to be installed: --miktex-bin / $MIKTEX_BIN names a directory
 # holding the pdflatex executable, otherwise it is taken from PATH (see find_pdflatex).
 

@@ -20,7 +20,6 @@ from matplotlib import pyplot as plt
 from .report import (
     ASSET_DIR,
     DEFAULT_TEST_DIR,
-    PACKAGE_ROOT,
     compile_pdf,
     library_version,
     purge_latex_byproducts,
@@ -92,7 +91,7 @@ def parse_args(argv=None):
         help="SWOT co-aligned WV catalogue; repeat once for S1A, S1C, and S1D",
     )
     parser.add_argument("--test-dir", type=Path, default=DEFAULT_TEST_DIR)
-    parser.add_argument("--report-dir", type=Path, default=PACKAGE_ROOT / "runs" / "swot_merged")
+    parser.add_argument("--report-dir", type=Path, default=Path("runs/swot_merged"))
     parser.add_argument("--version", default="0.1")
     parser.add_argument("--production-date", help="reproducible YYYYMMDD output date")
     parser.add_argument("--miktex-bin", default=os.environ.get("MIKTEX_BIN"))
