@@ -18,6 +18,7 @@ import pyarrow.parquet as pq
 from matplotlib import pyplot as plt
 
 from .report import (
+    ASSET_DIR,
     DEFAULT_TEST_DIR,
     PACKAGE_ROOT,
     compile_pdf,
@@ -35,7 +36,7 @@ MISSION_COLORS = {
     "S1C": "#7B51A3",
     "S1D": "#C75731",
 }
-DEFAULT_SWOT_TEMPLATE = PACKAGE_ROOT / "assets" / "latex" / "swot_test_template.tex"
+DEFAULT_SWOT_TEMPLATE = ASSET_DIR / "latex" / "swot_test_template.tex"
 SWOT_COLUMN_DESCRIPTIONS = {
     "primary_key": "SLC SAFE plus reference longitude and latitude at one decimal degree.",
     "sar_time": "UTC SAR acquisition time, rounded down to whole seconds.",

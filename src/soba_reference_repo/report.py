@@ -30,7 +30,9 @@ import pyarrow.parquet as pq
 from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]  # .../soba_reference_repo
-ASSET_DIR = PACKAGE_ROOT / "assets"
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
+if not ASSET_DIR.is_dir():  # editable source checkout keeps assets at the repository root
+    ASSET_DIR = PACKAGE_ROOT / "assets"
 DEFAULT_LAND_MAP = ASSET_DIR / "ne_110m_land.geojson"
 DEFAULT_LATEX_DIR = ASSET_DIR / "latex"
 DEFAULT_TEST_DIR = PACKAGE_ROOT / "test_datasets"
