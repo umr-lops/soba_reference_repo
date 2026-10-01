@@ -1,13 +1,14 @@
 # SOBA reference TEST datasets
 
 [![CI](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml)
+![Tests](https://img.shields.io/badge/tests-54-blue)
 [![Build](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 [![Docs](https://readthedocs.org/projects/soba-reference-repo/badge/?version=latest)](https://soba-reference-repo.readthedocs.io/en/latest/?badge=latest)
 
-Create Sentinel-1 Wave Mode (WV) reference TEST/TARGET Parquets and a SOBA report from co-aligned catalogues. The main workflow filters SWOT catalogues separately for each satellite, saves the Curated Parquets, merges them, and exports one paired TEST/TARGET dataset. A separate command crosses scatterometer and SWOT catalogues. ALTI and IW exports are not supported.
+Create Sentinel-1 Wave Mode (WV) reference TEST/TARGET Parquets and a SOBA report from co-aligned catalogues. The recipe filters SWOT catalogues separately for each satellite, saves the Curated Parquets, merges them, and exports one paired TEST/TARGET dataset. ALTI and IW exports are not supported yet; the 13 predefined filters apply only to SWOT.
 
 ## Install
 
@@ -31,7 +32,7 @@ python -m pip install -e .
 3. Run:
 
    ```bash
-   soba_reference_repo swot-test --recipe runs/recipe.toml
+   soba_reference_repo --recipe runs/recipe.toml
    ```
 
 The example writes to `runs/swot-WV-20260930-0.1/` (paths resolve relative to the recipe). The run contains:
@@ -47,23 +48,18 @@ manifest.json               Source files, rules, counts, and output paths
 
 Each satellite starts with 13 predefined SWOT filters. A `[[catalogues.rules]]` entry changes a default filter when its `id` matches a default rule; a new `id` adds a filter after the defaults. The example includes commented overrides and additions. Filters run in order: report counts read `remaining / removed` after each filter. Curated counts can exceed TEST counts because the exporter also checks required fields and duplicate keys. A satellite can contribute zero rows if no input row passes its filters.
 
-## SAR/SCAT/SWOT Cross
+## Validate existing Parquets
 
-To merge SWOT catalogues with the fixed default filters and without saved Curated files, use `soba_reference_repo swot-test --swot-catalogue FILE` once each for S1A, S1C, and S1D. See `soba_reference_repo swot-test --help` for output options.
-
-To cross one scatterometer catalogue with one SWOT catalogue for the same satellite:
+The exporter checks the columns, metadata, and keys of each TEST/TARGET pair after writing it. Run the same check independently with:
 
 ```bash
-soba_reference_repo --satellite S1D --scatterometer HSCAT \
-  --scat /path/to/S1D_coaligned_catalogue_WV_..._KNMI-HSCAT-HY2-25km_0.2.parquet \
-  --swot /path/to/S1D_coaligned_catalogue_WV_..._PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \
-  --no-compile --validate
+soba_validate_parquets --test path/to/TEST.parquet --target path/to/TARGET.parquet
 ```
 
-Use co-aligned WV files with the project naming convention, such as `S1D_coaligned_catalogue_WV_...parquet`. The crossing workflow has its own filters and output schema; it does not use the SWOT recipe. See the [usage guide](docs/usage.rst) for its flags, the output columns, and validation details.
+The validator currently supports SWOT TEST/TARGET pairs. CHALLENGER validation can be added when its schema and prediction source are defined; it does not produce CHALLENGER files.
 
 ## Development
 
-Run `python -m pytest -q` in an environment with the development dependencies. The SOBA report style and logo live in `assets/latex/`. The bundled consortium validator in `src/soba_reference_repo/validator.py` retains its upstream provenance and a marked local adaptation.
+Run `python -m pytest -q` in an environment with the development dependencies. The SOBA report style and logo live in `assets/latex/`.
 
 Licensed under [MIT](LICENSE).

@@ -9,8 +9,8 @@ From: python:3.11-slim
 #
 #     apptainer run /tmp/soba_reference_repo.sif --help
 #
-# The tree is copied in rather than pip-installed from a wheel: the tool locates its LaTeX
-# templates relative to the package, so it needs the repository layout to sit next to src/.
+# The package is installed in editable mode; bundled report assets live in the package wheel
+# or, in this checkout, under the repository assets directory.
 
 %files
     pyproject.toml /opt/soba_reference_repo/pyproject.toml
@@ -43,17 +43,11 @@ From: python:3.11-slim
 
 %labels
     org.soba.tool soba_reference_repo
-    org.soba.description SOBA co-aligned / TEST dataset report generator
+    org.soba.description Recipe-driven reference TEST/TARGET exporter
 
 %help
-    Generates a SOBA reference TEST dataset report from two co-aligned catalogues: figures,
-    a LaTeX PDF and the spec-conformant TEST parquet, plus the CHALLENGER dataset with
-    --challenger.
-
-    Run it like the console script, with the catalogues mounted in:
+    Create a SWOT WV reference TEST/TARGET pair and report from a TOML recipe.
+    Bind the recipe and its source catalogues into the container:
 
         apptainer run --bind /path/to/data:/data soba_reference_repo.sif \
-            --scat /data/SCAT_catalogue.parquet \
-            --swot /data/SWOT_catalogue.parquet \
-            --satellite S1D --scatterometer ASCAT \
-            --test-dir /data/deliverables
+            --recipe /data/recipe.toml

@@ -97,7 +97,7 @@ def _validate_clause(clause):
 
 
 def read_recipe(path):
-    """Load and validate a reproducible SWOT recipe without writing files."""
+    """Load and validate a SWOT recipe without writing files."""
     path = Path(path).resolve()
     with path.open("rb") as stream:
         recipe = tomllib.load(stream)
@@ -107,7 +107,7 @@ def read_recipe(path):
         {"reference", "output_dir", "production_date", "version", "catalogues"},
     )
     if recipe["reference"] != "swot":
-        raise ValueError("reference must be swot")
+        raise ValueError(f"unsupported reference: {recipe['reference']!r}; only swot is available")
     date = recipe["production_date"]
     if not isinstance(date, str) or not re.fullmatch(r"[0-9]{8}", date):
         raise ValueError("production_date must use YYYYMMDD")

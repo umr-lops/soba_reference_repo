@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shutil
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -17,9 +15,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from matplotlib import pyplot as plt
 
-from .report import (
+from .pdf_support import (
     ASSET_DIR,
-    DEFAULT_TEST_DIR,
     compile_pdf,
     library_version,
     purge_latex_byproducts,
@@ -79,45 +76,6 @@ SOURCE_COLUMNS = (
     "swot_rain_flag",
     "class_1",
 )
-
-
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--swot-catalogue",
-        action="append",
-        required=True,
-        type=Path,
-        help="SWOT co-aligned WV catalogue; repeat once for S1A, S1C, and S1D",
-    )
-    parser.add_argument("--test-dir", type=Path, default=DEFAULT_TEST_DIR)
-    parser.add_argument("--report-dir", type=Path, default=Path("runs/swot_merged"))
-    parser.add_argument("--version", default="0.1")
-    parser.add_argument("--production-date", help="reproducible YYYYMMDD output date")
-    parser.add_argument("--miktex-bin", default=os.environ.get("MIKTEX_BIN"))
-    parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True)
-    args = parser.parse_args(argv)
-
-    missions = []
-    for path in args.swot_catalogue:
-        match = MISSION_PATTERN.match(path.name)
-        if match is None:
-            parser.error(f"invalid WV co-aligned catalogue filename: {path.name}")
-        missions.append(match.group(1))
-    if len(missions) != len(EXPECTED_MISSIONS) or set(missions) != set(EXPECTED_MISSIONS):
-        parser.error("provide exactly one catalogue each for S1A, S1C, and S1D")
-    if len(set(missions)) != len(missions):
-        parser.error("provide exactly one catalogue each for S1A, S1C, and S1D")
-    if args.production_date:
-        if not re.fullmatch(r"\d{8}", args.production_date):
-            parser.error("--production-date must use YYYYMMDD")
-        try:
-            datetime.strptime(args.production_date, "%Y%m%d")
-        except ValueError:
-            parser.error("--production-date must be a valid calendar date")
-    if not re.fullmatch(r"\d+\.\d+", args.version):
-        parser.error("--version must use X.Y format")
-    return args
 
 
 def read_swot_catalogue(path: Path) -> pd.DataFrame:
@@ -587,7 +545,7 @@ def _latex_escape(value) -> str:
 
 
 def build_swot_test_report(
-    test_path, source_paths, manifest, summary, figures, report_dir, compile_report=True
+    test_path, manifest, summary, figures, report_dir, compile_report=True
 ):
     """Fill the SOBA TEST document template for this SWOT-only export."""
     test_path, report_dir = Path(test_path), Path(report_dir)
@@ -605,9 +563,7 @@ def build_swot_test_report(
             b"creation date",
         )
     )
-    report_missions = (
-        summary["mission_counts"] if manifest.get("curated_merge") else EXPECTED_MISSIONS
-    )
+    report_missions = summary["mission_counts"]
     mission_rows = "\n".join(
         f"{mission} & {summary['mission_counts'].get(mission, 0):,} \\\\"
         for mission in report_missions
@@ -701,15 +657,7 @@ def build_swot_test_report(
         ))
         quality_tables = "\n".join(tables)
     else:
-        quality_tables = filter_table(
-            "Sequential quality-filter counts", "quality_filters",
-            ("Filter", "Rule on source catalogue", "Remaining", "Removed"),
-            [f"    {_latex_escape(step['name'])} & "
-             f"\\texttt{{{_latex_escape(step['rule'])}}} & "
-             f"{step['remaining']:,} & {step['removed']:,} {linebreak}"
-             for step in manifest["quality_filter_steps"]],
-            ("3.3cm", "6.6cm", "2cm", "2cm"),
-        )
+        raise ValueError("SWOT report requires a recipe Curated merge")
     column_rows = []
     for title, names in groups.items():
         column_rows.extend(
@@ -755,93 +703,45 @@ def build_swot_test_report(
             r"\end{longtable}",
         ]
     )
-    command = "\n".join(
-        [
-            "soba_reference_repo swot-test \\",
-            *(f'  --swot-catalogue "$DATA_DIR/{Path(path).name}" \\' for path in source_paths),
-            '  --test-dir "$TEST_DIR" --report-dir "$REPORT_DIR" \\',
-            f"  --production-date {match.group(1)} --version {match.group(2)}"
-            + (" --no-compile" if not compile_report else ""),
-        ]
-    )
+    command = "soba_reference_repo --recipe recipe.toml"
     key_formula = (
         r"\texttt{sar\_safe\_slc} + \texttt{swot\_lon} + \texttt{swot\_lat} "
         r"(longitude and latitude formatted to one decimal place)"
     )
-    steps = "\n".join(
-        [
-            r"    \item \textbf{step 1:} read the S1A, S1C and S1D WV SWOT co-aligned catalogues;",
-            r"    \item \textbf{step 2:} apply the thirteen quality filters in the table above;",
-            (
-                r"    \item \textbf{step 3:} map source fields to the \texttt{swot\_} family "
-                "and normalise SAFE identifiers;"
-            ),
-            r"    \item \textbf{step 4:} exclude rows with incomplete key or required fields;",
-            r"    \item \textbf{step 5:} keep the closest-time duplicate within each mission;",
-            r"    \item \textbf{step 6:} reject cross-mission key collisions;",
-            r"    \item \textbf{step 7:} write and validate the paired TEST and TARGET Parquets.",
-        ]
-    )
     date = match.group(1)
     date_iso = f"{date[:4]}-{date[4:6]}-{date[6:]}"
-    recipe_run = bool(manifest.get("curated_merge"))
-    if recipe_run:
-        missions = ", ".join(summary["mission_counts"])
-        command = 'soba_reference_repo swot-test --recipe recipe.toml'
-        steps = "\n".join(
-            f"    \\item {_latex_escape(text)}"
-            for text in (
-                "read each specified WV SWOT catalogue and apply its own resolved filter rules;",
-                "save each Curated Parquet, then persist their strict-schema merge;",
-                "map SWOT fields; exclude incomplete rows and closest-time duplicate keys;",
-                "write and validate the aligned TEST and TARGET Parquets.",
-            )
+    missions = ", ".join(summary["mission_counts"])
+    steps = "\n".join(
+        f"    \\item {_latex_escape(text)}"
+        for text in (
+            "read each specified WV SWOT catalogue and apply its own resolved filter rules;",
+            "save each Curated Parquet, then persist their strict-schema merge;",
+            "map SWOT fields; exclude incomplete rows and closest-time duplicate keys;",
+            "write and validate the aligned TEST and TARGET Parquets.",
         )
-    else:
-        missions = "S1A, S1C and S1D"
+    )
     tokens = {
-        "@@GEO_CRITERION@@": (
-            r"The geographic conditions for each catalogue are listed in its filter rows below."
-            if recipe_run else
-            r"\textbf{Geographic co-location criterion:} full footprint overlap "
-            r"(\texttt{overlap\_pct} $\geq 100$); no additional distance cutoff."
-        ),
+        "@@GEO_CRITERION@@":
+            r"The geographic conditions for each catalogue are listed in its filter rows below.",
         "@@TIME_CRITERION@@": (
             r"The time conditions for each catalogue are listed below; for duplicate keys "
             r"within a mission, keep the closest reference time."
-            if recipe_run else
-            r"\textbf{Time co-location criterion:} \texttt{ref\_time\_delta} $< 7200$ "
-            r"seconds; for duplicate keys within a mission, keep the reference time closest "
-            r"to the SAR acquisition."
         ),
         "@@SELECTED_PRODUCTS@@": (
-            f"The TEST dataset merges Curated Sentinel-1 WV catalogues "
-            f"from {_latex_escape(missions)} "
-            "with SWOT KaRIn reference observations."
-            if recipe_run else
-            "The TEST dataset merges three co-aligned Sentinel-1 WV catalogues "
-            "with SWOT KaRIn reference observations."
+            "The TEST dataset merges Curated Sentinel-1 WV catalogues "
+            f"from {_latex_escape(missions)} with SWOT KaRIn reference observations."
         ),
         "@@FILTER_INTRO@@": (
             r"\textbf{Quality filters applied in order within each mission "
             r"(counts restart per catalogue):}"
-            if recipe_run else r"\textbf{Quality filters, applied cumulatively "
-            r"to all input rows in this order:}"
         ),
         "@@COMMAND_INTRO@@": (
             r"From the run folder, edit \texttt{recipe.toml} for local catalogue locations "
             r"and a fresh output directory before rerunning:"
-            if recipe_run else
-            r"The command below reproduces this dataset using \texttt{soba\_reference\_repo}. "
-            r"Set \texttt{DATA\_DIR}, \texttt{TEST\_DIR}, and \texttt{REPORT\_DIR} "
-            r"to your local catalogue and output directories before running it:"
         ),
         "@@CONFIG_INTRO@@": (
             r"The saved TOML recipe sets each catalogue's filters and run settings. "
             r"Edit its catalogue paths and choose a fresh output directory before rerunning."
-            if recipe_run else
-            "No external YAML or JSON configuration file is used; the command specifies "
-            "the inputs and output paths. The run settings are recorded below."
         ),
         "@@DATASET_NAME@@": "S1 WV SWOT",
         "@@FILE_VERSION_ROW@@": (
@@ -857,7 +757,7 @@ def build_swot_test_report(
         ),
         "@@SOURCE_FILES@@": "\n".join(
             f"        \\item {_path(Path(source['path']).name)}"
-            + (f" (Curated: {_path(Path(source['curated_path']).name)})" if recipe_run else "")
+            + f" (Curated: {_path(Path(source['curated_path']).name)})"
             for source in manifest["sources"]
         ),
         "@@MISSION_ROWS@@": mission_rows,
@@ -873,11 +773,7 @@ def build_swot_test_report(
         "@@RUN_CONFIG@@": (
             f"mode: WV\nreference: SWOT KaRIn\nmissions: {missions}\n"
             f"production_date: {date}\nversion: {match.group(2)}\n"
-            + (
-                "recipe: recipe.toml\n"
-                "curated_merge: merged/S1_WV_swot_curated.parquet\n"
-                if recipe_run else ""
-            )
+            + "recipe: recipe.toml\ncurated_merge: merged/S1_WV_swot_curated.parquet\n"
             + f"compile_pdf: {str(compile_report).lower()}\n"
             "duplicate_keys: closest_reference_time\nmissing_required_values: exclude"
         ),
@@ -1075,7 +971,7 @@ def run_recipe(recipe_path):
         summary = summarize_swot_test(test, result)
         stage_latex_assets(DEFAULT_SWOT_TEMPLATE.parent, report_dir)
         tex = build_swot_test_report(
-            test_path, [item["path"] for item in catalogues], result, summary, figures,
+            test_path, result, summary, figures,
             report_dir, compile_report=recipe.get("compile", False),
         )
         tex_path = report_dir / f"{test_path.stem}.tex"
@@ -1104,63 +1000,8 @@ def run_recipe(recipe_path):
 
 
 def main(argv=None) -> int:
-    if argv and argv[0] == "--recipe":
-        parser = argparse.ArgumentParser(description="Build a SWOT TEST/TARGET pair from a recipe")
-        parser.add_argument("--recipe", required=True, type=Path)
-        recipe_args = parser.parse_args(argv)
-        return run_recipe(recipe_args.recipe)
-    args = parse_args(argv)
-    production_date = args.production_date or datetime.now(timezone.utc).strftime("%Y%m%d")
-    test, target, manifest = build_swot_test_frames(args.swot_catalogue)
-    test_path, target_path = write_swot_test_pair(
-        test, target, args.test_dir, production_date, args.version
-    )
-
-    report_dir = args.report_dir / test_path.stem
-    report_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir = report_dir / f"images_{test_path.stem}"
-    figures = plot_swot_figures(test, figures_dir)
-    summary = summarize_swot_test(test, manifest)
-    stage_latex_assets(DEFAULT_SWOT_TEMPLATE.parent, report_dir)
-    tex = build_swot_test_report(
-        test_path,
-        [source["path"] for source in manifest["sources"]],
-        manifest,
-        summary,
-        figures,
-        report_dir,
-        compile_report=args.compile,
-    )
-    tex_path = report_dir / f"{test_path.stem}.tex"
-    tex_path.write_text(tex, encoding="utf-8")
-
-    pdf_path = None
-    if args.compile:
-        pdf_path = compile_swot_pdf(report_dir, test_path.stem, args.miktex_bin)
-        purge_latex_byproducts(report_dir, test_path.stem)
-    manifest.update(
-        {
-            "mode": "WV",
-            "variable": "swh",
-            "version": args.version,
-            "production_date": production_date,
-            "test_parquet": str(test_path),
-            "target_parquet": str(target_path),
-            "report_tex": str(tex_path),
-            "pdf": str(pdf_path) if pdf_path else None,
-            "figures": {name: str(path) for name, path in figures.items()},
-            "summary": summary,
-        }
-    )
-    manifest_path = report_dir / f"{test_path.stem}_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-
-    print(f"accepted rows: {len(test):,} of {manifest['input_rows']:,}")
-    for source in manifest["sources"]:
-        print(f"{source['mission']}: {source['accepted_rows']:,} of {source['input_rows']:,}")
-    print(f"TEST:   {test_path}")
-    print(f"TARGET: {target_path}")
-    print(f"REPORT: {tex_path}")
-    if pdf_path:
-        print(f"PDF:    {pdf_path}")
-    return 0
+    """Run the recipe-only export (also available through the package CLI)."""
+    parser = argparse.ArgumentParser(description="Build a reference TEST/TARGET pair from a recipe")
+    parser.add_argument("--recipe", required=True, type=Path)
+    args = parser.parse_args(argv)
+    return run_recipe(args.recipe)

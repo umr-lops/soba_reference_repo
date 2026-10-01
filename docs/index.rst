@@ -1,21 +1,18 @@
 soba_reference_repo
 ===================
 
-Generates a SOBA **reference TEST dataset** report from two co-aligned catalogues: it crosses a
-scatterometer catalogue and the SWOT KaRIn catalogue through the common Sentinel-1 Wave Mode
-imagettes, applies the collocation filters, draws three figures, fills the SOBA LaTeX template
-with the run's real metadata, compiles a PDF, and exports the spec-conformant WV TEST parquet
-under the SOBA dataset naming convention.
-
-Reference: *Format Description for parquet co-aligned datasets* (SOBA WP3, v1.1.0).
+Create a SOBA reference TEST/TARGET pair and report from a TOML recipe. The
+current exporter curates Sentinel-1 WV catalogues co-aligned with SWOT KaRIn.
+It applies 13 SWOT-specific quality filters by default, saves Curated Parquets,
+and validates the exported pair. Other reference sources are not yet supported.
 
 .. code-block:: bash
 
-   soba_reference_repo \
-     --satellite S1D --scatterometer ASCAT \
-     --scat  <data-dir>/S1D_coaligned_catalogue_WV_..._KNMI-ASCAT-METOP-12.5km_0.2.parquet \
-     --swot  <data-dir>/S1D_coaligned_catalogue_WV_..._PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet \
-     --test-dir test_datasets
+   soba_reference_repo --recipe path/to/recipe.toml
+
+To validate a saved pair independently, use ``soba_validate_parquets``.
+
+Test suite: 54 collected tests.
 
 .. toctree::
    :maxdepth: 2
