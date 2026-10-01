@@ -3,6 +3,7 @@
 [![CI](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml)
 ![Tests](https://img.shields.io/badge/tests-54-blue)
 [![Build](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml)
+[![conda-forge build](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml/badge.svg)](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
@@ -12,7 +13,19 @@ Create Sentinel-1 Wave Mode (WV) reference TEST/TARGET Parquets and a SOBA repor
 
 ## Install
 
-Use Python 3.11. From the repository root, install the CLI and its Python dependencies:
+Install the published package with pip:
+
+```bash
+python -m pip install soba_reference_repo
+```
+
+Or, once the first conda-forge build is published, install it with conda:
+
+```bash
+conda install -c conda-forge soba_reference_repo
+```
+
+For development from a checkout, install it from the repository root instead:
 
 ```bash
 python -m pip install -e .
