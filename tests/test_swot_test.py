@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -418,13 +419,32 @@ def test_cli_rejects_direct_catalogue_and_legacy_crossing_commands(capsys):
     assert "--recipe" in capsys.readouterr().err
 
 
-def test_compile_swot_pdf_falls_back_to_tectonic(tmp_path):
+def test_compile_swot_pdf_falls_back_to_tectonic(tmp_path, monkeypatch):
     (tmp_path / "minimal.tex").write_text(
         r"\documentclass{article}\begin{document}SWOT report\end{document}",
         encoding="utf-8",
     )
 
+    def missing_pdflatex(*args):
+        raise FileNotFoundError("pdflatex is not installed")
+
+    commands = []
+
+    def run_tectonic(command, **options):
+        commands.append(command)
+        assert options["cwd"] == tmp_path
+        (tmp_path / "minimal.pdf").write_bytes(b"%PDF-1.4\n")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(swot_test, "compile_pdf", missing_pdflatex)
+    monkeypatch.setattr(swot_test.shutil, "which", lambda name: "/bin/tectonic")
+    monkeypatch.setattr(swot_test.subprocess, "run", run_tectonic)
+
     pdf = compile_swot_pdf(tmp_path, "minimal")
 
-    assert pdf.is_file()
+    assert commands == [[
+        "/bin/tectonic", "--keep-intermediates", "--keep-logs", "--reruns", "1",
+        "minimal.tex",
+    ]]
+    assert pdf == tmp_path / "minimal.pdf"
     assert pdf.read_bytes().startswith(b"%PDF-")
