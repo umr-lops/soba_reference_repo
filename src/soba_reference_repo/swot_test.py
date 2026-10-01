@@ -133,6 +133,11 @@ def read_swot_catalogue(path: Path) -> pd.DataFrame:
         )
 
     frame = pq.read_table(path, columns=list(SOURCE_COLUMNS)).to_pandas()
+    return _normalize_swot_frame(frame, match.group(1), path)
+
+
+def _normalize_swot_frame(frame, mission, path, input_order=None):
+    frame = frame.copy()
     for column in ("sar_safe_slc", "sar_safe_ocn"):
         frame[column] = (
             frame[column]
@@ -147,9 +152,9 @@ def read_swot_catalogue(path: Path) -> pd.DataFrame:
     frame["swot_waveheight"] = pd.to_numeric(frame.pop("ref_mean_hs_karin"), errors="coerce")
     frame["swot_source"] = frame.pop("swot_path").astype("string")
     frame["sar_ground_heading"] = pd.Series(pd.NA, index=frame.index, dtype="Float32")
-    frame["_mission"] = match.group(1)
+    frame["_mission"] = mission
     frame["_source_path"] = str(path)
-    frame["_input_order"] = range(len(frame))
+    frame["_input_order"] = input_order if input_order is not None else range(len(frame))
     return frame
 
 
@@ -279,6 +284,50 @@ def build_swot_test_frames(catalogues):
     if tuple(sorted(by_mission)) != tuple(sorted(EXPECTED_MISSIONS)):
         raise ValueError("provide exactly one catalogue each for S1A, S1C, and S1D")
 
+    return _build_swot_frames(by_mission)
+
+
+def build_swot_test_from_merged(merged_path, curation):
+    """Generate the pair from saved Curated rows without running filters again."""
+    table = pq.read_table(merged_path)
+    required = {
+        "sar_time", "sar_lat", "sar_lon", "sar_incidence_angle", "sar_elevation_angle",
+        "sar_distance_to_coast", "sar_safe_slc", "sar_safe_ocn", "ref_lon", "ref_lat",
+        "ref_time", "ref_mean_hs_karin", "swot_path", "_curation_mission", "_curation_row",
+    }
+    missing = required - set(table.column_names)
+    if missing:
+        raise ValueError(f"merged Curated file lacks output fields: {sorted(missing)}")
+    raw = table.to_pandas()
+    by_mission = {}
+    for mission, info in sorted(curation.items()):
+        selected = raw.loc[raw["_curation_mission"].eq(mission)].copy()
+        for safe_column in ("sar_safe_slc", "sar_safe_ocn"):
+            safe = (
+                selected[safe_column].astype("string").str.rsplit("/", n=1).str[-1]
+                .replace({"nan": pd.NA, "None": pd.NA, "<NA>": pd.NA, "": pd.NA})
+            )
+            matches = safe.str.startswith(f"{mission}_WV_").fillna(False).astype(bool)
+            wrong = safe.notna() & ~matches
+            if wrong.any():
+                raise ValueError(f"{mission}: SAFE mission mismatch in {safe_column}")
+        by_mission[mission] = {
+            "frame": _normalize_swot_frame(
+                selected[[column for column in SOURCE_COLUMNS if column in required]],
+                mission, info["path"],
+                input_order=selected["_curation_row"].to_numpy(),
+            ),
+            "path": info["path"],
+            "input_rows": info["input_rows"],
+            "steps": info["steps"],
+            "curated_path": info["curated_path"],
+        }
+    if len(raw) != sum(len(item["frame"]) for item in by_mission.values()):
+        raise ValueError("merged Curated file contains an unknown mission")
+    return _build_swot_frames(by_mission, curated=True)
+
+
+def _build_swot_frames(by_mission, curated=False):
     merged = []
     sources = []
     exclusions = {"missing_key_fields": 0, "missing_required_fields": 0, "duplicate_keys": 0}
@@ -287,15 +336,19 @@ def build_swot_test_frames(catalogues):
         for name, rule, _ in QUALITY_FILTERS
     ]
     input_rows = 0
-    for mission in EXPECTED_MISSIONS:
-        path = by_mission[mission]
-        frame = read_swot_catalogue(path)
-        count = len(frame)
+    for mission in sorted(by_mission):
+        item = by_mission[mission] if curated else {"path": by_mission[mission]}
+        path = item["path"]
+        frame = item["frame"] if curated else read_swot_catalogue(path)
+        count = item["input_rows"] if curated else len(frame)
         input_rows += count
-        frame, quality_steps = apply_quality_filters(frame)
-        for total, step in zip(quality_totals, quality_steps, strict=True):
-            for key in ("before", "remaining", "removed"):
-                total[key] += step[key]
+        if curated:
+            quality_steps = item["steps"]
+        else:
+            frame, quality_steps = apply_quality_filters(frame)
+            for total, step in zip(quality_totals, quality_steps, strict=True):
+                for key in ("before", "remaining", "removed"):
+                    total[key] += step[key]
         mission_exclusions = {reason: 0 for reason in exclusions}
         numeric = (
             "sar_lat",
@@ -334,6 +387,8 @@ def build_swot_test_frames(catalogues):
         exclusions["missing_required_fields"] += int(invalid.sum())
         mission_exclusions["missing_required_fields"] += int(invalid.sum())
         frame = frame.loc[~invalid].copy()
+        for coordinate in ("swot_lon", "swot_lat"):
+            frame[coordinate] = frame[coordinate].astype("float32")
         frame["primary_key"] = (
             frame["sar_safe_slc"]
             + "_"
@@ -348,16 +403,18 @@ def build_swot_test_frames(catalogues):
         exclusions["duplicate_keys"] += duplicate_count
         mission_exclusions["duplicate_keys"] += duplicate_count
         deduplicated = deduplicated.sort_values("_input_order", kind="stable")
-        sources.append(
-            {
-                "mission": mission,
-                "path": str(path),
-                "input_rows": count,
-                "quality_filter_steps": quality_steps,
-                "accepted_rows": len(deduplicated),
-                "excluded_rows": mission_exclusions,
-            }
-        )
+        source_record = {
+            "mission": mission,
+            "path": str(path),
+            "input_rows": count,
+            "quality_filter_steps": quality_steps,
+            "accepted_rows": len(deduplicated),
+            "excluded_rows": mission_exclusions,
+        }
+        if curated:
+            source_record["curated_path"] = item["curated_path"]
+            source_record["curated_rows"] = len(item["frame"])
+        sources.append(source_record)
         merged.append(deduplicated)
 
     frame = pd.concat(merged, ignore_index=True)
@@ -391,7 +448,7 @@ def build_swot_test_frames(catalogues):
     manifest = {
         "sources": sources,
         "input_rows": input_rows,
-        "quality_filter_steps": quality_totals,
+        "quality_filter_steps": [] if curated else quality_totals,
         "accepted_rows": len(test),
         "excluded_rows": exclusions,
         "key_formula": "sar_safe_slc + '_' + swot_lon + '_' + swot_lat (coordinates at 0.1 degree)",
@@ -548,9 +605,12 @@ def build_swot_test_report(
             b"creation date",
         )
     )
+    report_missions = (
+        summary["mission_counts"] if manifest.get("curated_merge") else EXPECTED_MISSIONS
+    )
     mission_rows = "\n".join(
         f"{mission} & {summary['mission_counts'].get(mission, 0):,} \\\\"
-        for mission in EXPECTED_MISSIONS
+        for mission in report_missions
     )
     exclusion_rows = (
         "\n".join(
@@ -572,12 +632,84 @@ def build_swot_test_report(
     if sorted(name for names in groups.values() for name in names) != sorted(TEST_COLUMNS):
         raise ValueError("TEST schema and SOBA document column groups differ")
     linebreak = "\\" * 2
-    quality_rows = "\n".join(
-        f"    {_latex_escape(step['name'])} & "
-        f"\\texttt{{{_latex_escape(step['rule'])}}} & "
-        f"{step['remaining']:,} & {step['removed']:,} {linebreak}"
-        for step in manifest["quality_filter_steps"]
-    )
+
+    def filter_table(caption, label, headers, rows, widths):
+        header = " & ".join(r"\textbf{" + _latex_escape(h) + "}" for h in headers)
+        return "\n".join([
+            rf"\begin{{longtable}}{{@{{}}{''.join('p{' + w + '}' for w in widths)}@{{}}}}",
+            rf"    \caption{{{caption}.\label{{tab:{label}}}}} {linebreak}",
+            r"    \toprule", f"    {header} {linebreak}", r"    \midrule",
+            r"    \endfirsthead", r"    \toprule", f"    {header} {linebreak}",
+            r"    \midrule", r"    \endhead", r"    \bottomrule",
+            r"    \endlastfoot", *rows, r"\end{longtable}",
+        ])
+
+    if manifest.get("curated_merge"):
+        sources = manifest["sources"]
+        steps_by_mission = {
+            source["mission"]: {step["id"]: step for step in source["quality_filter_steps"]}
+            for source in sources
+        }
+        ids = list(dict.fromkeys(
+            step["id"] for source in sources for step in source["quality_filter_steps"]
+        ))
+        def definition(step):
+            return (step["name"], step["status"], step["clauses"])
+
+        common = {
+            rule_id for rule_id in ids
+            if all(rule_id in steps for steps in steps_by_mission.values())
+            and len({str(definition(steps[rule_id])) for steps in steps_by_mission.values()}) == 1
+        }
+        def rule_row(step):
+            rule = "disabled" if step["status"] == "disabled" else str(step["clauses"])
+            return (f"    {_latex_escape(step['name'])} & "
+                    f"\\texttt{{{_latex_escape(rule)}}} {linebreak}")
+
+        tables = []
+        if common:
+            tables.append(r"\textbf{Common quality filters (same rule for every mission):}")
+            tables.append(filter_table(
+                "Common quality-filter rules", "common_filters",
+                ("Filter", "Rule on source catalogue"),
+                [rule_row(steps_by_mission[sources[0]["mission"]][rule_id])
+                 for rule_id in ids if rule_id in common], ("4.1cm", "10.2cm"),
+            ))
+        for source in sources:
+            changed = [steps_by_mission[source["mission"]][rule_id]
+                       for rule_id in ids if rule_id not in common
+                       and rule_id in steps_by_mission[source["mission"]]]
+            if changed:
+                mission = source["mission"]
+                tables.append(rf"\textbf{{{mission}-specific quality filters:}}")
+                tables.append(filter_table(
+                    f"{mission}-specific quality-filter rules", f"{mission.lower()}_filters",
+                    ("Filter", "Rule on source catalogue"),
+                    [rule_row(step) for step in changed], ("4.1cm", "10.2cm"),
+                ))
+        tables.append(r"\textbf{Sequential counts by mission (Remaining / removed):}")
+        tables.append(filter_table(
+            "Sequential quality-filter counts by mission", "quality_filters",
+            ("Filter", *(source["mission"] for source in sources)),
+            ["    " + " & ".join([
+                _latex_escape(next((steps[rule_id]["name"] for steps in steps_by_mission.values()
+                                     if rule_id in steps), rule_id)),
+                *(f"{steps[rule_id]['remaining']:,} / {steps[rule_id]['removed']:,}"
+                  if rule_id in steps else "--" for steps in steps_by_mission.values()),
+            ]) + f" {linebreak}" for rule_id in ids],
+            ("5cm", *("3.1cm" for _ in sources)),
+        ))
+        quality_tables = "\n".join(tables)
+    else:
+        quality_tables = filter_table(
+            "Sequential quality-filter counts", "quality_filters",
+            ("Filter", "Rule on source catalogue", "Remaining", "Removed"),
+            [f"    {_latex_escape(step['name'])} & "
+             f"\\texttt{{{_latex_escape(step['rule'])}}} & "
+             f"{step['remaining']:,} & {step['removed']:,} {linebreak}"
+             for step in manifest["quality_filter_steps"]],
+            ("3.3cm", "6.6cm", "2cm", "2cm"),
+        )
     column_rows = []
     for title, names in groups.items():
         column_rows.extend(
@@ -652,8 +784,66 @@ def build_swot_test_report(
     )
     date = match.group(1)
     date_iso = f"{date[:4]}-{date[4:6]}-{date[6:]}"
+    recipe_run = bool(manifest.get("curated_merge"))
+    if recipe_run:
+        missions = ", ".join(summary["mission_counts"])
+        command = 'soba_reference_repo swot-test --recipe recipe.toml'
+        steps = "\n".join(
+            f"    \\item {_latex_escape(text)}"
+            for text in (
+                "read each specified WV SWOT catalogue and apply its own resolved filter rules;",
+                "save each Curated Parquet, then persist their strict-schema merge;",
+                "map SWOT fields; exclude incomplete rows and closest-time duplicate keys;",
+                "write and validate the aligned TEST and TARGET Parquets.",
+            )
+        )
+    else:
+        missions = "S1A, S1C and S1D"
     tokens = {
-        "@@DATASET_NAME@@": "S1A / S1C / S1D / SWOT KaRIn",
+        "@@GEO_CRITERION@@": (
+            r"The geographic conditions for each catalogue are listed in its filter rows below."
+            if recipe_run else
+            r"\textbf{Geographic co-location criterion:} full footprint overlap "
+            r"(\texttt{overlap\_pct} $\geq 100$); no additional distance cutoff."
+        ),
+        "@@TIME_CRITERION@@": (
+            r"The time conditions for each catalogue are listed below; for duplicate keys "
+            r"within a mission, keep the closest reference time."
+            if recipe_run else
+            r"\textbf{Time co-location criterion:} \texttt{ref\_time\_delta} $< 7200$ "
+            r"seconds; for duplicate keys within a mission, keep the reference time closest "
+            r"to the SAR acquisition."
+        ),
+        "@@SELECTED_PRODUCTS@@": (
+            f"The TEST dataset merges Curated Sentinel-1 WV catalogues "
+            f"from {_latex_escape(missions)} "
+            "with SWOT KaRIn reference observations."
+            if recipe_run else
+            "The TEST dataset merges three co-aligned Sentinel-1 WV catalogues "
+            "with SWOT KaRIn reference observations."
+        ),
+        "@@FILTER_INTRO@@": (
+            r"\textbf{Quality filters applied in order within each mission "
+            r"(counts restart per catalogue):}"
+            if recipe_run else r"\textbf{Quality filters, applied cumulatively "
+            r"to all input rows in this order:}"
+        ),
+        "@@COMMAND_INTRO@@": (
+            r"From the run folder, edit \texttt{recipe.toml} for local catalogue locations "
+            r"and a fresh output directory before rerunning:"
+            if recipe_run else
+            r"The command below reproduces this dataset using \texttt{soba\_reference\_repo}. "
+            r"Set \texttt{DATA\_DIR}, \texttt{TEST\_DIR}, and \texttt{REPORT\_DIR} "
+            r"to your local catalogue and output directories before running it:"
+        ),
+        "@@CONFIG_INTRO@@": (
+            r"The saved TOML recipe sets each catalogue's filters and run settings. "
+            r"Edit its catalogue paths and choose a fresh output directory before rerunning."
+            if recipe_run else
+            "No external YAML or JSON configuration file is used; the command specifies "
+            "the inputs and output paths. The run settings are recorded below."
+        ),
+        "@@DATASET_NAME@@": "S1 WV SWOT",
         "@@FILE_VERSION_ROW@@": (
             f"{_path(test_path.name)} & {date_iso} & Merged SWOT KaRIn TEST dataset; "
             f"{summary['row_count']:,} rows. {linebreak}"
@@ -661,15 +851,17 @@ def build_swot_test_report(
         "@@GENERAL_DESCRIPTION@@": (
             "Sentinel-1 Wave Mode (WV) SAR matchups with SWOT KaRIn L2 WindWave "
             f"significant wave height (m). The merged dataset contains {summary['row_count']:,} "
-            f"rows from S1A, S1C and S1D. TEST file: {_path(test_path.name)}. "
+            f"rows from {_latex_escape(missions)}. TEST file: {_path(test_path.name)}. "
             r"The reference parameter is \texttt{swot\_waveheight}; "
             r"\texttt{sar\_ground\_heading} is null because it is unavailable in the source."
         ),
         "@@SOURCE_FILES@@": "\n".join(
-            f"        \\item {_path(Path(path).name)}" for path in source_paths
+            f"        \\item {_path(Path(source['path']).name)}"
+            + (f" (Curated: {_path(Path(source['curated_path']).name)})" if recipe_run else "")
+            for source in manifest["sources"]
         ),
         "@@MISSION_ROWS@@": mission_rows,
-        "@@QUALITY_FILTER_ROWS@@": quality_rows,
+        "@@QUALITY_FILTER_TABLES@@": quality_tables,
         "@@ROW_COUNT@@": f"{summary['row_count']:,}",
         "@@EXCLUSION_ROWS@@": exclusion_rows,
         "@@KEY_FORMULA@@": key_formula,
@@ -679,9 +871,14 @@ def build_swot_test_report(
         "@@PROCESS_STEPS@@": steps,
         "@@COMMAND@@": command,
         "@@RUN_CONFIG@@": (
-            "mode: WV\nreference: SWOT KaRIn\nmissions: S1A, S1C, S1D\n"
+            f"mode: WV\nreference: SWOT KaRIn\nmissions: {missions}\n"
             f"production_date: {date}\nversion: {match.group(2)}\n"
-            f"compile_pdf: {str(compile_report).lower()}\n"
+            + (
+                "recipe: recipe.toml\n"
+                "curated_merge: merged/S1_WV_swot_curated.parquet\n"
+                if recipe_run else ""
+            )
+            + f"compile_pdf: {str(compile_report).lower()}\n"
             "duplicate_keys: closest_reference_time\nmissing_required_values: exclude"
         ),
         "@@COVERAGE_FIGURE@@": Path(figures["coverage"]).relative_to(report_dir).as_posix(),
@@ -809,7 +1006,109 @@ def compile_swot_pdf(output_dir: Path, stem: str, miktex_bin=None) -> Path:
         return pdf_path
 
 
+def run_recipe(recipe_path):
+    """Save mission-specific curation, then export from the persisted merge."""
+    from .curation import read_recipe, resolve_rules, write_curated, merge_curated
+
+    recipe_path = Path(recipe_path).resolve()
+    recipe = read_recipe(recipe_path)
+    root = Path(recipe["output_dir"])
+    if root.exists():
+        raise FileExistsError(f"refusing existing run directory: {root}")
+    if not DEFAULT_SWOT_TEMPLATE.is_file():
+        raise FileNotFoundError(DEFAULT_SWOT_TEMPLATE)
+    catalogues = sorted(recipe["catalogues"], key=lambda item: item["mission"])
+    expected_schema = None
+    for item in catalogues:
+        item["resolved_rules"] = resolve_rules(item.get("rules", []))
+        schema = pq.read_schema(item["path"])
+        if expected_schema is not None and not schema.equals(expected_schema, check_metadata=False):
+            raise ValueError("source catalogue schemas differ; cannot merge Curated files")
+        expected_schema = schema
+        missing = {col for col in SOURCE_COLUMNS[:13] if col not in schema.names}
+        for rule in item["resolved_rules"]:
+            if rule.get("enabled", True):
+                missing.update(
+                    clause[0] for clause in rule["clauses"] if clause[0] not in schema.names
+                )
+        if missing:
+            raise ValueError(f"{item['mission']}: missing source columns: {sorted(missing)}")
+    root.mkdir(parents=True)
+    shutil.copyfile(recipe_path, root / "recipe.toml")
+    manifest = {"status": "running", "reference": "swot", "sources": []}
+    stage = "curation"
+    try:
+        curated, provenance = {}, {}
+        for item in catalogues:
+            mission = item["mission"]
+            target = root / "curated" / mission / (
+                f"{mission}_curated_coaligned_dataset_WV_"
+                f"{recipe['production_date']}_swh_{recipe['version']}.parquet"
+            )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            info = write_curated(item["path"], target, item["resolved_rules"], mission)
+            curated[mission] = target
+            provenance[mission] = {
+                "path": str(item["path"]), "curated_path": str(target),
+                "input_rows": info["input_rows"], "curated_rows": info["curated_rows"],
+                "steps": info["steps"],
+            }
+            manifest["sources"].append({"mission": mission, **provenance[mission]})
+        stage = "merge"
+        merged_path = root / "merged" / "S1_WV_swot_curated.parquet"
+        merged_path.parent.mkdir(parents=True, exist_ok=True)
+        merge_curated(curated, merged_path)
+        manifest["curated_merge"] = str(merged_path)
+        stage = "pair"
+        test, target, result = build_swot_test_from_merged(merged_path, provenance)
+        result["curated_merge"] = str(merged_path)
+        result["recipe_path"] = str(recipe_path)
+        result["recipe_snapshot"] = str(root / "recipe.toml")
+        manifest = result
+        test_path, target_path = write_swot_test_pair(
+            test, target, root / "datasets", recipe["production_date"], recipe["version"]
+        )
+        stage = "report"
+        report_dir = root / "report" / test_path.stem
+        report_dir.mkdir(parents=True, exist_ok=True)
+        figures = plot_swot_figures(test, report_dir / f"images_{test_path.stem}")
+        summary = summarize_swot_test(test, result)
+        stage_latex_assets(DEFAULT_SWOT_TEMPLATE.parent, report_dir)
+        tex = build_swot_test_report(
+            test_path, [item["path"] for item in catalogues], result, summary, figures,
+            report_dir, compile_report=recipe.get("compile", False),
+        )
+        tex_path = report_dir / f"{test_path.stem}.tex"
+        tex_path.write_text(tex, encoding="utf-8")
+        pdf_path = None
+        if recipe.get("compile", False):
+            stage = "pdf"
+            pdf_path = compile_swot_pdf(report_dir, test_path.stem)
+            purge_latex_byproducts(report_dir, test_path.stem)
+        result.update({
+            "status": "complete", "reference": "swot", "mode": "WV", "variable": "swh",
+            "version": recipe["version"], "production_date": recipe["production_date"],
+            "test_parquet": str(test_path), "target_parquet": str(target_path),
+            "report_tex": str(tex_path), "pdf": str(pdf_path) if pdf_path else None,
+            "figures": {name: str(path) for name, path in figures.items()}, "summary": summary,
+        })
+        manifest = result
+    except Exception as exc:
+        manifest.update({"status": "failed", "failed_stage": stage, "error": str(exc)})
+        (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        raise
+    (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"accepted rows: {len(test):,} of {manifest['input_rows']:,}")
+    print(f"TEST:   {test_path}\nTARGET: {target_path}\nREPORT: {tex_path}")
+    return 0
+
+
 def main(argv=None) -> int:
+    if argv and argv[0] == "--recipe":
+        parser = argparse.ArgumentParser(description="Build a SWOT TEST/TARGET pair from a recipe")
+        parser.add_argument("--recipe", required=True, type=Path)
+        recipe_args = parser.parse_args(argv)
+        return run_recipe(recipe_args.recipe)
     args = parse_args(argv)
     production_date = args.production_date or datetime.now(timezone.utc).strftime("%Y%m%d")
     test, target, manifest = build_swot_test_frames(args.swot_catalogue)
