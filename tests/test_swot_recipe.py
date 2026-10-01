@@ -68,7 +68,7 @@ def test_recipe_cli_keeps_curated_merge_and_pair_and_reports_real_rules(tmp_path
         'clauses = [["max_rainrate_IMERG", "le", 0.1]]\n',
         encoding="utf-8",
     )
-    assert cli_main(["swot-test", "--recipe", str(recipe)]) == 0
+    assert cli_main(["--recipe", str(recipe)]) == 0
     root = tmp_path / "output"
     assert (root / "curated/S1A" /
             "S1A_curated_coaligned_dataset_WV_20260930_swh_0.1.parquet").is_file()
@@ -117,10 +117,12 @@ def test_recipe_common_filters_are_not_repeated_by_mission(tmp_path):
         f'[[catalogues]]\nmission = "S1C"\npath = "{c.name}"\n',
         encoding="utf-8",
     )
-    assert cli_main(["swot-test", "--recipe", str(recipe)]) == 0
+    assert cli_main(["--recipe", str(recipe)]) == 0
     tex_path, = list((tmp_path / "output/report").rglob("*.tex"))
     tex = tex_path.read_text()
     assert "Common quality filters" in tex
+    assert "soba_reference_repo --recipe recipe.toml" in tex
+    assert "--swot-catalogue" not in tex
     assert "-specific quality filters" not in tex
     assert tex.count("max\\_rainrate\\_IMERG") == 1
     assert "Remaining / removed" in tex
@@ -137,7 +139,7 @@ def test_recipe_rejects_unsafe_tex_filename_before_writing(tmp_path):
         f'version = "0.1"\n[[catalogues]]\nmission = "S1A"\npath = "{unsafe.name}"\n'
     )
     with pytest.raises(ValueError, match="unsafe"):
-        cli_main(["swot-test", "--recipe", str(recipe)])
+        cli_main(["--recipe", str(recipe)])
     assert not (tmp_path / "output").exists()
 
 
@@ -152,7 +154,7 @@ def test_recipe_rejects_unsafe_source_directory_before_writing(tmp_path):
         f'path = "{source.relative_to(tmp_path)}"\n'
     )
     with pytest.raises(ValueError, match="unsafe"):
-        cli_main(["swot-test", "--recipe", str(recipe)])
+        cli_main(["--recipe", str(recipe)])
     assert not (tmp_path / "output").exists()
 
 
@@ -167,7 +169,7 @@ def test_failed_pair_retains_curated_provenance(tmp_path, monkeypatch):
         raise ValueError("forced pair failure")
     monkeypatch.setattr(swot_test, "build_swot_test_from_merged", fail_pair)
     with pytest.raises(ValueError, match="forced pair failure"):
-        cli_main(["swot-test", "--recipe", str(recipe)])
+        cli_main(["--recipe", str(recipe)])
     root = tmp_path / "output"
     manifest = json.loads((root / "manifest.json").read_text())
     assert manifest["status"] == "failed"
@@ -187,7 +189,7 @@ def test_report_does_not_claim_disabled_overlap_or_time_threshold(tmp_path):
         '[[catalogues.rules]]\nid = "full_overlap"\nenabled = false\n'
         '[[catalogues.rules]]\nid = "time_under_two_hours"\nenabled = false\n'
     )
-    assert cli_main(["swot-test", "--recipe", str(recipe)]) == 0
+    assert cli_main(["--recipe", str(recipe)]) == 0
     tex_path, = list((tmp_path / "output/report").rglob("*.tex"))
     tex = tex_path.read_text()
     assert "full footprint overlap" not in tex
@@ -204,7 +206,7 @@ def test_recipe_key_matches_exported_float32_coordinates_at_rounding_boundary(tm
         f'reference = "swot"\noutput_dir = "output"\nproduction_date = "20260930"\n'
         f'version = "0.1"\n[[catalogues]]\nmission = "S1A"\npath = "{source.name}"\n'
     )
-    assert cli_main(["swot-test", "--recipe", str(recipe)]) == 0
+    assert cli_main(["--recipe", str(recipe)]) == 0
     test_path, = list((tmp_path / "output/datasets").rglob("S1_reference_test_dataset_*.parquet"))
     target_path, = list((tmp_path / "output/datasets").rglob("S1_target_dataset_*.parquet"))
     assert swot_test.validate_swot_test_pair(test_path, target_path)
@@ -219,7 +221,7 @@ def test_recipe_rejects_safe_from_another_mission(tmp_path):
         f'version = "0.1"\n[[catalogues]]\nmission = "S1C"\npath = "{path.name}"\n'
     )
     with pytest.raises(ValueError, match="SAFE mission mismatch"):
-        cli_main(["swot-test", "--recipe", str(recipe)])
+        cli_main(["--recipe", str(recipe)])
     manifest = json.loads((tmp_path / "output/manifest.json").read_text())
     assert manifest["status"] == "failed"
 
@@ -235,9 +237,19 @@ def test_recipe_excludes_missing_safe_placeholder_without_mission_error(tmp_path
         f'reference = "swot"\noutput_dir = "output"\nproduction_date = "20260930"\n'
         f'version = "0.1"\n[[catalogues]]\nmission = "S1A"\npath = "{source.name}"\n'
     )
-    assert cli_main(["swot-test", "--recipe", str(recipe)]) == 0
+    assert cli_main(["--recipe", str(recipe)]) == 0
     manifest = json.loads((tmp_path / "output/manifest.json").read_text())
     assert manifest["excluded_rows"]["missing_key_fields"] == 1
+
+
+def test_recipe_rejects_unimplemented_reference_before_writing(tmp_path):
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text('reference = "alti"\noutput_dir = "output"\n'
+                      'production_date = "20260930"\nversion = "0.1"\n'
+                      '[[catalogues]]\nmission = "S1A"\npath = "missing.parquet"\n')
+    with pytest.raises(ValueError, match="unsupported reference.*alti"):
+        cli_main(["--recipe", str(recipe)])
+    assert not (tmp_path / "output").exists()
 
 
 def test_recipe_refuses_existing_output_directory(tmp_path):
@@ -251,5 +263,5 @@ def test_recipe_refuses_existing_output_directory(tmp_path):
         f'version = "0.1"\n[[catalogues]]\nmission = "S1A"\npath = "{source.name}"\n'
     )
     with pytest.raises(FileExistsError):
-        cli_main(["swot-test", "--recipe", str(recipe)])
+        cli_main(["--recipe", str(recipe)])
     assert sorted(p.name for p in output.iterdir()) == ["keep.txt"]

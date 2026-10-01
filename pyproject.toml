@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "soba_reference_repo"
 version = "0.1.0"
-description = "SOBA co-aligned / TEST dataset report generator: figures, LaTeX PDF and TEST parquet"
+description = "Recipe-driven SOBA reference TEST/TARGET dataset exporter"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -21,7 +21,6 @@ dependencies = [
   "pandas",
   "pyarrow",
   "matplotlib",
-  "geopandas",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +28,7 @@ docs = ["sphinx", "furo", "myst-parser"]
 
 [project.scripts]
 soba_reference_repo = "soba_reference_repo.cli:main"
+soba_validate_parquets = "soba_reference_repo.validator:main"
 
 [project.urls]
 Repository = "https://github.com/umr-lops/soba_reference_repo"
@@ -46,7 +46,7 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["assets", "src/soba_reference_repo/validator.py"]
+extend-exclude = ["assets"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]

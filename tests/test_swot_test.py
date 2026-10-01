@@ -1,5 +1,3 @@
-import json
-import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -9,12 +7,11 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import to_hex
 
 from soba_reference_repo import swot_test
-from soba_reference_repo.cli import main as cli_main, parse_args as crossing_parse_args
+from soba_reference_repo.cli import main as cli_main
+from soba_reference_repo.validator import main as validator_main
 from soba_reference_repo.swot_test import (
     build_swot_test_frames,
-    build_swot_test_report,
     compile_swot_pdf,
-    parse_args,
     read_swot_catalogue,
     summarize_swot_test,
     plot_swot_figures,
@@ -31,84 +28,6 @@ def catalogue_path(mission):
         f"/input/{mission}_coaligned_catalogue_WV_20260107_20260109_20260925_"
         "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet"
     )
-
-
-def test_parse_args_accepts_three_catalogues_and_reproducible_outputs():
-    args = parse_args(
-        [
-            "--swot-catalogue",
-            catalogue_path("S1A"),
-            "--swot-catalogue",
-            catalogue_path("S1C"),
-            "--swot-catalogue",
-            catalogue_path("S1D"),
-            "--test-dir",
-            "/tmp/test",
-            "--report-dir",
-            "/tmp/report",
-            "--version",
-            "0.1",
-            "--production-date",
-            "20260110",
-            "--no-compile",
-        ]
-    )
-
-    assert [Path(path).name[:3] for path in args.swot_catalogue] == list(MISSIONS)
-    assert args.test_dir == Path("/tmp/test")
-    assert args.report_dir == Path("/tmp/report")
-    assert args.version == "0.1"
-    assert args.production_date == "20260110"
-    assert args.compile is False
-
-
-def test_cli_defaults_write_relative_to_working_directory():
-    crossing = crossing_parse_args(
-        ["--scat", "scat.parquet", "--swot", "swot.parquet", "--satellite", "S1A",
-         "--scatterometer", "ASCAT"]
-    )
-    args = parse_args(
-        [item for mission in MISSIONS for item in ("--swot-catalogue", catalogue_path(mission))]
-    )
-    assert Path(crossing.test_dir) == Path("test_datasets")
-    assert args.test_dir == Path("test_datasets")
-    assert args.report_dir == Path("runs/swot_merged")
-
-
-def test_parse_args_rejects_duplicate_mission(capsys):
-    with pytest.raises(SystemExit) as error:
-        parse_args(
-            [
-                "--swot-catalogue",
-                catalogue_path("S1A"),
-                "--swot-catalogue",
-                catalogue_path("S1A"),
-                "--swot-catalogue",
-                catalogue_path("S1D"),
-            ]
-        )
-
-    assert error.value.code == 2
-    assert "exactly one catalogue each for S1A, S1C, and S1D" in capsys.readouterr().err
-
-
-def test_parse_args_rejects_invalid_calendar_date(capsys):
-    with pytest.raises(SystemExit) as error:
-        parse_args(
-            [
-                "--swot-catalogue",
-                catalogue_path("S1A"),
-                "--swot-catalogue",
-                catalogue_path("S1C"),
-                "--swot-catalogue",
-                catalogue_path("S1D"),
-                "--production-date",
-                "20260230",
-            ]
-        )
-
-    assert error.value.code == 2
-    assert "must be a valid calendar date" in capsys.readouterr().err
 
 
 def source_row(**updates):
@@ -341,7 +260,13 @@ def test_write_pair_has_exact_filenames_schema_metadata_and_keys(tmp_path):
     assert test_path.parent == target_path.parent
     assert {path.name for path in test_path.parent.iterdir()} == {test_path.name, target_path.name}
     assert validate_swot_test_pair(test_path, target_path) is True
-    metadata = pq.read_schema(test_path).metadata
+    assert validator_main(["--test", str(test_path), "--target", str(target_path)]) == 0
+    broken = pq.read_table(test_path).drop(["swot_waveheight"])
+    pq.write_table(broken, test_path)
+    with pytest.raises(SystemExit) as error:
+        validator_main(["--test", str(test_path), "--target", str(target_path)])
+    assert error.value.code == 1
+    metadata = pq.read_schema(target_path).metadata
     assert set(metadata) == {
         b"source swot",
         b"source ancillary datasets",
@@ -417,68 +342,6 @@ def test_plot_swot_figures_writes_three_pngs(tmp_path):
     )
 
 
-def test_report_documents_export_schema_metadata_and_exclusions(tmp_path):
-    paths = [
-        write_catalogue(
-            tmp_path,
-            mission,
-            [
-                source_row(
-                    sar_safe_slc=f"/archive/{mission}_WV_SLC__1SSV_20260107.SAFE:WV_033",
-                )
-            ],
-        )
-        for mission in MISSIONS
-    ]
-    test, target, manifest = build_swot_test_frames(paths)
-    test_path, _ = write_swot_test_pair(test, target, tmp_path / "datasets", "20260110")
-    report_dir = tmp_path / "report"
-    figures = {
-        "coverage": report_dir / "images" / "coverage.png",
-        "monthly_rows": report_dir / "images" / "monthly.png",
-        "swot_waveheight": report_dir / "images" / "swh.png",
-    }
-
-    report = build_swot_test_report(
-        test_path, paths, manifest, summarize_swot_test(test, manifest), figures, report_dir
-    )
-
-    assert test_path.name in report
-    assert "Creation of the SWOT TEST dataset document & Ilias Reguig" in report
-    assert str(tmp_path) not in report
-    assert "DATA_DIR" in report and "TEST_DIR" in report and "REPORT_DIR" in report
-    assert r"sar\_safe\_slc" in report
-    assert r"swot\_source" in report
-    assert r"swot\_lon" in report
-    assert r"swot\_waveheight" in report
-    assert "source swot" in report
-    assert "source ancillary datasets" in report
-    assert "library used to produce the parquet" in report
-    assert "library version" in report
-    assert "creation date" in report
-    assert "missing\\_key\\_fields & 0" in report
-    assert "Quality filters, applied cumulatively" in report
-    assert "nearest altimeter" in report
-    assert "overlap\\_pct" in report
-    assert "no new time threshold" not in report
-    assert "@@" not in report
-    assert r"\usepackage{soba}" in report
-    assert r"\begin{titlepage}" in report
-    assert r"\tableofcontents" in report
-    assert r"\caption{Versioning of the documentation}" in report
-    assert r"\caption{Versioning of test catalogue files}" in report
-    assert r"\section{Dataset Content Description}" in report
-    assert r"\section{Dataset Production Steps}" in report
-    assert r"\subsection{Global Coverage Map}" in report
-    assert r"\subsection{Monthly Distribution of Matchups}" in report
-    assert r"\subsection{Reference Parameter Distribution}" in report
-    assert r"\caption{Columns of the reference TEST dataset." in report
-    assert r"\multicolumn{3}{@{}l}{\textbf{Reference (SWOT KaRIn)}}" in report
-    assert r"\path|" + test_path.name + "|" in report
-    assert r"\hl{" not in report
-    assert "scatterometer wind" not in report.lower()
-
-
 def test_figures_include_every_row_with_distinct_mission_colors(tmp_path, monkeypatch):
     missions = ("S1A", "S1B", "S1C", "S1D")
     test = pd.DataFrame(
@@ -546,109 +409,15 @@ def test_figures_omit_missions_without_data(tmp_path, monkeypatch):
             original_close(figure)
 
 
-def test_cli_subcommand_writes_pair_report_and_manifest(tmp_path):
-    paths = [
-        write_catalogue(
-            tmp_path,
-            mission,
-            [
-                source_row(
-                    sar_safe_slc=f"/archive/{mission}_WV_SLC__1SSV_20260107.SAFE:WV_033",
-                )
-            ],
-        )
-        for mission in MISSIONS
-    ]
-    test_dir = tmp_path / "test_datasets"
-    report_root = tmp_path / "reports"
-    args = ["swot-test"]
-    for path in paths:
-        args.extend(["--swot-catalogue", str(path)])
-    args.extend(
-        [
-            "--test-dir",
-            str(test_dir),
-            "--report-dir",
-            str(report_root),
-            "--version",
-            "0.1",
-            "--production-date",
-            "20260110",
-            "--no-compile",
-        ]
-    )
-
-    assert cli_main(args) == 0
-
-    dataset_dir = test_dir / "S1_WV_20260110_swh_0.1"
-    test_path = dataset_dir / "S1_reference_test_dataset_WV_20260110_swh_0.1.parquet"
-    target_path = dataset_dir / "S1_target_dataset_WV_20260110_swh_0.1.parquet"
-    assert {path.name for path in dataset_dir.iterdir()} == {test_path.name, target_path.name}
-    assert validate_swot_test_pair(test_path, target_path)
-    report_dir = report_root / test_path.stem
-    assert (report_dir / f"{test_path.stem}.tex").is_file()
-    assert len(list(report_dir.glob("images_*/*.png"))) == 3
-    manifest_path = report_dir / f"{test_path.stem}_manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["accepted_rows"] == 3
-    assert manifest["test_parquet"] == str(test_path)
-    assert manifest["pdf"] is None
+def test_cli_rejects_direct_catalogue_and_legacy_crossing_commands(capsys):
+    for args in (["swot-test", "--swot-catalogue", "x.parquet"],
+                 ["--scat", "scat.parquet", "--swot", "swot.parquet"]):
+        with pytest.raises(SystemExit) as error:
+            cli_main(args)
+        assert error.value.code == 2
+    assert "--recipe" in capsys.readouterr().err
 
 
-@pytest.mark.skipif(
-    shutil.which("pdflatex") is None and shutil.which("tectonic") is None,
-    reason="PDF generation requires pdflatex or Tectonic",
-)
-def test_cli_compiles_a_complete_report_pdf(tmp_path):
-    paths = [
-        write_catalogue(
-            tmp_path,
-            mission,
-            [
-                source_row(
-                    sar_safe_slc=f"/archive/{mission}_WV_SLC__1SSV_20260107.SAFE:WV_033",
-                )
-            ],
-        )
-        for mission in MISSIONS
-    ]
-    test_dir = tmp_path / "test_datasets"
-    report_root = tmp_path / "reports"
-    args = ["swot-test"]
-    for path in paths:
-        args.extend(["--swot-catalogue", str(path)])
-    args.extend(
-        [
-            "--test-dir",
-            str(test_dir),
-            "--report-dir",
-            str(report_root),
-            "--version",
-            "0.1",
-            "--production-date",
-            "20260110",
-        ]
-    )
-
-    assert cli_main(args) == 0
-
-    report_dir = report_root / "S1_reference_test_dataset_WV_20260110_swh_0.1"
-    pdf_path = report_dir / "S1_reference_test_dataset_WV_20260110_swh_0.1.pdf"
-    assert pdf_path.read_bytes().startswith(b"%PDF-")
-
-
-def test_cli_without_subcommand_keeps_legacy_parser(capsys):
-    with pytest.raises(SystemExit) as error:
-        cli_main([])
-
-    assert error.value.code == 2
-    assert "--scat" in capsys.readouterr().err
-
-
-@pytest.mark.skipif(
-    shutil.which("tectonic") is None or shutil.which("pdflatex") is not None,
-    reason="Tectonic fallback is only exercised when pdflatex is absent",
-)
 def test_compile_swot_pdf_falls_back_to_tectonic(tmp_path):
     (tmp_path / "minimal.tex").write_text(
         r"\documentclass{article}\begin{document}SWOT report\end{document}",
