@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soba_reference_repo"
-version = "0.1.0"
+version = "0.2.0"
 description = "Recipe-driven SOBA reference TEST/TARGET dataset exporter"
 readme = "README.md"
 license = "MIT"
