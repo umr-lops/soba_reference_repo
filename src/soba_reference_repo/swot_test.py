@@ -18,8 +18,8 @@ import pyarrow.parquet as pq
 from matplotlib import pyplot as plt
 
 from .report import (
+    ASSET_DIR,
     DEFAULT_TEST_DIR,
-    PACKAGE_ROOT,
     compile_pdf,
     library_version,
     purge_latex_byproducts,
@@ -35,7 +35,7 @@ MISSION_COLORS = {
     "S1C": "#7B51A3",
     "S1D": "#C75731",
 }
-DEFAULT_SWOT_TEMPLATE = PACKAGE_ROOT / "assets" / "latex" / "swot_test_template.tex"
+DEFAULT_SWOT_TEMPLATE = ASSET_DIR / "latex" / "swot_test_template.tex"
 SWOT_COLUMN_DESCRIPTIONS = {
     "primary_key": "SLC SAFE plus reference longitude and latitude at one decimal degree.",
     "sar_time": "UTC SAR acquisition time, rounded down to whole seconds.",
@@ -91,7 +91,7 @@ def parse_args(argv=None):
         help="SWOT co-aligned WV catalogue; repeat once for S1A, S1C, and S1D",
     )
     parser.add_argument("--test-dir", type=Path, default=DEFAULT_TEST_DIR)
-    parser.add_argument("--report-dir", type=Path, default=PACKAGE_ROOT / "runs" / "swot_merged")
+    parser.add_argument("--report-dir", type=Path, default=Path("runs/swot_merged"))
     parser.add_argument("--version", default="0.1")
     parser.add_argument("--production-date", help="reproducible YYYYMMDD output date")
     parser.add_argument("--miktex-bin", default=os.environ.get("MIKTEX_BIN"))

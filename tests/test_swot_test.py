@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import to_hex
 
 from soba_reference_repo import swot_test
-from soba_reference_repo.cli import main as cli_main
+from soba_reference_repo.cli import main as cli_main, parse_args as crossing_parse_args
 from soba_reference_repo.swot_test import (
     build_swot_test_frames,
     build_swot_test_report,
@@ -60,6 +60,19 @@ def test_parse_args_accepts_three_catalogues_and_reproducible_outputs():
     assert args.version == "0.1"
     assert args.production_date == "20260110"
     assert args.compile is False
+
+
+def test_cli_defaults_write_relative_to_working_directory():
+    crossing = crossing_parse_args(
+        ["--scat", "scat.parquet", "--swot", "swot.parquet", "--satellite", "S1A",
+         "--scatterometer", "ASCAT"]
+    )
+    args = parse_args(
+        [item for mission in MISSIONS for item in ("--swot-catalogue", catalogue_path(mission))]
+    )
+    assert Path(crossing.test_dir) == Path("test_datasets")
+    assert args.test_dir == Path("test_datasets")
+    assert args.report_dir == Path("runs/swot_merged")
 
 
 def test_parse_args_rejects_duplicate_mission(capsys):
