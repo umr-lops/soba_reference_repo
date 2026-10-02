@@ -1,0 +1,10 @@
+# Copy beside TEST.parquet. Replace the archive root if needed.
+# Paths are absolute inside Apptainer; bind /archive read-only and /work writable.
+test = "/work/TEST.parquet"
+archive_root = "/archive"
+output_dir = "/work/cci-seastate-challenger-run"
+production_date = "20261002"  # Set to the actual export date (YYYYMMDD).
+version = "1.0"
+# Provisional tolerances: check the audit against additional real matches before use.
+max_time_delta_seconds = 10.0
+max_distance_km = 1.0

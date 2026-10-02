@@ -12,7 +12,7 @@ and validates the exported pair. Other reference sources are not yet supported.
 
 To validate a saved pair independently, use ``soba_validate_parquets``.
 
-Test suite: 54 collected tests.
+Test suite: 72 collected tests.
 
 .. toctree::
    :maxdepth: 2

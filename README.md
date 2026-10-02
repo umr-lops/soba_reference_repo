@@ -1,7 +1,7 @@
 # SOBA reference TEST datasets
 
 [![CI](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-54-blue)
+![Tests](https://img.shields.io/badge/tests-72-blue)
 [![Build](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml)
 [![conda-forge build](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml/badge.svg)](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
@@ -61,6 +61,14 @@ manifest.json               Source files, rules, counts, and output paths
 
 Each satellite starts with 13 predefined SWOT filters. A `[[catalogues.rules]]` entry changes a default filter when its `id` matches a default rule; a new `id` adds a filter after the defaults. The example includes commented overrides and additions. Filters run in order: report counts read `remaining / removed` after each filter. Curated counts can exceed TEST counts because the exporter also checks required fields and duplicate keys. A satellite can contribute zero rows if no input row passes its filters.
 
+## Build a CHALLENGER
+
+Copy `examples/cci-seastate-challenger.toml`, set its paths and run settings, then run:
+
+```bash
+soba_produce_challenger --recipe path/to/challenger.toml
+```
+
 ## Validate existing Parquets
 
 The exporter checks the columns, metadata, and keys of each TEST/TARGET pair after writing it. Run the same check independently with:
@@ -69,7 +77,7 @@ The exporter checks the columns, metadata, and keys of each TEST/TARGET pair aft
 soba_validate_parquets --test path/to/TEST.parquet --target path/to/TARGET.parquet
 ```
 
-The validator currently supports SWOT TEST/TARGET pairs. CHALLENGER validation can be added when its schema and prediction source are defined; it does not produce CHALLENGER files.
+The validator currently supports SWOT TEST/TARGET pairs; it does not validate CHALLENGER files. Use the CHALLENGER run's audit and read-back checks for prediction coverage.
 
 ## Development
 

@@ -35,5 +35,13 @@ alignment after writing. To validate an existing SWOT pair independently::
 
    soba_validate_parquets --test path/to/TEST.parquet --target path/to/TARGET.parquet
 
-CHALLENGER export and validation are not yet supported. No predictions are
-inferred from reference values.
+Create a CHALLENGER
+-------------------
+
+Copy ``examples/cci-seastate-challenger.toml``, set its paths and run
+settings, then run::
+
+   soba_produce_challenger --recipe path/to/challenger.toml
+
+The independent ``soba_validate_parquets`` command validates TEST/TARGET
+pairs, not CHALLENGER.

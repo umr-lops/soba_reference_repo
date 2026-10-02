@@ -24,11 +24,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+challenger = ["netCDF4"]
 docs = ["sphinx", "furo", "myst-parser"]
 
 [project.scripts]
 soba_reference_repo = "soba_reference_repo.cli:main"
 soba_validate_parquets = "soba_reference_repo.validator:main"
+soba_produce_challenger = "soba_reference_repo.challenger:main"
 
 [project.urls]
 Repository = "https://github.com/umr-lops/soba_reference_repo"
