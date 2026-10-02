@@ -32,7 +32,7 @@ From: python:3.11-slim
         lmodern
     rm -rf /var/lib/apt/lists/*
 
-    python -m pip install --no-cache-dir -e /opt/soba_reference_repo
+    python -m pip install --no-cache-dir -e '/opt/soba_reference_repo[challenger]'
 
 %environment
     export MPLBACKEND=Agg
@@ -46,8 +46,13 @@ From: python:3.11-slim
     org.soba.description Recipe-driven reference TEST/TARGET exporter
 
 %help
-    Create a SWOT WV reference TEST/TARGET pair and report from a TOML recipe.
-    Bind the recipe and its source catalogues into the container:
+    Create a SWOT WV reference TEST/TARGET pair and report from a TOML recipe:
 
         apptainer run --bind /path/to/data:/data soba_reference_repo.sif \
-            --recipe /data/recipe.toml
+            --recipe /data/reference.toml
+
+    Create an ESA CCI Sea State WV CHALLENGER beside the NetCDF archive:
+
+        apptainer exec --bind /path/to/archive:/archive:ro \
+            --bind /path/to/work:/work soba_reference_repo.sif \
+            soba_produce_challenger --recipe /work/challenger.toml

@@ -17,6 +17,6 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-      - run: pip install -e . pytest pre-commit
+      - run: pip install -e '.[challenger]' pytest pre-commit
       - run: pre-commit run --all-files --show-diff-on-failure
       - run: python -m pytest -q
