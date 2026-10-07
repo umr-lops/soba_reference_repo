@@ -7,7 +7,7 @@ Submodules
 .. toctree::
    :maxdepth: 4
 
-   soba_reference_repo.cli
+   soba_reference_repo.create_test_dataset
    soba_reference_repo.pdf_support
    soba_reference_repo.swot_test
    soba_reference_repo.validator

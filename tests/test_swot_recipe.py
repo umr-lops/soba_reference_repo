@@ -7,7 +7,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
-from soba_reference_repo.cli import main as cli_main
+from soba_reference_repo.create_test_dataset import main as cli_main
 from soba_reference_repo import swot_test
 from test_swot_test import source_row
 
@@ -159,7 +159,7 @@ def test_recipe_common_filters_are_not_repeated_by_mission(tmp_path):
     tex_path, = list((tmp_path / "output/report").rglob("*.tex"))
     tex = tex_path.read_text()
     assert "Common quality filters" in tex
-    assert "soba_reference_repo --recipe recipe.toml" in tex
+    assert "soba_create_test_dataset --recipe recipe.toml" in tex
     assert "--swot-catalogue" not in tex
     assert "-specific quality filters" not in tex
     assert tex.count("max\\_rainrate\\_IMERG") == 1
