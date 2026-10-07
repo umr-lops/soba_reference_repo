@@ -106,6 +106,44 @@ def test_recipe_cli_keeps_curated_merge_and_pair_and_reports_real_rules(tmp_path
     assert len(list((root / "report").rglob("images_*/*.png"))) == 3
 
 
+def test_recipe_accepts_swh_reference_date_gt_and_additive_columns(tmp_path):
+    sources = {mission: source_file(tmp_path, mission) for mission in ("S1A", "S1C", "S1D")}
+    frame = pd.read_parquet(sources["S1D"])
+    frame["swh_swot_l3_20km"] = 2.1
+    frame["polarization"] = "VV"
+    frame.to_parquet(sources["S1D"], index=False)
+
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(
+        'reference = "swot"\nreference_variable = "swh"\n'
+        'output_dir = "output"\nproduction_date = "20260930"\n'
+        'version = "1.0"\ncompile = false\n'
+        f'[[catalogues]]\nmission = "S1A"\npath = "{sources["S1A"].name}"\n'
+        '[[catalogues.rules]]\nid = "sar_start"\nname = "S1A after cutoff"\n'
+        'clauses = [["sar_time", "date_gt", "2024-11-25"]]\n'
+        f'[[catalogues]]\nmission = "S1C"\npath = "{sources["S1C"].name}"\n'
+        f'[[catalogues]]\nmission = "S1D"\npath = "{sources["S1D"].name}"\n'
+        '[[catalogues.rules]]\nid = "sar_start"\nname = "S1D after cutoff"\n'
+        'clauses = [["sar_time", "date_gt", "2025-06-03"]]\n',
+        encoding="utf-8",
+    )
+
+    assert cli_main(["--recipe", str(recipe)]) == 0
+    root = tmp_path / "output"
+    merged = pq.read_table(root / "merged/S1_WV_swot_curated.parquet")
+    assert merged.num_rows == 3
+    assert "polarization" not in merged.column_names
+    manifest = json.loads((root / "manifest.json").read_text())
+    d_source = next(item for item in manifest["sources"] if item["mission"] == "S1D")
+    assert d_source["curated_rows"] == 1
+    d_curated = pq.read_table(d_source["curated_path"])
+    assert "polarization" in d_curated.column_names
+    sar_start = next(
+        rule for rule in d_source["quality_filter_steps"] if rule["id"] == "sar_start"
+    )
+    assert sar_start["remaining"] == 1
+
+
 def test_recipe_common_filters_are_not_repeated_by_mission(tmp_path):
     a = source_file(tmp_path, "S1A")
     c = source_file(tmp_path, "S1C")

@@ -918,9 +918,19 @@ def run_recipe(recipe_path):
     for item in catalogues:
         item["resolved_rules"] = resolve_rules(item.get("rules", []))
         schema = pq.read_schema(item["path"])
-        if expected_schema is not None and not schema.equals(expected_schema, check_metadata=False):
-            raise ValueError("source catalogue schemas differ; cannot merge Curated files")
-        expected_schema = schema
+        if expected_schema is not None:
+            shared = set(expected_schema.names) & set(schema.names)
+            mismatched = [
+                name for name in shared
+                if expected_schema.field(name).type != schema.field(name).type
+            ]
+            if mismatched:
+                raise ValueError(
+                    f"{item['mission']}: shared catalogue columns have incompatible types: "
+                    f"{sorted(mismatched)}"
+                )
+        else:
+            expected_schema = schema
         missing = {col for col in SOURCE_COLUMNS[:13] if col not in schema.names}
         for rule in item["resolved_rules"]:
             if rule.get("enabled", True):
