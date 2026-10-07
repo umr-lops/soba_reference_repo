@@ -421,47 +421,68 @@ SWOT_METADATA = {
 }
 
 
-def validate_swot_test_pair(test_path: Path, target_path: Path) -> bool:
-    """Validate the notebook-specific pair schema, metadata, and shared keys."""
-    test_path, target_path = Path(test_path), Path(target_path)
-    test_schema = pq.read_schema(test_path)
-    target_schema = pq.read_schema(target_path)
-    if test_schema.names != TEST_COLUMNS:
-        raise ValueError(f"TEST schema mismatch: {test_schema.names}")
-    if target_schema.names != TARGET_COLUMNS:
-        raise ValueError(f"TARGET schema mismatch: {target_schema.names}")
+def _read_validated_swot_product(path: Path, role: str):
+    """Read and check the shared single-file SWOT product contract."""
+    schema = pq.read_schema(path)
+    columns = TEST_COLUMNS if role == "TEST" else TARGET_COLUMNS
+    if schema.names != columns:
+        raise ValueError(f"{role} schema mismatch: {schema.names}")
     expected_metadata = {
-        b"source swot",
-        b"source ancillary datasets",
-        b"library used to produce the parquet",
-        b"library version",
-        b"creation date",
+        b"source swot", b"source ancillary datasets",
+        b"library used to produce the parquet", b"library version", b"creation date",
     }
-    if set(test_schema.metadata or {}) != expected_metadata:
-        raise ValueError("TEST metadata keys do not match the required five attributes")
-    if set(target_schema.metadata or {}) != expected_metadata:
-        raise ValueError("TARGET metadata keys do not match the required five attributes")
-    if test_schema.metadata != target_schema.metadata:
-        raise ValueError("TEST and TARGET metadata values differ")
+    if set(schema.metadata or {}) != expected_metadata:
+        raise ValueError(f"{role} metadata keys do not match the required five attributes")
+    strings = {"primary_key", "sar_safe_slc", "sar_safe_ocn", "swot_source"}
+    for field in schema:
+        expected_type = (
+            pa.string() if field.name in strings
+            else pa.timestamp("ns") if field.name.endswith("time") else pa.float32()
+        )
+        valid_string = field.name in strings and field.type in (pa.string(), pa.large_string())
+        if field.type != expected_type and not valid_string:
+            raise ValueError(f"{role} {field.name} type must be {expected_type}, got {field.type}")
+    table = pq.read_table(path)
+    frame = table.to_pandas()
+    keys = frame["primary_key"]
+    if keys.isna().any() or keys.str.strip().eq("").any():
+        raise ValueError("primary_key values must be non-null and nonempty")
+    if not keys.is_unique:
+        raise ValueError("primary_key values must be unique")
+    if frame[list(KEY_FIELDS)].isna().any().any() or frame["sar_safe_slc"].str.strip().eq("").any():
+        raise ValueError("primary_key components must be non-null and nonempty")
+    required = [name for name in columns if name != "sar_ground_heading"]
+    if frame[required].isna().any().any():
+        raise ValueError(f"{role} required values must be non-null")
+    for field in schema:
+        if pa.types.is_floating(field.type):
+            values = table.column(field.name).drop_null().to_numpy()
+            if not np.isfinite(values).all():
+                raise ValueError(f"{role} {field.name} values must be finite")
+    expected = (
+        frame["sar_safe_slc"] + "_"
+        + frame["swot_lon"].map(lambda value: f"{float(value):.1f}") + "_"
+        + frame["swot_lat"].map(lambda value: f"{float(value):.1f}")
+    )
+    if not frame["primary_key"].equals(expected):
+        raise ValueError("primary_key composition mismatch")
+    return frame, schema.metadata
 
-    test = pq.read_table(test_path).to_pandas()
-    target = pq.read_table(target_path).to_pandas()
-    if not test["primary_key"].is_unique or not target["primary_key"].is_unique:
-        raise ValueError("primary_key values must be unique in both files")
+
+def validate_swot_file(path: Path, role: str) -> bool:
+    """Validate one SWOT TEST or TARGET independently."""
+    _read_validated_swot_product(Path(path), role.upper())
+    return True
+
+
+def validate_swot_test_pair(test_path: Path, target_path: Path) -> bool:
+    """Validate each product, then require identical metadata and ordered keys."""
+    test, test_metadata = _read_validated_swot_product(Path(test_path), "TEST")
+    target, target_metadata = _read_validated_swot_product(Path(target_path), "TARGET")
+    if test_metadata != target_metadata:
+        raise ValueError("TEST and TARGET metadata values differ")
     if test["primary_key"].tolist() != target["primary_key"].tolist():
         raise ValueError("TEST and TARGET primary_key values differ")
-    for frame in (test, target):
-        if frame[list(KEY_FIELDS)].isna().any().any():
-            raise ValueError("primary_key components must be non-null")
-        expected = (
-            frame["sar_safe_slc"]
-            + "_"
-            + frame["swot_lon"].map(lambda value: f"{float(value):.1f}")
-            + "_"
-            + frame["swot_lat"].map(lambda value: f"{float(value):.1f}")
-        )
-        if not frame["primary_key"].equals(expected):
-            raise ValueError("primary_key composition mismatch")
     return True
 
 
@@ -703,7 +724,7 @@ def build_swot_test_report(
             r"\end{longtable}",
         ]
     )
-    command = "soba_reference_repo --recipe recipe.toml"
+    command = "soba_create_test_dataset --recipe recipe.toml"
     key_formula = (
         r"\texttt{sar\_safe\_slc} + \texttt{swot\_lon} + \texttt{swot\_lat} "
         r"(longitude and latitude formatted to one decimal place)"

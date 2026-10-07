@@ -8,11 +8,11 @@ and validates the exported pair. Other reference sources are not yet supported.
 
 .. code-block:: bash
 
-   soba_reference_repo --recipe path/to/recipe.toml
+   soba_create_test_dataset --recipe path/to/recipe.toml
 
-To validate a saved pair independently, use ``soba_validate_parquets``.
+Use ``soba_validate_parquets`` to validate one file by type, or a TEST/TARGET pair.
 
-Test suite: 73 collected tests.
+Test suite: 158 collected tests.
 
 .. toctree::
    :maxdepth: 2

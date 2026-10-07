@@ -1,4 +1,4 @@
-"""Build reference datasets from TOML recipes."""
+"""Create reference TEST/TARGET datasets from TOML recipes (currently SWOT WV)."""
 
 from __future__ import annotations
 

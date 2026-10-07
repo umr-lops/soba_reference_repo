@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import to_hex
 
 from soba_reference_repo import swot_test
-from soba_reference_repo.cli import main as cli_main
+from soba_reference_repo.create_test_dataset import main as cli_main
 from soba_reference_repo.validator import main as validator_main
 from soba_reference_repo.swot_test import (
     build_swot_test_frames,
@@ -261,11 +261,11 @@ def test_write_pair_has_exact_filenames_schema_metadata_and_keys(tmp_path):
     assert test_path.parent == target_path.parent
     assert {path.name for path in test_path.parent.iterdir()} == {test_path.name, target_path.name}
     assert validate_swot_test_pair(test_path, target_path) is True
-    assert validator_main(["--test", str(test_path), "--target", str(target_path)]) == 0
+    assert validator_main(["--type", "test", "--file", str(test_path)]) == 0
     broken = pq.read_table(test_path).drop(["swot_waveheight"])
     pq.write_table(broken, test_path)
     with pytest.raises(SystemExit) as error:
-        validator_main(["--test", str(test_path), "--target", str(target_path)])
+        validator_main(["--type", "test", "--file", str(test_path)])
     assert error.value.code == 1
     metadata = pq.read_schema(target_path).metadata
     assert set(metadata) == {

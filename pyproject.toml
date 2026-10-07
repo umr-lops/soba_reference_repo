@@ -28,7 +28,8 @@ challenger = ["netCDF4"]
 docs = ["sphinx", "furo", "myst-parser"]
 
 [project.scripts]
-soba_reference_repo = "soba_reference_repo.cli:main"
+soba_create_test_dataset = "soba_reference_repo.create_test_dataset:main"
+soba_reference_repo = "soba_reference_repo.create_test_dataset:main"
 soba_validate_parquets = "soba_reference_repo.validator:main"
 soba_produce_challenger = "soba_reference_repo.challenger:main"
 
