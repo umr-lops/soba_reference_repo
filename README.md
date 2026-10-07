@@ -1,7 +1,7 @@
 # SOBA reference TEST datasets
 
 [![CI](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-72-blue)
+![Tests](https://img.shields.io/badge/tests-73-blue)
 [![Build](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml)
 [![conda-forge build](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml/badge.svg)](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)

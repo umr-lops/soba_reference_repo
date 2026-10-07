@@ -90,6 +90,14 @@ def _validate_clause(clause):
         isinstance(value, str) for value in clause[2]
     ):
         return
+    if operation == "date_gt" and len(clause) == 3 and isinstance(clause[2], str):
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", clause[2]):
+            raise ValueError("date_gt requires a YYYY-MM-DD date")
+        try:
+            datetime.strptime(clause[2], "%Y-%m-%d")
+        except ValueError as error:
+            raise ValueError("invalid date_gt date") from error
+        return
     if (operation in ("eq", "gt", "ge", "lt", "le") and len(clause) == 3
             and type(clause[2]) in (int, float) and math.isfinite(float(clause[2]))):
         return
@@ -103,11 +111,17 @@ def read_recipe(path):
         recipe = tomllib.load(stream)
     _keys(
         recipe,
-        {"reference", "output_dir", "production_date", "version", "compile", "catalogues"},
+        {
+            "reference", "reference_variable", "output_dir", "production_date",
+            "version", "compile", "catalogues",
+        },
         {"reference", "output_dir", "production_date", "version", "catalogues"},
     )
     if recipe["reference"] != "swot":
         raise ValueError(f"unsupported reference: {recipe['reference']!r}; only swot is available")
+    recipe.setdefault("reference_variable", "swh")
+    if recipe["reference_variable"] != "swh":
+        raise ValueError("SWOT WV supports only reference_variable = 'swh'")
     date = recipe["production_date"]
     if not isinstance(date, str) or not re.fullmatch(r"[0-9]{8}", date):
         raise ValueError("production_date must use YYYYMMDD")
@@ -178,6 +192,10 @@ def clause_mask(frame, clause):
         raise ValueError(f"missing filter column: {column}")
     if operation == "in":
         return frame[column].astype("string").isin(clause[2]).fillna(False)
+    if operation == "date_gt":
+        return pd.to_datetime(frame[column], utc=True, errors="coerce").gt(
+            pd.Timestamp(clause[2], tz="UTC")
+        ).fillna(False)
     values = pd.to_numeric(frame[column], errors="coerce")
     if operation == "present":
         return values.notna()
@@ -252,15 +270,23 @@ def write_curated(source_path, target_path, rules, mission):
 
 
 def merge_curated(paths_by_mission, merged_path):
-    """Concatenate saved Curated Parquets in mission order without schema casting."""
+    """Concatenate common Curated columns in mission order."""
     if not paths_by_mission:
         raise ValueError("no Curated Parquets to merge")
     tables = [pq.read_table(paths_by_mission[mission]) for mission in sorted(paths_by_mission)]
-    first = tables[0].schema
-    for table in tables[1:]:
-        if not table.schema.equals(first, check_metadata=False):
-            raise ValueError("Curated Parquet schema mismatch")
-    merged = pa.concat_tables(tables)
+    common = [
+        field.name for field in tables[0].schema
+        if all(field.name in table.column_names for table in tables[1:])
+    ]
+    schema = pa.schema([tables[0].schema.field(name) for name in common],
+                       metadata=tables[0].schema.metadata)
+    projected = []
+    for table in tables:
+        for field in schema:
+            if table.schema.field(field.name).type != field.type:
+                raise ValueError(f"Curated schema has incompatible column types: {field.name}")
+        projected.append(table.select(common).cast(schema))
+    merged = pa.concat_tables(projected)
     merged_path = Path(merged_path)
     merged_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(merged, merged_path)
