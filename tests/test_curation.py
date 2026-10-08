@@ -127,6 +127,28 @@ def test_curate_applies_conditions_in_order_and_preserves_input():
     pd.testing.assert_frame_equal(raw, original)
 
 
+@pytest.mark.parametrize(
+    ("ecmwf", "scat", "expected"),
+    [(359, 1, True), (1, 359, True), (0, 30, True), (0, 30.01, False),
+     (0, 180, False), (360, 0, True)],
+)
+def test_angle_difference_filter_handles_circular_wind_directions(ecmwf, scat, expected):
+    frame = pd.DataFrame({"ecmwf": [ecmwf], "scat": [scat]})
+    result = curation.clause_mask(frame, ["ecmwf", "angle_diff_le", ["scat", 30]])
+    assert bool(result.iloc[0]) is expected
+
+
+def test_angle_difference_filter_excludes_nonfinite_values():
+    frame = pd.DataFrame({"ecmwf": [float("nan")], "scat": [0]})
+    result = curation.clause_mask(frame, ["ecmwf", "angle_diff_le", ["scat", 30]])
+    assert not bool(result.iloc[0])
+
+
+def test_angle_difference_filter_rejects_tolerance_over_half_circle():
+    with pytest.raises(ValueError, match="invalid filter operation"):
+        curation._validate_clause(["ecmwf", "angle_diff_le", ["scat", 181]])
+
+
 def test_curate_disabled_rule_skips_missing_column_and_logs_zero_removals():
     rules = curation.resolve_rules([{"id": "classification_present", "enabled": False}])
     frame = pd.DataFrame([source_row()]).drop(columns="prob_1")

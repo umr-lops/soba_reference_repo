@@ -53,3 +53,7 @@ extend-exclude = ["assets"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# Long LaTeX template lines are kept intact inside the generated report string.
+"src/soba_reference_repo/hscat_test.py" = ["E501"]

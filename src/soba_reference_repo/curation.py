@@ -39,9 +39,10 @@ DEFAULT_SWOT_RULES = tuple(
 )
 
 
-def resolve_rules(overrides):
-    """Return independent ordered rules, patching defaults by ID and appending new IDs."""
-    rules = deepcopy(list(DEFAULT_SWOT_RULES))
+def resolve_rules(overrides, include_defaults=True, defaults=None):
+    """Resolve ordered rule overrides over a caller-selected default set."""
+    base_rules = DEFAULT_SWOT_RULES if defaults is None else defaults
+    rules = deepcopy(list(base_rules) if include_defaults else [])
     indices = {rule["id"]: index for index, rule in enumerate(rules)}
     seen = set()
     for override in overrides:
@@ -98,6 +99,21 @@ def _validate_clause(clause):
         except ValueError as error:
             raise ValueError("invalid date_gt date") from error
         return
+    if operation in {"abs_diff_le", "angle_diff_le"} and len(clause) == 3:
+        comparison = clause[2]
+        valid_tolerance = (
+            isinstance(comparison, list)
+            and len(comparison) == 2
+            and isinstance(comparison[0], str)
+            and bool(comparison[0])
+            and type(comparison[1]) in (int, float)
+            and math.isfinite(float(comparison[1]))
+            and comparison[1] >= 0
+        )
+        if valid_tolerance and (
+            operation == "abs_diff_le" or comparison[1] <= 180
+        ):
+            return
     if (operation in ("eq", "gt", "ge", "lt", "le") and len(clause) == 3
             and type(clause[2]) in (int, float) and math.isfinite(float(clause[2]))):
         return
@@ -117,11 +133,21 @@ def read_recipe(path):
         },
         {"reference", "output_dir", "production_date", "version", "catalogues"},
     )
-    if recipe["reference"] != "swot":
-        raise ValueError(f"unsupported reference: {recipe['reference']!r}; only swot is available")
-    recipe.setdefault("reference_variable", "swh")
-    if recipe["reference_variable"] != "swh":
-        raise ValueError("SWOT WV supports only reference_variable = 'swh'")
+    if recipe["reference"] not in {"swot", "scat"}:
+        raise ValueError(f"unsupported reference: {recipe['reference']!r}; supported: swot, scat")
+    if recipe["reference"] == "swot":
+        recipe.setdefault("reference_variable", "swh")
+        if recipe["reference_variable"] != "swh":
+            raise ValueError("SWOT WV supports only reference_variable = 'swh'")
+    else:
+        if "reference_variable" not in recipe:
+            raise ValueError(
+                "HSCAT recipes require reference_variable = "
+                "'windspeed' or 'winddirection'"
+            )
+        if (not isinstance(recipe["reference_variable"], str)
+                or recipe["reference_variable"] not in {"windspeed", "winddirection"}):
+            raise ValueError("HSCAT reference_variable must be 'windspeed' or 'winddirection'")
     date = recipe["production_date"]
     if not isinstance(date, str) or not re.fullmatch(r"[0-9]{8}", date):
         raise ValueError("production_date must use YYYYMMDD")
@@ -160,9 +186,20 @@ def read_recipe(path):
             raise ValueError(f"unsafe catalogue path for LaTeX report: {catalogue['path']}")
         if not catalogue["path"].is_file():
             raise FileNotFoundError(f"missing catalogue: {catalogue['path']}")
-        match = re.match(r"^(S1[A-D])_coaligned_catalogue_(WV)_", catalogue["path"].name)
+        if recipe["reference"] == "swot":
+            match = re.match(r"^(S1[A-D])_coaligned_catalogue_(WV)_", catalogue["path"].name)
+        else:
+            match = re.match(
+                r"^(S1[A-D])_coaligned_catalogue_WV_\d{8}_\d{8}_\d{8}_"
+                r"(SV|DV|SH|DH)_KNMI-HSCAT-HY2-25km_"
+                r"\d+\.\d+\.parquet$",
+                catalogue["path"].name,
+            )
         if match is None or match.group(1) != mission:
-            raise ValueError(f"mission/filename conflict for {mission}: {catalogue['path'].name}")
+            raise ValueError(
+                "mission/filename conflict or unsupported HSCAT catalogue: "
+                f"{catalogue['path'].name}"
+            )
         catalogue.setdefault("rules", [])
         if not isinstance(catalogue["rules"], list):
             raise ValueError("rules must be a list")
@@ -196,6 +233,17 @@ def clause_mask(frame, clause):
         return pd.to_datetime(frame[column], utc=True, errors="coerce").gt(
             pd.Timestamp(clause[2], tz="UTC")
         ).fillna(False)
+    if operation in {"abs_diff_le", "angle_diff_le"}:
+        comparison_column, tolerance = clause[2]
+        if comparison_column not in frame:
+            raise ValueError(f"missing filter column: {comparison_column}")
+        left = pd.to_numeric(frame[column], errors="coerce")
+        right = pd.to_numeric(frame[comparison_column], errors="coerce")
+        difference = (left - right).abs()
+        if operation == "angle_diff_le":
+            difference = difference.mod(360)
+            difference = difference.where(difference <= 180, 360 - difference)
+        return difference.le(tolerance).fillna(False)
     values = pd.to_numeric(frame[column], errors="coerce")
     if operation == "present":
         return values.notna()
@@ -269,8 +317,13 @@ def write_curated(source_path, target_path, rules, mission):
     }
 
 
-def merge_curated(paths_by_mission, merged_path):
-    """Concatenate common Curated columns in mission order."""
+def merge_curated(paths_by_mission, merged_path, normalize_timestamp_units=False):
+    """Concatenate common Curated columns in mission order.
+
+    SCAT source catalogues can encode the same instant with different Arrow
+    timestamp units. Normalize those fields to the finest observed unit only
+    when the product adapter explicitly requests it.
+    """
     if not paths_by_mission:
         raise ValueError("no Curated Parquets to merge")
     tables = [pq.read_table(paths_by_mission[mission]) for mission in sorted(paths_by_mission)]
@@ -278,13 +331,26 @@ def merge_curated(paths_by_mission, merged_path):
         field.name for field in tables[0].schema
         if all(field.name in table.column_names for table in tables[1:])
     ]
-    schema = pa.schema([tables[0].schema.field(name) for name in common],
-                       metadata=tables[0].schema.metadata)
+    fields = []
+    timestamp_rank = {"s": 0, "ms": 1, "us": 2, "ns": 3}
+    for name in common:
+        source_fields = [table.schema.field(name) for table in tables]
+        types = [field.type for field in source_fields]
+        field = source_fields[0]
+        if any(value != types[0] for value in types[1:]):
+            compatible_timestamps = (
+                normalize_timestamp_units
+                and all(pa.types.is_timestamp(value) for value in types)
+                and len({value.tz for value in types}) == 1
+            )
+            if not compatible_timestamps:
+                raise ValueError(f"Curated schema has incompatible column types: {name}")
+            unit = max((value.unit for value in types), key=lambda value: timestamp_rank[value])
+            field = pa.field(name, pa.timestamp(unit, tz=types[0].tz), nullable=field.nullable)
+        fields.append(field)
+    schema = pa.schema(fields, metadata=tables[0].schema.metadata)
     projected = []
     for table in tables:
-        for field in schema:
-            if table.schema.field(field.name).type != field.type:
-                raise ValueError(f"Curated schema has incompatible column types: {field.name}")
         projected.append(table.select(common).cast(schema))
     merged = pa.concat_tables(projected)
     merged_path = Path(merged_path)
