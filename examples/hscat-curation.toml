@@ -1,0 +1,95 @@
+# HSCAT WV recipe. The zero-ice rule is specific to WV and may be too strict for IW.
+# S1B is omitted until its SWOT-aligned SAR start-date cutoff is confirmed.
+reference = "scat"
+reference_variable = "windspeed"
+output_dir = "../runs/hscat-windspeed-0.2"
+production_date = "20261008"
+version = "0.2"
+compile = false
+
+[[catalogues]]
+mission = "S1A"
+path = "../data/S1A_coaligned_catalogue_WV_20190116_20260629_20260908_SV_KNMI-HSCAT-HY2-25km_0.2.parquet"
+
+[[catalogues.rules]]
+id = "ecmwf_scat_speed_difference"
+name = "abs(ECMWF wind speed - HSCAT wind speed) <= 2 m/s"
+clauses = [["ecmwf_wind_speed", "abs_diff_le", ["ref_param_2", 2]]]
+
+[[catalogues.rules]]
+id = "ecmwf_scat_direction_difference"
+name = "Circular ECMWF-HSCAT wind-direction difference <= 30 degrees"
+clauses = [["ecmwf_wind_dir_360", "angle_diff_le", ["ref_param_1", 30]]]
+
+[[catalogues.rules]]
+id = "zero_ice_probability"
+name = "ref_ice_prob == 0 (WV)"
+clauses = [["ref_ice_prob", "eq", 0]]
+
+[[catalogues.rules]]
+id = "zero_ref_flag"
+name = "ref_flag == 0 (current setting)"
+clauses = [["ref_flag", "eq", 0]]
+
+[[catalogues.rules]]
+id = "sar_start"
+name = "SAR acquisitions after 2024-11-25"
+clauses = [["sar_time", "date_gt", "2024-11-25"]]
+
+[[catalogues]]
+mission = "S1C"
+path = "../data/S1C_coaligned_catalogue_WV_20250118_20260904_20260908_SV_KNMI-HSCAT-HY2-25km_0.2.parquet"
+
+[[catalogues.rules]]
+id = "ecmwf_scat_speed_difference"
+name = "abs(ECMWF wind speed - HSCAT wind speed) <= 2 m/s"
+clauses = [["ecmwf_wind_speed", "abs_diff_le", ["ref_param_2", 2]]]
+
+[[catalogues.rules]]
+id = "ecmwf_scat_direction_difference"
+name = "Circular ECMWF-HSCAT wind-direction difference <= 30 degrees"
+clauses = [["ecmwf_wind_dir_360", "angle_diff_le", ["ref_param_1", 30]]]
+
+[[catalogues.rules]]
+id = "zero_ice_probability"
+name = "ref_ice_prob == 0 (WV)"
+clauses = [["ref_ice_prob", "eq", 0]]
+
+[[catalogues.rules]]
+id = "zero_ref_flag"
+name = "ref_flag == 0 (current setting)"
+clauses = [["ref_flag", "eq", 0]]
+
+[[catalogues.rules]]
+id = "sar_start"
+name = "SAR acquisitions after 2025-05-06"
+clauses = [["sar_time", "date_gt", "2025-05-06"]]
+
+[[catalogues]]
+mission = "S1D"
+path = "../data/S1D_coaligned_catalogue_WV_20260107_20260904_20260908_SV_KNMI-HSCAT-HY2-25km_0.2.parquet"
+
+[[catalogues.rules]]
+id = "ecmwf_scat_speed_difference"
+name = "abs(ECMWF wind speed - HSCAT wind speed) <= 2 m/s"
+clauses = [["ecmwf_wind_speed", "abs_diff_le", ["ref_param_2", 2]]]
+
+[[catalogues.rules]]
+id = "ecmwf_scat_direction_difference"
+name = "Circular ECMWF-HSCAT wind-direction difference <= 30 degrees"
+clauses = [["ecmwf_wind_dir_360", "angle_diff_le", ["ref_param_1", 30]]]
+
+[[catalogues.rules]]
+id = "zero_ice_probability"
+name = "ref_ice_prob == 0 (WV)"
+clauses = [["ref_ice_prob", "eq", 0]]
+
+[[catalogues.rules]]
+id = "zero_ref_flag"
+name = "ref_flag == 0 (current setting)"
+clauses = [["ref_flag", "eq", 0]]
+
+[[catalogues.rules]]
+id = "sar_start"
+name = "SAR acquisitions after 2026-06-03"
+clauses = [["sar_time", "date_gt", "2026-06-03"]]

@@ -42,6 +42,16 @@ def test_validate_single_product_and_cli_read_only(tmp_path, capsys, role):
     assert path.read_bytes() == original
 
 
+@pytest.mark.parametrize("file_type", ["catalogue", "curated"])
+def test_catalogue_and_curated_validation_types_are_removed(tmp_path, file_type):
+    path = save(tmp_path, product_table("test"))
+    with pytest.raises(ValueError, match="unsupported file type"):
+        validator.validate_file(path, file_type)
+    with pytest.raises(SystemExit) as error:
+        validator.main(["--type", file_type, "--file", str(path)])
+    assert error.value.code == 2
+
+
 def replace(table, name, values, dtype=None):
     index = table.column_names.index(name)
     array = pa.array(values, type=dtype or table.schema.field(name).type)
@@ -117,69 +127,6 @@ def test_challenger_requires_actual_producer_schema(tmp_path, mutation):
         validator.validate_file(path, "challenger")
 
 
-def native_table():
-    output = product_table("test")
-    mapping = {"swot_lon": "ref_lon", "swot_lat": "ref_lat", "swot_time": "ref_time",
-               "swot_waveheight": "ref_mean_hs_karin", "swot_source": "swot_path"}
-    values = {}
-    for name in swot_test.SOURCE_COLUMNS[:13]:
-        output_name = next((key for key, value in mapping.items() if value == name), name)
-        values[name] = output.column(output_name)
-    # Native metadata is unconstrained and retained by the Curated writer.
-    return pa.table(values).replace_schema_metadata({b"source": b"native catalogue"})
-
-
-@pytest.mark.parametrize("empty", [False, True])
-def test_native_catalogue_and_real_curated_writer_contract(tmp_path, empty):
-    from soba_reference_repo.curation import write_curated
-    table = native_table().append_column("extra", pa.array([99]))
-    table = replace(table, "ref_mean_hs_karin", [-1.0], pa.float64())
-    table = replace(table, "sar_safe_slc", ["/archive/S1A_WV.SAFE"])
-    source = save(tmp_path, table, "catalogue.parquet")
-    assert validator.validate_file(source, "catalogue") is True
-    curated = tmp_path / "curated.parquet"
-    rules = [{"id": "remove", "name": "remove", "clauses": [["extra", "lt", 0]]}] if empty else []
-    write_curated(source, curated, rules, "S1A")
-    original = curated.read_bytes()
-    assert validator.validate_file(curated, "curated") is True
-    assert validator.main(["--type", "curated", "--file", str(curated)]) == 0
-    assert curated.read_bytes() == original
-    assert pq.read_schema(curated).metadata == table.schema.metadata
-
-
-@pytest.mark.parametrize("role", ["catalogue", "curated"])
-@pytest.mark.parametrize("mutation", ["missing", "numeric_string", "bad_time"])
-def test_native_rejects_missing_fields_and_invalid_types(tmp_path, role, mutation):
-    table = native_table()
-    if role == "curated":
-        table = table.append_column("_curation_mission", pa.array(["S1A"]))
-        table = table.append_column("_curation_row", pa.array([0], type=pa.int64()))
-    if mutation == "missing":
-        table = table.drop(["ref_lon"])
-    elif mutation == "numeric_string":
-        table = replace(table, "sar_lat", ["2.0"], pa.string())
-    else:
-        table = replace(table, "sar_time", ["not a time"], pa.string())
-    path = save(tmp_path, table)
-    with pytest.raises(ValueError, match="missing|type|time"):
-        validator.validate_file(path, role)
-
-
-@pytest.mark.parametrize("field,values,dtype", [
-    ("_curation_mission", [None], pa.string()),
-    ("_curation_mission", ["SCAT"], pa.string()),
-    ("_curation_row", [-1], pa.int64()),
-    ("_curation_row", [None], pa.int64()),
-    ("_curation_row", [0.0], pa.float64()),
-])
-def test_curated_rejects_invalid_provenance(tmp_path, field, values, dtype):
-    table = native_table().append_column("_curation_mission", pa.array(["S1A"]))
-    table = table.append_column("_curation_row", pa.array([0], type=pa.int64()))
-    path = save(tmp_path, replace(table, field, values, dtype))
-    with pytest.raises(ValueError, match="curation"):
-        validator.validate_file(path, "curated")
-
-
 @pytest.mark.parametrize("args", [
     [], ["--type", "test"], ["--file", "x.parquet"], ["--test", "x.parquet"],
     ["--target", "x.parquet"],
@@ -187,7 +134,7 @@ def test_curated_rejects_invalid_provenance(tmp_path, field, values, dtype):
     ["--type", "test", "--test", "y", "--target", "z"],
     ["--file", "x", "--test", "y", "--target", "z"],
     ["--type", "scat", "--file", "x"],
-    ["--type", "test", "--file", "x", "--reference", "scat"],
+    ["--type", "catalogue", "--file", "x"], ["--type", "curated", "--file", "x"],
     ["--kind", "test", "--file", "x"],
 ])
 def test_cli_rejects_invalid_modes_with_usage_exit(args, capsys):

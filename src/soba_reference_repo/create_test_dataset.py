@@ -1,4 +1,4 @@
-"""Create reference TEST/TARGET datasets from TOML recipes (currently SWOT WV)."""
+"""Create SWOT WV and HSCAT reference TEST/TARGET datasets from TOML recipes."""
 
 from __future__ import annotations
 
@@ -13,6 +13,13 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.recipe is None:
         parser.error("--recipe is required")
+    from .curation import read_recipe
+
+    recipe = read_recipe(args.recipe)
+    if recipe["reference"] == "scat":
+        from .hscat_test import run_hscat_recipe
+
+        return run_hscat_recipe(args.recipe)
     from .swot_test import run_recipe
 
     return run_recipe(args.recipe)

@@ -3,22 +3,12 @@
 import pytest
 
 from soba_reference_repo import validator
-from test_validator import challenger_table, native_table, product_table, save
+from test_validator import challenger_table, product_table, save
 
 
 @pytest.mark.parametrize("role", validator.FILE_TYPES)
 def test_single_report_names_file_size_and_actual_checks(tmp_path, capsys, role):
-    if role in ("test", "target"):
-        table = product_table(role)
-    elif role == "challenger":
-        table = challenger_table()
-    else:
-        table = native_table()
-        if role == "curated":
-            import pyarrow as pa
-
-            table = table.append_column("_curation_mission", pa.array(["S1A"]))
-            table = table.append_column("_curation_row", pa.array([0], type=pa.int64()))
+    table = product_table(role) if role in ("test", "target") else challenger_table()
     path = save(tmp_path, table)
     assert validator.main(["--type", role, "--file", str(path)]) == 0
     output = capsys.readouterr().out
@@ -27,11 +17,7 @@ def test_single_report_names_file_size_and_actual_checks(tmp_path, capsys, role)
     schema_line = next(line for line in output.splitlines() if "Schema checked:" in line)
     for name in table.column_names:
         assert f"{name}: " in schema_line
-    if role in ("catalogue", "curated"):
-        assert "required columns; extras allowed; order unrestricted" in schema_line
-        assert "ref_time: timestamp|string|large_string" in schema_line
-    else:
-        assert "exact columns and order" in schema_line
+    assert "exact columns and order" in schema_line
     assert "[PASS] Parquet readable" in output
     assert "[PASS] Field types" in output
     assert f"{role.upper()} validation passed" in output
@@ -40,16 +26,9 @@ def test_single_report_names_file_size_and_actual_checks(tmp_path, capsys, role)
         assert "[PASS] Required five metadata attributes" in output
         assert "[PASS] Primary key composition" in output
         assert "[PASS] Required values non-null" in output
-    elif role == "challenger":
+    else:
         assert "[PASS] Non-null predictions finite" in output
         assert "Missing predictions are allowed; prediction coverage is not checked" in output
-    else:
-        assert "[PASS] Source time values parseable" in output
-        assert "Source metadata and recipe quality filters: not checked" in output
-        assert "[SKIP] Primary keys: column absent" in output
-        assert "[PASS] Required five metadata attributes" not in output
-        if role == "curated":
-            assert "[PASS] Curation mission/row provenance" in output
 
 
 def test_cli_rejects_removed_pair_mode(tmp_path, capsys):
@@ -65,6 +44,8 @@ def test_cli_rejects_removed_pair_mode(tmp_path, capsys):
     help_text = capsys.readouterr().out
     assert "--test " not in help_text
     assert "--target " not in help_text
+    assert "catalogue" not in help_text
+    assert "curated" not in help_text
 
 
 def test_failed_validation_never_prints_a_pass_report(tmp_path, capsys):
