@@ -24,15 +24,10 @@ from .pdf_support import (
     stage_latex_assets,
     _path,
 )
+from .plotting import MISSION_COLORS, plot_mission_distribution
 
 MISSION_PATTERN = re.compile(r"^(S1[A-Z])_coaligned_catalogue_(WV)_")
 EXPECTED_MISSIONS = ("S1A", "S1C", "S1D")
-MISSION_COLORS = {
-    "S1A": "#287D8E",
-    "S1B": "#E69F00",
-    "S1C": "#7B51A3",
-    "S1D": "#C75731",
-}
 DEFAULT_SWOT_TEMPLATE = ASSET_DIR / "latex" / "swot_test_template.tex"
 SWOT_COLUMN_DESCRIPTIONS = {
     "primary_key": "SLC SAFE plus reference longitude and latitude at one decimal degree.",
@@ -952,24 +947,26 @@ def plot_swot_figures(test: pd.DataFrame, figures_dir: Path) -> dict[str, Path]:
     figure.savefig(paths["monthly_rows"], dpi=150)
     plt.close(figure)
 
-    figure, axis = plt.subplots(figsize=(9, 4.5))
-    swh = pd.Series(pd.to_numeric(test["swot_waveheight"], errors="coerce"), index=test.index)
-    if present:
-        axis.hist(
-            [swh.loc[missions.eq(mission)].dropna().to_numpy() for mission in present],
-            bins=40,
-            stacked=True,
-            color=[MISSION_COLORS[mission] for mission in present],
-            label=present,
-        )
-        axis.legend()
-    axis.set(
-        xlabel="SWOT significant wave height (m)",
-        ylabel="TEST rows",
-        title="Reference SWH distribution",
-    )
+    swh = pd.to_numeric(test["swot_waveheight"], errors="coerce")
+    values = swh.to_numpy(dtype=float)
+    finite = np.isfinite(values)
+    if finite.any():
+        low, high = float(values[finite].min()), float(values[finite].max())
+        if low == high:
+            low, high = low - 0.5, high + 0.5
+        edges = np.linspace(low, high, 41)
+    else:
+        edges = np.linspace(0, 1, 41)
+    histogram = {}
+    for mission in present:
+        selected = values[missions.eq(mission).to_numpy() & finite]
+        histogram[mission] = np.histogram(selected, bins=edges)[0]
+
+    figure, axis = plt.subplots(figsize=(9, 5.0))
+    plot_mission_distribution(axis, histogram, edges, MISSION_COLORS)
+    axis.set(xlabel="SWOT significant wave height (m)", title="Reference SWH distribution")
     axis.grid(axis="y", alpha=0.2)
-    figure.tight_layout()
+    figure.tight_layout(rect=(0, 0.18, 1, 1))
     figure.savefig(paths["swot_waveheight"], dpi=150)
     plt.close(figure)
     return paths

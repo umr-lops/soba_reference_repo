@@ -242,3 +242,27 @@ def test_merge_rejects_incompatible_saved_schema_before_write(tmp_path):
     with pytest.raises(ValueError, match="schema"):
         curation.merge_curated(paths, merged)
     assert not merged.exists()
+
+
+def test_date_lt_filters_strictly_before_midnight_utc():
+    frame = pd.DataFrame({
+        "time": pd.to_datetime([
+            "2024-11-24T23:59:59Z",
+            "2024-11-25T00:00:00Z",
+            "2024-11-25T10:00:00Z",
+            "2024-11-25T01:00:00+02:00",
+            None,
+        ], utc=True)
+    })
+    clause = ["time", "date_lt", "2024-11-25"]
+
+    curation._validate_clause(clause)
+    result = curation.clause_mask(frame, clause)
+
+    assert result.tolist() == [True, False, False, True, False]
+
+
+@pytest.mark.parametrize("date", ["2024-2-01", "2024-02-30", "tomorrow"])
+def test_date_lt_rejects_invalid_date(date):
+    with pytest.raises(ValueError, match="date_lt"):
+        curation._validate_clause(["time", "date_lt", date])

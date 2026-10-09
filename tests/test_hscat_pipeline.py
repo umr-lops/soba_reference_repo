@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from matplotlib import image as mpimg
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -8,7 +9,11 @@ import pytest
 
 from soba_reference_repo.create_test_dataset import main as cli_main
 from soba_reference_repo.curation import curate_frame, resolve_rules
-from soba_reference_repo.hscat_report import _annual_tick_indices, _filter_tables
+from soba_reference_repo.hscat_report import (
+    _annual_tick_indices,
+    _filter_expression,
+    _filter_tables,
+)
 from soba_reference_repo.hscat_test import (
     HSCAT_DEFAULT_RULES,
     build_scat_frames,
@@ -219,7 +224,7 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     captions = [
         "Global spatial distribution of all retained Sentinel-1 WV matchups",
         "Monthly count of retained HSCAT matchups",
-        "Distribution of HSCAT windspeed",
+        "Normalized HSCAT windspeed step histograms by mission.",
     ]
     caption_positions = [report.index(caption) for caption in captions]
     assert caption_positions == sorted(caption_positions)
@@ -232,6 +237,9 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert "ref\\_flag == 0" in report
     assert "SAR acquisitions after 2025-12-31" in report
     assert "strictly later than 00:00 UTC on 2025-12-31" in report
+    assert _filter_expression([["sar_time", "date_lt", "2025-12-31"]]) == (
+        r"sar\_time is strictly earlier than 00:00 UTC on 2025-12-31"
+    )
     assert "\\path|S1A_curated_coaligned_dataset_WV_20260103_windspeed_0.1.parquet|" in report
     assert report.count("\\section*{References}") == 0
     assert report.count("\\begin{thebibliography}") == 1
@@ -239,6 +247,8 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert report.count(r"\begin{figure}[H]") == 3
     figure_paths = [Path(path) for path in manifest["figures"].values()]
     assert len(figure_paths) == 3
+    reference_plot = mpimg.imread(manifest["figures"]["reference_distribution"])
+    assert reference_plot.shape[:2] == (750, 1350)
     assert all(path.parent == tmp_path / "output/report" and path.is_file()
                for path in figure_paths)
     assert not any(path.is_dir() for path in (tmp_path / "output/report").iterdir())

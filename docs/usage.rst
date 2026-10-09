@@ -28,7 +28,10 @@ Each SWOT catalogue starts with 13 ordered quality filters. Change a default
 filter under its catalogue with ``[[catalogues.rules]]`` and the default's ``id``;
 set ``enabled = false`` to skip it. A new ``id`` with ``name`` and ``clauses``
 appends a rule. Operators are ``eq``, ``gt``, ``ge``, ``lt``, ``le``, ``in``,
-``present``, ``date_gt``, and ``abs_diff_le``. Unsupported references fail before
+``present``, ``date_gt``, ``date_lt``, and ``abs_diff_le``. Date operators parse
+values as UTC: ``date_gt`` keeps timestamps strictly after midnight UTC on the
+given date, while ``date_lt`` keeps timestamps strictly before that midnight.
+Missing or invalid timestamps do not match. Unsupported references fail before
 output files are written.
 
 For HSCAT, copy ``examples/hscat-curation.toml`` and set each ``path`` and a new
@@ -38,7 +41,9 @@ For HSCAT, copy ``examples/hscat-curation.toml`` and set each ``path`` and a new
 other filters can be added in the recipe once their definitions are settled. Rows
 with duplicate ``primary_key`` values after curation are excluded as a group from
 both outputs; the manifest and report record those integrity exclusions separately
-from filter counts. The report plots the selected variable; wind direction uses a circular wind rose.
+from filter counts. Reference-distribution plots show each mission as a distinct step
+line, normalized to percentages on shared bins, with sample counts in a centered
+legend. Wind-direction bins span 0–360 degrees.
 
 Validate Parquets
 -----------------
