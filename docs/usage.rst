@@ -38,10 +38,23 @@ For HSCAT, copy ``examples/hscat-curation.toml`` and set each ``path`` and a new
 ``output_dir``. Choose one ``reference_variable`` per run: ``windspeed`` or
 ``winddirection``. Wind-speed runs apply only
 ``abs(ecmwf_wind_speed - ref_param_2) <= 2 m/s``. No rain filter is built in;
-other filters can be added in the recipe once their definitions are settled. Rows
-with duplicate ``primary_key`` values after curation are excluded as a group from
-both outputs; the manifest and report record those integrity exclusions separately
-from filter counts. HSCAT and SWOT TEST/TARGET filenames share the compact pattern
+other filters can be added in the recipe once their definitions are settled. Curated files retain all quality-selected, source-native records and columns.
+At TEST/TARGET export, after required-field integrity checks, keep the first
+acceptable matchup per SAR imagette and HSCAT satellite. Catalogue mission order
+is sorted; original row order is preserved within each catalogue. No time,
+distance or angle ranking is applied. The native key is reduced to its final ``/`` basename, then
+``SAFE:WV_###_lon_lat`` is
+normalized to ``SAFE:WV_###``; the output ``primary_key`` is
+``SAFE:WV_###:HY-2X``, with the satellite parsed from ``ref_id`` (including both
+``hy_2b__`` and ``HY-2B+HSCAT`` filename forms). Coordinate changes do not create
+new groups, and different satellites are retained even at identical coordinates,
+provided each has an acceptable row. Malformed imagette keys and unrecognizable
+satellites fail clearly; incomplete rows do not reserve groups. Selection is
+global across batches and missions using a disk-backed SQLite registry.
+The manifest's ``excluded_duplicate_key_rows`` and
+``duplicate_key_rows_by_mission`` count excess acceptable rows, not all group
+members; ``duplicate_primary_keys`` counts repeated acceptable group keys.
+These exclusions remain separate from incomplete-row and quality-filter counts. HSCAT and SWOT TEST/TARGET filenames share the compact pattern
 ``S1_reference_test_dataset_WV_<production-date>_<variable>_<version>.parquet`` and
 ``S1_target_dataset_WV_<production-date>_<variable>_<version>.parquet``. The report
 ``.tex`` and optional PDF use the TEST filename stem. Source coverage, polarization,
