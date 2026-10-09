@@ -438,11 +438,9 @@ def validate_scat_file(path, file_type):
 def _write_pair(
     test, target, root, recipe, product, product_description, product_name, polarization
 ):
-    start = min(item["info"]["start"] for item in recipe["catalogues"])
-    stop = max(item["info"]["stop"] for item in recipe["catalogues"])
     stem = (
-        f"S1_reference_test_dataset_WV_{start}_{stop}_{recipe['production_date']}_"
-        f"{polarization}_{product_name}_{recipe['version']}"
+        f"S1_reference_test_dataset_WV_{recipe['production_date']}_"
+        f"{recipe['reference_variable']}_{recipe['version']}"
     )
     target_stem = stem.replace("reference_test_dataset", "target_dataset", 1)
     directory = root / "datasets"
@@ -548,12 +546,9 @@ def run_hscat_recipe(recipe_path):
         merged_path = Path(merge_work.name) / f"S1_WV_{product.lower()}_curated.parquet"
         merge_curated(curated, merged_path, normalize_timestamp_units=True)
         stage = "pair"
-        start = min(item["info"]["start"] for item in catalogues)
-        stop = max(item["info"]["stop"] for item in catalogues)
-        refproduct = catalogues[0]["info"]["refproduct"]
         stem = (
-            f"S1_reference_test_dataset_WV_{start}_{stop}_{recipe['production_date']}_"
-            f"{next(iter(polarizations))}_{refproduct}_{recipe['version']}"
+            f"S1_reference_test_dataset_WV_{recipe['production_date']}_"
+            f"{recipe['reference_variable']}_{recipe['version']}"
         )
         test_path = root / "datasets" / f"{stem}.parquet"
         target_path = (

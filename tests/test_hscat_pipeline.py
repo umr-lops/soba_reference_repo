@@ -206,7 +206,11 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
 
     tex = (tmp_path / "output/manifest.json").read_text()
     manifest = json.loads(tex)
-    assert manifest["status"] == "complete"
+    test_path = Path(manifest["test_parquet"])
+    target_path = Path(manifest["target_parquet"])
+    assert test_path.name == "S1_reference_test_dataset_WV_20260103_windspeed_0.1.parquet"
+    assert target_path.name == "S1_target_dataset_WV_20260103_windspeed_0.1.parquet"
+    assert Path(manifest["report_tex"]).stem == test_path.stem
     report = Path(manifest["report_tex"]).read_text()
     assert report
     assert Path(manifest["report_tex"]).parent == tmp_path / "output/report"

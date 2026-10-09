@@ -41,9 +41,14 @@ For HSCAT, copy ``examples/hscat-curation.toml`` and set each ``path`` and a new
 other filters can be added in the recipe once their definitions are settled. Rows
 with duplicate ``primary_key`` values after curation are excluded as a group from
 both outputs; the manifest and report record those integrity exclusions separately
-from filter counts. Reference-distribution plots show each mission as a distinct step
-line, normalized to percentages on shared bins, with sample counts in a centered
-legend. Wind-direction bins span 0–360 degrees.
+from filter counts. HSCAT and SWOT TEST/TARGET filenames share the compact pattern
+``S1_reference_test_dataset_WV_<production-date>_<variable>_<version>.parquet`` and
+``S1_target_dataset_WV_<production-date>_<variable>_<version>.parquet``. The report
+``.tex`` and optional PDF use the TEST filename stem. Source coverage, polarization,
+and reference-product details remain in the run manifest.
+Reference-distribution plots show each mission as a distinct step line, normalized
+to percentages on shared bins, with sample counts in a centered legend.
+Wind-direction bins span 0–360 degrees.
 
 Validate Parquets
 -----------------
