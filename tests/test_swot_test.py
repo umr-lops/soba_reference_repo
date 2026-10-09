@@ -369,18 +369,26 @@ def test_figures_include_every_row_with_distinct_mission_colors(tmp_path, monkey
         assert coverage.get_legend() is None
         assert len(coverage.collections) == 1
         assert len(coverage.collections[0].get_offsets()) == len(test)
-        for figure in figures[1:]:
-            labels = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
-            assert labels == list(missions)
+        monthly = figures[1].axes[0]
+        distribution_figure = figures[2]
+        distribution = distribution_figure.axes[0]
+        monthly_labels = [text.get_text() for text in monthly.get_legend().get_texts()]
+        distribution_labels = [text.get_text() for text in distribution.get_legend().get_texts()]
+        assert monthly_labels == list(missions)
+        assert distribution_labels == [f"{mission} (n=2)" for mission in missions]
         colors = [
             to_hex(handle.get_facecolor())
-            for handle in figures[1].axes[0].get_legend().legend_handles
+            for handle in monthly.get_legend().legend_handles
         ]
         assert len(set(colors)) == len(missions)
-        handles = figures[2].axes[0].get_legend().legend_handles
-        assert [to_hex(handle.get_facecolor()) for handle in handles] == colors
-        assert sum(patch.get_height() for patch in figures[1].axes[0].patches) == len(test)
-        assert sum(patch.get_height() for patch in figures[2].axes[0].patches) == len(test)
+        distribution_colors = [
+            to_hex(handle.get_color())
+            for handle in distribution.get_legend().legend_handles
+        ]
+        assert distribution_colors == colors
+        assert distribution.get_ylabel() == "Mission TEST rows (%)"
+        assert distribution_figure.get_size_inches()[1] == 5.0
+        assert sum(patch.get_height() for patch in monthly.patches) == len(test)
     finally:
         for figure in figures:
             original_close(figure)
@@ -402,9 +410,11 @@ def test_figures_omit_missions_without_data(tmp_path, monkeypatch):
     try:
         plot_swot_figures(test, tmp_path)
         assert figures[0].axes[0].get_legend() is None
-        for figure in figures[1:]:
-            labels = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
-            assert labels == ["S1A", "S1C", "S1D"]
+        for figure, labels in zip(figures[1:], (
+            ["S1A", "S1C", "S1D"], ["S1A (n=1)", "S1C (n=1)", "S1D (n=1)"]
+        ), strict=True):
+            actual = [text.get_text() for text in figure.axes[0].get_legend().get_texts()]
+            assert actual == labels
     finally:
         for figure in figures:
             original_close(figure)

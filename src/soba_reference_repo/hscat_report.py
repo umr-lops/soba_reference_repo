@@ -12,13 +12,8 @@ import pyarrow.parquet as pq
 from matplotlib import pyplot as plt
 
 from .pdf_support import ASSET_DIR, _path, stage_latex_assets
+from .plotting import MISSION_COLORS, plot_mission_distribution
 
-MISSION_COLORS = {
-    "S1A": "#287D8E",
-    "S1B": "#E69F00",
-    "S1C": "#7B51A3",
-    "S1D": "#C75731",
-}
 MISSION_RE = re.compile(r"^(S1[A-D])")
 
 
@@ -114,9 +109,12 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536):
     figure.savefig(monthly_path, dpi=150)
     plt.close(figure)
 
-    if min_value == max_value:
-        min_value, max_value = min_value - 0.5, max_value + 0.5
-    edges = np.linspace(min_value, max_value, 41)
+    if variable == "winddirection":
+        edges = np.linspace(0, 360, 37)
+    else:
+        if min_value == max_value:
+            min_value, max_value = min_value - 0.5, max_value + 0.5
+        edges = np.linspace(min_value, max_value, 41)
     histogram = {mission: np.zeros(len(edges) - 1, dtype=np.int64) for mission in present}
     for batch in parquet.iter_batches(
         batch_size=batch_size, columns=["sar_safe_slc", value_column]
@@ -128,28 +126,15 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536):
             selected = values[missions.to_numpy() == mission]
             if selected.size:
                 histogram[mission] += np.histogram(selected, bins=edges)[0]
-    figure, axis = plt.subplots(figsize=(9, 4.5))
-    bottom = np.zeros(len(edges) - 1, dtype=np.int64)
-    for mission in present:
-        counts = histogram[mission]
-        axis.bar(
-            edges[:-1],
-            counts,
-            width=np.diff(edges),
-            bottom=bottom,
-            align="edge",
-            color=MISSION_COLORS[mission],
-            label=mission,
-        )
-        bottom += counts
-    axis.legend()
+    figure, axis = plt.subplots(figsize=(9, 5.0))
+    plot_mission_distribution(axis, histogram, edges, MISSION_COLORS)
     if variable == "windspeed":
         xlabel, title = "HSCAT wind speed (m/s)", "Reference wind-speed distribution"
     else:
         xlabel, title = "HSCAT wind direction (degrees)", "Reference wind-direction distribution"
-    axis.set(xlabel=xlabel, ylabel="TEST rows", title=title)
+    axis.set(xlabel=xlabel, title=title)
     axis.grid(axis="y", alpha=0.2)
-    figure.tight_layout()
+    figure.tight_layout(rect=(0, 0.18, 1, 1))
     figure.savefig(distribution_path, dpi=150)
     plt.close(figure)
     return {
@@ -189,9 +174,10 @@ def _filter_expression(clauses):
     }
     for clause in clauses:
         column, operation = clause[:2]
-        if operation == "date_gt":
+        if operation in {"date_gt", "date_lt"}:
+            direction = "later" if operation == "date_gt" else "earlier"
             expressions.append(
-                f"{_tex(column)} is strictly later than 00:00 UTC on {_tex(clause[2])}"
+                f"{_tex(column)} is strictly {direction} than 00:00 UTC on {_tex(clause[2])}"
             )
         elif operation in {"abs_diff_le", "angle_diff_le"}:
             other, threshold = clause[2]
@@ -496,7 +482,7 @@ def build_hscat_report(test_path, target_path, manifest, summary, figures, repor
         "FILE_VERSION_ROW": "\n".join(version_rows),
         "GENERAL_DESCRIPTION": (
             "Sentinel-1 WV observations paired with KNMI HSCAT HY-2 25 km reference data. "
-            "The run applies mission-specific SAR start dates alongside configured wind-speed, "
+            "The run applies mission-specific SAR time bounds alongside configured wind-speed, "
             "circular wind-direction, ice-probability and reference-flag rules."
         ),
         "COVERAGE_DESCRIPTION": (
@@ -512,9 +498,13 @@ def build_hscat_report(test_path, target_path, manifest, summary, figures, repor
         ),
         "MONTHLY_CAPTION": "Monthly count of retained HSCAT matchups, stacked by mission.",
         "REFERENCE_DESCRIPTION": (
-            f"The histogram shows HSCAT {variable} in retained TEST rows, stacked by mission."
+            f"Colored step lines compare HSCAT {variable} by mission using shared bins. "
+            "Each mission is normalized to a percentage of its TEST rows, and the legend "
+            "shows each sample size."
         ),
-        "REFERENCE_CAPTION": f"Distribution of HSCAT {variable}, stacked by mission.",
+        "REFERENCE_CAPTION": (
+            f"Normalized HSCAT {variable} step histograms by mission."
+        ),
         "REFERENCE_STATS_TABLE": stats_table,
         "TEST_COLUMNS": "\n".join(column_rows),
         "SAMPLING_NOTE": (
@@ -532,12 +522,13 @@ def build_hscat_report(test_path, target_path, manifest, summary, figures, repor
             else "KNMI-HSCAT-HY2-25km, HSCAT wind direction in degrees."
         ),
         "SELECTION_INTRO": (
-            "The catalogues use mission-specific SAR start-date cutoffs; no additional "
+            "The catalogues use mission-specific SAR date bounds; no additional "
             "spatial selection is applied."
         ),
         "GEO_CRITERION": "No additional geographic filter is applied.",
         "TIME_CRITERION": (
-            "SAR acquisitions must be strictly later than each mission's configured UTC cutoff."
+            "SAR acquisition timestamps must satisfy the mission-specific UTC "
+            "date bounds listed below."
         ),
         "KEY_FORMULA": r"the source \texttt{primary\_key} field",
         "FILTER_INTRO": (

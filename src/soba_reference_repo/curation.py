@@ -91,13 +91,13 @@ def _validate_clause(clause):
         isinstance(value, str) for value in clause[2]
     ):
         return
-    if operation == "date_gt" and len(clause) == 3 and isinstance(clause[2], str):
+    if operation in {"date_gt", "date_lt"} and len(clause) == 3 and isinstance(clause[2], str):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", clause[2]):
-            raise ValueError("date_gt requires a YYYY-MM-DD date")
+            raise ValueError(f"{operation} requires a YYYY-MM-DD date")
         try:
             datetime.strptime(clause[2], "%Y-%m-%d")
         except ValueError as error:
-            raise ValueError("invalid date_gt date") from error
+            raise ValueError(f"invalid {operation} date") from error
         return
     if operation in {"abs_diff_le", "angle_diff_le"} and len(clause) == 3:
         comparison = clause[2]
@@ -229,10 +229,11 @@ def clause_mask(frame, clause):
         raise ValueError(f"missing filter column: {column}")
     if operation == "in":
         return frame[column].astype("string").isin(clause[2]).fillna(False)
-    if operation == "date_gt":
-        return pd.to_datetime(frame[column], utc=True, errors="coerce").gt(
-            pd.Timestamp(clause[2], tz="UTC")
-        ).fillna(False)
+    if operation in {"date_gt", "date_lt"}:
+        timestamp = pd.to_datetime(frame[column], utc=True, errors="coerce")
+        boundary = pd.Timestamp(clause[2], tz="UTC")
+        comparator = timestamp.gt if operation == "date_gt" else timestamp.lt
+        return comparator(boundary).fillna(False)
     if operation in {"abs_diff_le", "angle_diff_le"}:
         comparison_column, tolerance = clause[2]
         if comparison_column not in frame:

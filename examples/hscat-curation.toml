@@ -1,5 +1,5 @@
 # HSCAT WV recipe. The zero-ice rule is specific to WV and may be too strict for IW.
-# S1B is omitted until its SWOT-aligned SAR start-date cutoff is confirmed.
+# S1B covers SAR dates from 2020-06-30 through 2021-12-23 (UTC calendar days).
 reference = "scat"
 reference_variable = "windspeed"
 output_dir = "../runs/hscat-windspeed-0.2"
@@ -35,6 +35,40 @@ clauses = [["ref_flag", "eq", 0]]
 id = "sar_start"
 name = "SAR acquisitions after 2024-11-25"
 clauses = [["sar_time", "date_gt", "2024-11-25"]]
+
+[[catalogues]]
+mission = "S1B"
+path = "../data/S1B_coaligned_catalogue_WV_20190116_20211223_20260828_SV_KNMI-HSCAT-HY2-25km_0.1.parquet"
+
+[[catalogues.rules]]
+id = "ecmwf_scat_speed_difference"
+name = "abs(ECMWF wind speed - HSCAT wind speed) <= 2 m/s"
+clauses = [["ecmwf_wind_speed", "abs_diff_le", ["ref_param_2", 2]]]
+
+[[catalogues.rules]]
+id = "ecmwf_scat_direction_difference"
+name = "Circular ECMWF-HSCAT wind-direction difference <= 30 degrees"
+clauses = [["ecmwf_wind_dir_360", "angle_diff_le", ["ref_param_1", 30]]]
+
+[[catalogues.rules]]
+id = "zero_ice_probability"
+name = "ref_ice_prob == 0 (WV)"
+clauses = [["ref_ice_prob", "eq", 0]]
+
+[[catalogues.rules]]
+id = "zero_ref_flag"
+name = "ref_flag == 0 (current setting)"
+clauses = [["ref_flag", "eq", 0]]
+
+[[catalogues.rules]]
+id = "sar_start"
+name = "SAR acquisitions after 2020-06-30 00:00 UTC"
+clauses = [["sar_time", "date_gt", "2020-06-30"]]
+
+[[catalogues.rules]]
+id = "sar_end"
+name = "SAR acquisitions before 2021-12-24 00:00 UTC (through 2021-12-23)"
+clauses = [["sar_time", "date_lt", "2021-12-24"]]
 
 [[catalogues]]
 mission = "S1C"

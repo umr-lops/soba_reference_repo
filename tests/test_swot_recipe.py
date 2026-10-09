@@ -117,7 +117,7 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
     assert not any(path.is_dir() for path in (root / "report").iterdir())
 
 
-def test_recipe_accepts_swh_reference_date_gt_and_additive_columns(tmp_path):
+def test_recipe_accepts_swh_reference_date_gt_and_date_lt_and_additive_columns(tmp_path):
     sources = {mission: source_file(tmp_path, mission) for mission in ("S1A", "S1C", "S1D")}
     frame = pd.read_parquet(sources["S1D"])
     frame["swh_swot_l3_20km"] = 2.1
@@ -131,7 +131,8 @@ def test_recipe_accepts_swh_reference_date_gt_and_additive_columns(tmp_path):
         'version = "1.0"\ncompile = false\n'
         f'[[catalogues]]\nmission = "S1A"\npath = "{sources["S1A"].name}"\n'
         '[[catalogues.rules]]\nid = "sar_start"\nname = "S1A after cutoff"\n'
-        'clauses = [["sar_time", "date_gt", "2024-11-25"]]\n'
+        'clauses = [["sar_time", "date_gt", "2024-11-25"], '
+        '["sar_time", "date_lt", "2027-01-01"]]\n'
         f'[[catalogues]]\nmission = "S1C"\npath = "{sources["S1C"].name}"\n'
         f'[[catalogues]]\nmission = "S1D"\npath = "{sources["S1D"].name}"\n'
         '[[catalogues.rules]]\nid = "sar_start"\nname = "S1D after cutoff"\n'
