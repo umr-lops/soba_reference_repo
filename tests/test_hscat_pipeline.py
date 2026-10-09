@@ -22,6 +22,17 @@ from soba_reference_repo.hscat_test import (
 from soba_reference_repo.validator import main as validate_main, validate_file
 
 
+def imagette(mission="S1A", index=0):
+    return (
+        f"{mission}_WV_SLC__1SSV_20240804T043459_20240804T044502_"
+        f"055058_06B534_806D.SAFE:WV_{index:03d}"
+    )
+
+
+def ref_id(satellite="b"):
+    return f"hscat_20240804_024615_hy_2{satellite}__19492_o_250_2204_ovw_l2.nc"
+
+
 def hscat_source(folder, mission="S1A", include_ecmwf=True):
     path = folder / (
         f"{mission}_coaligned_catalogue_WV_20160101_20160102_20260101_"
@@ -29,7 +40,7 @@ def hscat_source(folder, mission="S1A", include_ecmwf=True):
     )
     frame = pd.DataFrame(
         {
-            "primary_key": [f"{mission}_key_{i}" for i in range(3)],
+            "primary_key": [f"{imagette(mission, i)}_0.9_-59.1" for i in range(3)],
             "sar_time": [pd.Timestamp("2026-01-01")] * 3,
             "sar_lat": [2.1] * 3,
             "sar_lon": [-1.1] * 3,
@@ -43,7 +54,7 @@ def hscat_source(folder, mission="S1A", include_ecmwf=True):
             "ref_param_1": [45.0] * 3,
             "ref_param_2": [5.0] * 3,
             "ref_time": [pd.Timestamp("2026-01-01")] * 3,
-            "ref_id": ["scatterometer.granule"] * 3,
+            "ref_id": [ref_id()] * 3,
             "ref_ice_prob": [0.0] * 3,
             "ref_flag": [0] * 3,
             "ecmwf_wind_dir_360": [45.0, 44.0, 46.0],
@@ -213,6 +224,10 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert Path(manifest["report_tex"]).stem == test_path.stem
     report = Path(manifest["report_tex"]).read_text()
     assert report
+    assert "first acceptable matchup per SAR imagette and HSCAT satellite" in report
+    assert "no time, distance or angle ranking" in report
+    assert "Excess rows after first-per-imagette/satellite selection" in report
+    assert "exclude every row for globally duplicated keys" not in report
     assert Path(manifest["report_tex"]).parent == tmp_path / "output/report"
     assert r"\texttt{scat\_windspeed}" in report
     sections = [
@@ -301,7 +316,7 @@ def test_reference_recipe_rejects_non_hscat_catalogue_before_output(tmp_path):
     assert not (tmp_path / "output").exists()
 
 
-def test_hscat_pair_excludes_every_row_with_a_duplicate_primary_key(tmp_path):
+def test_hscat_pair_keeps_first_per_imagette_and_satellite(tmp_path):
     source = hscat_source(tmp_path)
     frame = pq.read_table(source).to_pandas()
     frame.loc[1, "primary_key"] = frame.loc[0, "primary_key"]
@@ -310,16 +325,17 @@ def test_hscat_pair_excludes_every_row_with_a_duplicate_primary_key(tmp_path):
 
     test, target, summary = build_scat_frames(frame, "windspeed")
 
-    assert test["primary_key"].to_list() == ["S1A_key_2"]
-    assert target["primary_key"].to_list() == ["S1A_key_2"]
-    assert summary["excluded_duplicate_key_rows"] == 2
-    assert summary["duplicate_key_rows_by_mission"] == {"S1A": 2}
+    assert test["primary_key"].to_list() == [f"{imagette()}:HY-2B", f"{imagette(index=2)}:HY-2B"]
+    assert target["primary_key"].to_list() == [f"{imagette()}:HY-2B", f"{imagette(index=2)}:HY-2B"]
+    assert test["scat_windspeed"].tolist() == [5.0, 5.0]
+    assert summary["excluded_duplicate_key_rows"] == 1
+    assert summary["duplicate_key_rows_by_mission"] == {"S1A": 1}
 
 
-def test_chunked_pair_excludes_duplicate_keys_across_batch_boundaries(tmp_path):
+def test_chunked_pair_keeps_first_globally_across_batch_boundaries(tmp_path):
     source = hscat_source(tmp_path)
     frame = pq.read_table(source).to_pandas()
-    frame["primary_key"] = ["duplicate", "unique-1", "duplicate"]
+    frame.loc[2, "primary_key"] = frame.loc[0, "primary_key"]
     frame["_curation_mission"] = "S1A"
     source = tmp_path / "merged.parquet"
     pq.write_table(pa.Table.from_pandas(frame, preserve_index=False), source)
@@ -328,18 +344,28 @@ def test_chunked_pair_excludes_duplicate_keys_across_batch_boundaries(tmp_path):
     summary = write_scat_pair_chunked(source, test_path, target_path, "windspeed", batch_size=2)
 
     test, target = pq.read_table(test_path), pq.read_table(target_path)
-    assert test["primary_key"].to_pylist() == ["unique-1"]
-    assert target["primary_key"].to_pylist() == ["unique-1"]
-    assert summary["excluded_duplicate_key_rows"] == 2
-    assert summary["duplicate_key_rows_by_mission"] == {"S1A": 2}
-    assert summary["accepted_rows"] == 1
+    assert test["primary_key"].to_pylist() == [f"{imagette()}:HY-2B", f"{imagette(index=1)}:HY-2B"]
+    assert target["primary_key"].to_pylist() == [
+        f"{imagette()}:HY-2B", f"{imagette(index=1)}:HY-2B"
+    ]
+    assert summary["excluded_duplicate_key_rows"] == 1
+    assert summary["duplicate_key_rows_by_mission"] == {"S1A": 1}
+    assert summary["accepted_rows"] == 2
+    assert summary["duplicate_primary_keys"] == 1
+    expected_test, expected_target, _ = build_scat_frames(frame, "windspeed")
+    assert test.equals(
+        pa.Table.from_pandas(expected_test, preserve_index=False), check_metadata=False
+    )
+    assert target.equals(
+        pa.Table.from_pandas(expected_target, preserve_index=False), check_metadata=False
+    )
 
 
 def test_chunked_duplicate_exclusions_do_not_overlap_incomplete_rows(tmp_path):
     source = hscat_source(tmp_path)
     frame = pq.read_table(source).to_pandas()
-    frame["primary_key"] = ["ambiguous", "ambiguous", "complete"]
-    frame.loc[1, "sar_lat"] = float("nan")
+    frame.loc[1, "primary_key"] = frame.loc[0, "primary_key"]
+    frame.loc[0, "sar_lat"] = float("nan")
     frame["_curation_mission"] = "S1A"
     source = tmp_path / "merged_with_incomplete.parquet"
     pq.write_table(pa.Table.from_pandas(frame, preserve_index=False), source)
@@ -348,10 +374,110 @@ def test_chunked_duplicate_exclusions_do_not_overlap_incomplete_rows(tmp_path):
         source, tmp_path / "TEST2.parquet", tmp_path / "TARGET2.parquet", "windspeed", batch_size=1
     )
 
-    assert summary["accepted_rows"] == 1
+    assert summary["accepted_rows"] == 2
     assert summary["excluded_incomplete_rows"] == 1
-    assert summary["excluded_duplicate_key_rows"] == 1
+    assert summary["excluded_duplicate_key_rows"] == 0
     assert summary["accepted_rows"] + summary["excluded_incomplete_rows"] + summary[
         "excluded_duplicate_key_rows"
     ] == len(frame)
-    assert pq.read_table(tmp_path / "TEST2.parquet")["primary_key"].to_pylist() == ["complete"]
+    assert pq.read_table(tmp_path / "TEST2.parquet")["primary_key"].to_pylist() == [
+        f"{imagette()}:HY-2B", f"{imagette(index=2)}:HY-2B"
+    ]
+
+
+@pytest.mark.parametrize("variable", ["windspeed", "winddirection"])
+@pytest.mark.parametrize("batch_size", [1, 2, 5])
+def test_five_matchups_keep_both_satellites_not_coordinate_groups(tmp_path, variable, batch_size):
+    frame = pq.read_table(hscat_source(tmp_path)).to_pandas().iloc[[0] * 5].reset_index(drop=True)
+    frame["primary_key"] = [
+        f"{imagette(index=33)}_{lon}_-59.1" for lon in [0.9, 0.9, 1.0, 1.1, 1.2]
+    ]
+    frame["ref_id"] = [ref_id(sat) for sat in ["c", "b", "c", "b", "c"]]
+    frame["ref_lon"] = [0.91, 0.92, 1.01, 1.11, 1.21]
+    frame["ref_param_2"] = [5.0, 6.0, 7.0, 8.0, 9.0]
+    frame["_curation_mission"] = ["S1A", "S1A", "S1C", "S1D", "S1D"]
+    source = tmp_path / "curated.parquet"
+    pq.write_table(pa.Table.from_pandas(frame, preserve_index=False), source)
+    test_path, target_path = tmp_path / "test.parquet", tmp_path / "target.parquet"
+
+    summary = write_scat_pair_chunked(
+        source, test_path, target_path,
+        variable, batch_size=batch_size,
+    )
+    test, target = pq.read_table(test_path), pq.read_table(target_path)
+    expected_test, expected_target, in_memory = build_scat_frames(frame, variable)
+
+    assert test["primary_key"].to_pylist() == [
+        f"{imagette(index=33)}:HY-2C", f"{imagette(index=33)}:HY-2B"
+    ]
+    assert test.equals(
+        pa.Table.from_pandas(expected_test, preserve_index=False), check_metadata=False
+    )
+    assert target.equals(
+        pa.Table.from_pandas(expected_target, preserve_index=False), check_metadata=False
+    )
+    assert summary["accepted_rows"] == in_memory["accepted_rows"] == 2
+    assert summary["excluded_duplicate_key_rows"] == 3
+    assert summary["duplicate_primary_keys"] == 2
+    assert summary["duplicate_key_rows_by_mission"] == {"S1C": 1, "S1D": 2}
+    if variable == "windspeed":
+        assert test["scat_windspeed"].to_pylist() == [5.0, 6.0]
+
+
+@pytest.mark.parametrize("column,value,error", [
+    ("ref_id", "unknown.nc", "unrecognizable HSCAT satellite"),
+    ("primary_key", "S1A_key_0", "malformed HSCAT SAR imagette"),
+    ("primary_key", imagette() + "_bad_-59.1", "malformed HSCAT SAR imagette"),
+])
+def test_unrecognizable_selection_identity_fails_clearly(tmp_path, column, value, error):
+    frame = pq.read_table(hscat_source(tmp_path)).to_pandas()
+    frame.loc[0, column] = value
+    with pytest.raises(ValueError, match=error):
+        build_scat_frames(frame, "windspeed")
+    source = tmp_path / "curated.parquet"
+    pq.write_table(pa.Table.from_pandas(frame, preserve_index=False), source)
+    with pytest.raises(ValueError, match=error):
+        write_scat_pair_chunked(
+            source, tmp_path / "test.parquet", tmp_path / "target.parquet",
+            "windspeed", batch_size=1,
+        )
+
+
+def test_alternate_knmi_reference_filename_identifies_satellite(tmp_path):
+    frame = pq.read_table(hscat_source(tmp_path)).to_pandas()
+    frame.loc[0, "ref_id"] = (
+        "W_NL-KNMI-DeBilt,SURFACE+SATELLITE,HY-2B+HSCAT_C_EHDB_"
+        "20220101154925_15989_o_250_ovw_l2.nc"
+    )
+    test, _, _ = build_scat_frames(frame, "windspeed")
+    assert test.loc[0, "primary_key"] == f"{imagette()}:HY-2B"
+
+
+@pytest.mark.parametrize("column", ["primary_key", "ref_id"])
+def test_null_identity_does_not_reserve_group(tmp_path, column):
+    frame = pq.read_table(hscat_source(tmp_path)).to_pandas()
+    frame.loc[1, "primary_key"] = frame.loc[0, "primary_key"]
+    frame.loc[0, column] = None
+    test, _, summary = build_scat_frames(frame, "windspeed")
+    assert test["primary_key"].tolist() == [f"{imagette()}:HY-2B", f"{imagette(index=2)}:HY-2B"]
+    assert summary["excluded_incomplete_rows"] == 1
+    assert summary["excluded_duplicate_key_rows"] == 0
+
+
+def test_path_prefixed_imagette_collapses_with_basename_key(tmp_path):
+    frame = pq.read_table(hscat_source(tmp_path, mission="S1B")).to_pandas()
+    frame.loc[1, "primary_key"] = frame.loc[0, "primary_key"]
+    frame.loc[0, "primary_key"] = "S1B_WV_SLC__1S/2020/362/" + frame.loc[0, "primary_key"]
+    test, _, summary = build_scat_frames(frame, "windspeed")
+    assert test["primary_key"].tolist() == [
+        f"{imagette('S1B')}:HY-2B", f"{imagette('S1B', 2)}:HY-2B"
+    ]
+    assert summary["excluded_duplicate_key_rows"] == 1
+    source = tmp_path / "curated.parquet"
+    pq.write_table(pa.Table.from_pandas(frame, preserve_index=False), source)
+    chunked = write_scat_pair_chunked(
+        source, tmp_path / "test.parquet", tmp_path / "target.parquet",
+        "windspeed", batch_size=1,
+    )
+    assert chunked["accepted_rows"] == 2
+    assert chunked["excluded_duplicate_key_rows"] == 1

@@ -415,7 +415,7 @@ def build_hscat_report(test_path, target_path, manifest, summary, figures, repor
     duplicate_rows = manifest.get("excluded_duplicate_key_rows", 0)
     excluded = [
         f"Incomplete or non-finite required output fields & {incomplete_rows:,}" + row_end,
-        f"Rows with globally duplicated primary keys & {duplicate_rows:,}" + row_end,
+        f"Excess rows after first-per-imagette/satellite selection & {duplicate_rows:,}" + row_end,
     ]
     stats = [
         ("Minimum", f"{summary['min']:.4g} {units}"),
@@ -451,8 +451,14 @@ def build_hscat_report(test_path, target_path, manifest, summary, figures, repor
             "to each source catalogue.",
             r"    \item Save one Curated Parquet per Sentinel-1 mission; "
             "retain each separate file in the run output.",
-            r"    \item Combine Curated sources in temporary storage, exclude all "
-            "globally duplicated keys, then remove the temporary file.",
+            r"    \item Combine Curated sources in temporary storage in sorted catalogue "
+            "mission order, preserving original row order. Curated records remain native "
+            "and quality-selected; remove the temporary file after export.",
+            r"    \item After required-field integrity checks, retain the "
+            "first acceptable matchup per SAR imagette and HSCAT satellite; "
+            "no time, distance or angle ranking is applied. Strip the coordinate suffix "
+            "from the native key basename to identify the imagette; append the satellite parsed "
+            "from the reference identifier to produce globally unique output keys.",
             r"    \item Write TEST and TARGET in batches; verify their ordered, "
             "unique primary keys match.",
             r"    \item Generate the three figures and compile this report when requested.",
@@ -468,7 +474,8 @@ def build_hscat_report(test_path, target_path, manifest, summary, figures, repor
             "curated_outputs: one separate Parquet per mission",
             "merged_curated_output: not exported",
             "temporary_merge: removed after TEST/TARGET generation",
-            "duplicate_primary_key_policy: exclude every row for globally duplicated keys",
+            "duplicate_primary_key_policy: keep first acceptable row "
+            "per SAR imagette and HSCAT satellite",
             f"accepted_rows: {summary['rows']:,}",
         ]
     )

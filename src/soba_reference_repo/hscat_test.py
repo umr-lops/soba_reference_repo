@@ -165,8 +165,27 @@ def validate_scat_input(path, expected_product):
     return info, attrs
 
 
-def build_scat_frames(frame, variable, duplicate_keys=None):
-    """Map curated source fields to aligned SCAT TEST/TARGET tables."""
+def _selected_key(primary_key, reference_id):
+    imagette = re.fullmatch(
+        r"(S1[A-D]_WV_SLC__1S[SV][VH]_\d{8}T\d{6}_\d{8}T\d{6}_"
+        r"\d{6}_[0-9A-F]{6}_[0-9A-F]{4}\.SAFE:WV_\d{3})"
+        r"(?:_[+-]?\d+(?:\.\d+)?_[+-]?\d+(?:\.\d+)?)?",
+        str(primary_key).rsplit("/", 1)[-1],
+    )
+    if not imagette:
+        raise ValueError(f"malformed HSCAT SAR imagette primary_key: {primary_key!r}")
+    satellite = re.search(r"(?<![a-z0-9])hy[_-]2([a-z])(?![a-z0-9])", str(reference_id), re.I)
+    if not satellite:
+        raise ValueError(f"unrecognizable HSCAT satellite in ref_id: {reference_id!r}")
+    return f"{imagette.group(1)}:HY-2{satellite.group(1).upper()}"
+
+
+def build_scat_frames(frame, variable, seen_keys=None):
+    """Keep the first complete row per imagette/satellite, in input order.
+
+    ``seen_keys`` may be a SQLite connection for selection across batches.
+    Native Curated records are not changed; output keys are SAFE:WV_###:HY-2X.
+    """
     if variable not in VARIABLE_COLUMNS:
         raise ValueError(f"unsupported SCAT reference variable: {variable}")
     source_variable, output_variable, _ = VARIABLE_COLUMNS[variable]
@@ -210,16 +229,28 @@ def build_scat_frames(frame, variable, duplicate_keys=None):
     ]
     for column in numeric:
         data[column] = pd.to_numeric(data[column], errors="coerce")
-    missing = data[required].isna().any(axis=1)
+    missing = data[[*required, "ref_id"]].isna().any(axis=1)
     finite = np.isfinite(data[numeric].to_numpy(dtype=float)).all(axis=1)
     excluded = int((missing | ~finite).sum())
     data = data.loc[~missing & finite].copy()
     keys = data["primary_key"].astype("string")
     if keys.str.strip().eq("").any():
         raise ValueError("SCAT primary_key values must be nonempty")
-    duplicate_mask = (
-        keys.duplicated(keep=False) if duplicate_keys is None else keys.isin(duplicate_keys)
+    keys = pd.Series(
+        [_selected_key(key, ref) for key, ref in zip(keys, data["ref_id"])],
+        index=data.index,
+        dtype="string",
     )
+    if seen_keys is None:
+        duplicate_mask = keys.duplicated(keep="first")
+    else:
+        duplicates = []
+        for key in keys:
+            inserted = seen_keys.execute("INSERT OR IGNORE INTO keys VALUES (?, 0)", (key,))
+            duplicates.append(inserted.rowcount == 0)
+            if inserted.rowcount == 0:
+                seen_keys.execute("UPDATE keys SET repeated = 1 WHERE key = ?", (key,))
+        duplicate_mask = pd.Series(duplicates, index=data.index, dtype=bool)
     duplicate_key_rows_by_mission = {}
     if duplicate_mask.any() and "_curation_mission" in data:
         duplicate_key_rows_by_mission = {
@@ -268,25 +299,7 @@ def write_scat_pair_chunked(
     with tempfile.TemporaryDirectory(prefix="hscat-keys-") as work:
         db_path = Path(work) / "keys.sqlite"
         with sqlite3.connect(db_path) as db:
-            db.execute("CREATE TABLE keys (key TEXT NOT NULL, mission TEXT NOT NULL)")
-            for batch in parquet.iter_batches(
-                batch_size=batch_size, columns=[key_column, "_curation_mission"]
-            ):
-                keys = batch.column(key_column).to_pylist()
-                missions = batch.column("_curation_mission").to_pylist()
-                db.executemany(
-                    "INSERT INTO keys VALUES (?, ?)",
-                    (
-                        (key, mission)
-                        for key, mission in zip(keys, missions)
-                        if key is not None and str(key).strip()
-                    ),
-                )
-            db.execute("CREATE INDEX key_index ON keys(key)")
-            db.execute("CREATE TEMP TABLE batch_keys (key TEXT PRIMARY KEY)")
-            duplicate_key_count = db.execute(
-                "SELECT COUNT(*) FROM (SELECT key FROM keys GROUP BY key HAVING COUNT(*) > 1)"
-            ).fetchone()[0]
+            db.execute("CREATE TABLE keys (key TEXT PRIMARY KEY, repeated INTEGER NOT NULL)")
             duplicate_rows_by_mission = {}
             duplicate_rows = 0
             test_writer = target_writer = None
@@ -295,22 +308,7 @@ def write_scat_pair_chunked(
             try:
                 for batch in parquet.iter_batches(batch_size=batch_size):
                     frame = batch.to_pandas()
-                    keys = frame[key_column].dropna().astype(str).unique().tolist()
-                    if keys:
-                        db.execute("DELETE FROM batch_keys")
-                        db.executemany(
-                            "INSERT OR IGNORE INTO batch_keys VALUES (?)", ((key,) for key in keys)
-                        )
-                        duplicates = {
-                            row[0]
-                            for row in db.execute(
-                                "SELECT batch_keys.key FROM batch_keys JOIN keys USING (key) "
-                                "GROUP BY batch_keys.key HAVING COUNT(*) > 1"
-                            )
-                        }
-                    else:
-                        duplicates = set()
-                    test, target, part = build_scat_frames(frame, variable, duplicates)
+                    test, target, part = build_scat_frames(frame, variable, seen_keys=db)
                     excluded_incomplete += part["excluded_incomplete_rows"]
                     accepted += len(test)
                     duplicate_rows += part["excluded_duplicate_key_rows"]
@@ -355,6 +353,10 @@ def write_scat_pair_chunked(
                     target_writer.close()
             if accepted == 0:
                 raise ValueError("no HSCAT rows remain after output-integrity checks")
+            duplicate_key_count = db.execute(
+                "SELECT COUNT(*) FROM keys WHERE repeated = 1"
+            ).fetchone()[0]
+            db.execute("DELETE FROM keys")
             test_output, target_output = pq.ParquetFile(test_path), pq.ParquetFile(target_path)
             if test_output.schema_arrow.names != output_columns("test", variable):
                 raise ValueError("chunked TEST output has an invalid schema")
@@ -365,8 +367,12 @@ def write_scat_pair_chunked(
             for test_batch, target_batch in zip(test_batches, target_batches, strict=True):
                 test_keys = test_batch.column(0).to_pylist()
                 target_keys = target_batch.column(0).to_pylist()
-                if test_keys != target_keys or len(test_keys) != len(set(test_keys)):
+                if test_keys != target_keys:
                     raise ValueError("chunked TEST/TARGET keys differ or are not unique")
+                for key in test_keys:
+                    inserted = db.execute("INSERT OR IGNORE INTO keys VALUES (?, 0)", (key,))
+                    if inserted.rowcount == 0:
+                        raise ValueError("chunked TEST/TARGET keys differ or are not unique")
     values = np.concatenate(value_chunks) if value_chunks else np.array([], dtype=np.float64)
     return {
         "accepted_rows": accepted,

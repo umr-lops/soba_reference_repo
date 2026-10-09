@@ -1,7 +1,7 @@
 # SOBA reference TEST datasets
 
 [![CI](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-164-blue)
+![Tests](https://img.shields.io/badge/tests-177-blue)
 [![Build](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml)
 [![conda-forge build](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml/badge.svg)](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
@@ -64,7 +64,7 @@ Each satellite starts with 13 predefined SWOT filters. A `[[catalogues.rules]]` 
 
 ## Run an HSCAT recipe
 
-Copy `examples/hscat-curation.toml` to `runs/`, update the HSCAT paths, and choose `windspeed` or `winddirection`. Each run writes paired TEST/TARGET Parquets for HSCAT. Wind-speed runs apply only `abs(ecmwf_wind_speed - ref_param_2) <= 2 m/s`; no rain filter is built in. Other filters can be added in the recipe once their definitions are settled. Rows with duplicate `primary_key` values after curation are excluded as a group from both outputs; the manifest and report record those integrity exclusions separately from filter counts.
+Copy `examples/hscat-curation.toml` to `runs/`, update the HSCAT paths, and choose `windspeed` or `winddirection`. Each run writes paired TEST/TARGET Parquets for HSCAT. Wind-speed runs apply only `abs(ecmwf_wind_speed - ref_param_2) <= 2 m/s`; no rain filter is built in. Other filters can be added in the recipe once their definitions are settled. Curated files retain quality-selected native records. After required-field integrity checks, the TEST/TARGET exporter keeps the **first acceptable matchup per SAR imagette and HSCAT satellite**, in sorted catalogue mission order then original row order, without time/distance/angle ranking. The native key is reduced to its final `/` basename, then `SAFE:WV_###_lon_lat` is normalized to the coordinate-independent imagette identity; output keys are `SAFE:WV_###:HY-2X`, with the satellite parsed from `ref_id`. Different satellites can both remain at identical coordinates; different coordinates for the same imagette/satellite do not create extra retained rows. Incomplete rows do not reserve groups, and malformed keys or unrecognizable satellites fail clearly. A disk-backed SQLite registry makes selection global across batches. The existing `excluded_duplicate_key_rows` and `duplicate_key_rows_by_mission` counts now describe excess acceptable rows rather than all group members; `duplicate_primary_keys` counts repeated acceptable group keys. The manifest and report keep these counts separate from incomplete-row and quality-filter counts.
 
 The example has no TOML filter clauses because the **wind-speed difference rule is built** in.
 

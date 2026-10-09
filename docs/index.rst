@@ -12,7 +12,7 @@ Parquets, and validates exported pairs.
 
 Use ``soba_validate_parquets`` to validate individual files by type. The exporter checks TEST/TARGET alignment before saving the pair.
 
-Test suite: 164 collected tests.
+Test suite: 177 collected tests.
 
 .. toctree::
    :maxdepth: 2
