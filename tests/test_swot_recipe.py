@@ -13,7 +13,8 @@ from test_swot_test import source_row
 
 
 def source_file(folder, mission, **changes):
-    path = folder / f"{mission}_coaligned_catalogue_WV_sample.parquet"
+    path = folder / (f"{mission}_coaligned_catalogue_WV_20260101_20260131_20260201_"
+                     "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
     row = source_row(
         sar_safe_slc=f"/archive/{mission}_WV_SLC__1SSV_20260107.SAFE:WV_033",
         sar_safe_ocn=f"/archive/{mission}_WV_OCN__2SSV_20260107.SAFE:WV_033",
@@ -73,10 +74,12 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
     assert cli_main(["--recipe", str(recipe)]) == 0
     root = tmp_path / "output"
     assert (
-        root / "curated/S1A" / "S1A_curated_coaligned_dataset_WV_20260930_swh_0.1.parquet"
+        root / "curated/S1A" / ("S1A_curated_WV_20260101_20260131_20260930_"
+         "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
     ).is_file()
     assert (
-        root / "curated/S1C" / "S1C_curated_coaligned_dataset_WV_20260930_swh_0.1.parquet"
+        root / "curated/S1C" / ("S1C_curated_WV_20260101_20260131_20260930_"
+         "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
     ).is_file()
     assert not (root / "merged").exists()
     (test_path,) = list((root / "datasets").rglob("S1_reference_test_dataset_*.parquet"))
@@ -89,7 +92,8 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
     assert len(manifest["sources"][1]["quality_filter_steps"]) == 13
     assert manifest["sources"][0]["path"] == str(a)
     assert manifest["sources"][0]["curated_path"].endswith(
-        "S1A_curated_coaligned_dataset_WV_20260930_swh_0.1.parquet"
+        ("S1A_curated_WV_20260101_20260131_20260930_"
+         "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
     )
     (tex_path,) = list((root / "report").glob("*.tex"))
     assert tex_path.parent == root / "report"
@@ -261,7 +265,8 @@ def test_recipe_key_matches_exported_float32_coordinates_at_rounding_boundary(tm
 
 
 def test_recipe_rejects_safe_from_another_mission(tmp_path):
-    path = tmp_path / "S1C_coaligned_catalogue_WV_sample.parquet"
+    path = tmp_path / ("S1C_coaligned_catalogue_WV_20260101_20260131_20260201_"
+                       "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
     pd.DataFrame([source_row()]).to_parquet(path, index=False)
     recipe = tmp_path / "recipe.toml"
     recipe.write_text(

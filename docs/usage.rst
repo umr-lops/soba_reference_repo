@@ -50,6 +50,16 @@ Reference-distribution plots show each mission as a distinct step line, normaliz
 to percentages on shared bins, with sample counts in a centered legend.
 Wind-direction bins span 0–360 degrees.
 
+Curated filenames
+-----------------
+
+Both SWOT and HSCAT use
+``S1{A,B,C,D}_curated_<mode>_<startdate>_<stopdate>_<productiondate>_<polarization>_<refproductname>_<version>.parquet``.
+Coverage dates, polarization, and reference product retain the source catalogue
+values, including for empty Curated outputs; they are not recalculated after
+filtering. Production date and version come from the recipe. Native data and
+TEST/TARGET filenames are unchanged. Invalid source names fail before output creation.
+
 Validate Parquets
 -----------------
 
