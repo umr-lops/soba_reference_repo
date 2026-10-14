@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from copy import deepcopy
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -67,7 +68,35 @@ def resolve_rules(overrides, include_defaults=True, defaults=None):
         else:
             rules.append({**deepcopy(override), "enabled": override.get("enabled", True)})
             indices[identifier] = len(rules) - 1
+    validate_rule_order(rules)
     return rules
+
+
+def validate_rule_order(rules):
+    """Group statistics must see all and only the preceding eligible rows."""
+    active = [rule for rule in rules if rule.get("enabled", True)]
+    for index, rule in enumerate(active):
+        for clause in rule["clauses"]:
+            _validate_clause(clause)
+            if clause[1] == "imagette_circstd_le" and (
+                len(rule["clauses"]) != 1 or index != len(active) - 1
+            ):
+                raise ValueError("imagette_circstd_le must be the sole clause of the "
+                                 "last enabled rule")
+
+
+def validate_filter_columns(columns, rules):
+    """Check active source operands even when earlier rules select no rows."""
+    for rule in rules:
+        if not rule.get("enabled", True):
+            continue
+        for clause in rule["clauses"]:
+            required = [clause[0]]
+            if clause[1] in {"abs_diff_le", "angle_diff_le", "imagette_circstd_le"}:
+                required.append(clause[2][0])
+            for name in required:
+                if name not in columns:
+                    raise ValueError(f"missing filter column: {name}")
 
 
 def _keys(value, allowed, required=()):
@@ -99,7 +128,7 @@ def _validate_clause(clause):
         except ValueError as error:
             raise ValueError(f"invalid {operation} date") from error
         return
-    if operation in {"abs_diff_le", "angle_diff_le"} and len(clause) == 3:
+    if operation in {"abs_diff_le", "angle_diff_le", "imagette_circstd_le"} and len(clause) == 3:
         comparison = clause[2]
         valid_tolerance = (
             isinstance(comparison, list)
@@ -111,7 +140,7 @@ def _validate_clause(clause):
             and comparison[1] >= 0
         )
         if valid_tolerance and (
-            operation == "abs_diff_le" or comparison[1] <= 180
+            operation != "angle_diff_le" or comparison[1] <= 180
         ):
             return
     if (operation in ("eq", "gt", "ge", "lt", "le") and len(clause) == 3
@@ -253,23 +282,65 @@ def clause_mask(frame, clause):
     return operations[operation](clause[2]).fillna(False)
 
 
+def _imagette_circstd_mask(frame, clause):
+    column, _, (identity, threshold) = clause
+    keys = frame[identity].astype("string").str.rsplit("/", n=1).str[-1]
+    valid_keys = keys.str.fullmatch(r"[^/:\s]+\.SAFE:WV_[0-9]{3}").fillna(False)
+    if not valid_keys.all():
+        raise ValueError(f"{identity}: missing or malformed imagette identity; "
+                         "expected final basename SAFE:WV_###")
+    values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float, na_value=np.nan)
+    finite = np.isfinite(values)
+    normalized = np.remainder(values[finite], 360)
+    angles = np.deg2rad(normalized)
+    valid = pd.DataFrame({"key": keys.to_numpy()[finite],
+                          "sin": np.sin(angles), "cos": np.cos(angles),
+                          "direction": normalized})
+    grouped = valid.groupby("key", sort=False)
+    counts = grouped.size()
+    means = grouped[["sin", "cos"]].mean()
+    resultant = np.hypot(means["sin"], means["cos"]).clip(0, 1)
+    # Resolve floating-point cancellation at R=0; do not cap STD at 180 degrees.
+    resultant = resultant.where(resultant > 1e-15, 0)
+    with np.errstate(divide="ignore"):
+        spread = np.rad2deg(np.sqrt(-2 * np.log(resultant)))
+    spread = spread.where(grouped["direction"].nunique() != 1, 0.0)
+    rejected = spread.index[spread > threshold + 1e-10]
+    mask = pd.Series(finite, index=frame.index) & ~keys.isin(rejected)
+    return mask, {
+        "evaluated_multi_matchup_groups": int((counts >= 2).sum()),
+        "rejected_imagettes": len(rejected),
+        "singleton_groups": int((counts == 1).sum()),
+        "all_invalid_groups": int(keys.nunique() - len(counts)),
+        "invalid_direction_rows": int((~finite).sum()),
+        "spread_removed_rows": int((finite & keys.isin(rejected)).sum()),
+    }
+
+
 def curate_frame(frame, rules):
     """Filter raw source columns cumulatively and retain original row indices."""
+    validate_rule_order(rules)
+    validate_filter_columns(frame.columns, rules)
     selected = frame.copy()
     steps = []
     for rule in rules:
         before = len(selected)
+        diagnostics = {}
         if rule.get("enabled", True):
             mask = pd.Series(True, index=selected.index)
             for clause in rule["clauses"]:
-                mask &= clause_mask(selected, clause)
+                if clause[1] == "imagette_circstd_le":
+                    mask, diagnostics = _imagette_circstd_mask(selected, clause)
+                else:
+                    mask &= clause_mask(selected, clause)
             selected = selected.loc[mask].copy()
             status = "applied"
         else:
             status = "disabled"
         steps.append({"id": rule["id"], "name": rule["name"], "status": status,
                       "clauses": rule["clauses"], "before": before,
-                      "remaining": len(selected), "removed": before - len(selected)})
+                      "remaining": len(selected), "removed": before - len(selected),
+                      **diagnostics})
     return selected, steps
 
 

@@ -179,6 +179,12 @@ def _filter_expression(clauses):
             expressions.append(
                 f"{_tex(column)} is strictly {direction} than 00:00 UTC on {_tex(clause[2])}"
             )
+        elif operation == "imagette_circstd_le":
+            identity, threshold = clause[2]
+            expressions.append(
+                f"circular population STD of {_tex(column)} per normalized "
+                f"{_tex(identity)} imagette at most {threshold} degrees"
+            )
         elif operation in {"abs_diff_le", "angle_diff_le"}:
             other, threshold = clause[2]
             left, right = _tex(column), _tex(other)
@@ -277,6 +283,30 @@ def _filter_tables(sources):
                 r"\end{table}",
             ]
         )
+    for mission, steps in rule_steps.items():
+        for step in steps:
+            if not any(c[1] == "imagette_circstd_le" for c in step.get("clauses", [])):
+                continue
+            if step.get("status") == "disabled":
+                tables.append(f"{_tex(mission)}: imagette circular STD rule disabled.")
+                continue
+            labels = {
+                "evaluated_multi_matchup_groups": "evaluated multi-matchup groups",
+                "rejected_imagettes": "spread-rejected imagettes",
+                "singleton_groups": "untested singleton groups",
+                "all_invalid_groups": "all-invalid groups",
+                "invalid_direction_rows": "invalid direction rows",
+                "spread_removed_rows": "rows removed due to spread",
+            }
+            tables.append(
+                r"\par " + _tex(mission) + ": "
+                + "; ".join(f"{label}: {step[key]:,}" for key, label in labels.items()) + "."
+            )
+            tables.append(
+                r"\par Circular population STD uses equally weighted eligible catalogue rows "
+                "across SCAT satellites, not raw SCAT cells or maximum pairwise distance. "
+                "Invalid directions are removed first; singletons pass without a consistency test."
+            )
     tables.append(r"\textbf{Sequential counts by mission (Remaining / removed):}")
     header = " & ".join(
         [r"\textbf{Filter}", *(r"\textbf{" + mission + "}" for mission in missions)]

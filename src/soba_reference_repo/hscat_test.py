@@ -14,7 +14,10 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .curation import curated_filename, merge_curated, read_recipe, resolve_rules, write_curated
+from .curation import (
+    curated_filename, merge_curated, read_recipe, resolve_rules,
+    validate_filter_columns, write_curated,
+)
 from .hscat_report import plot_hscat_figures
 from .pdf_support import (
     compile_pdf,
@@ -485,6 +488,8 @@ def run_hscat_recipe(recipe_path):
         item["resolved_rules"] = resolve_rules(
             item.get("rules", []), defaults=HSCAT_DEFAULT_RULES if product == "HSCAT" else ()
         )
+    for item in catalogues:
+        validate_filter_columns(pq.read_schema(item["path"]).names, item["resolved_rules"])
     polarizations = {item["info"]["polarization"] for item in catalogues}
     if len(polarizations) != 1:
         raise ValueError("one SCAT run requires a single common polarization across catalogues")
