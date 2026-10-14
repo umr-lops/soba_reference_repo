@@ -63,6 +63,10 @@ Add this optional rule last for each mission (it is already in the example)::
    name = "Per-imagette catalogue direction circular STD <= 10 degrees"
    clauses = [["ref_param_1", "imagette_circstd_le", ["sar_safe_slc", 10]]]
 
+Missing or blank imagette identities are excluded before grouping; the run logs,
+manifest, and report record their count separately. Malformed non-empty identities
+raise an error with example values. This does not change the source catalogue.
+
 Curated filenames
 -----------------
 

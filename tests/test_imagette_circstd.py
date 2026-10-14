@@ -87,8 +87,26 @@ def test_invalid_directions_singletons_and_empty_groups_are_accounted_separately
     assert steps[0]["all_invalid_groups"] == 0
 
 
-@pytest.mark.parametrize("identity", [None, "", SAFE, SAFE + ":WV_1", SAFE + ":WV_001junk"])
-def test_missing_or_malformed_imagette_is_an_error(identity):
+def test_missing_imagette_rows_are_excluded_before_direction_checks():
+    frame = pd.DataFrame({
+        "sar_safe_slc": [None, "", "   ", f"{SAFE}:WV_001", f"{SAFE}:WV_001",
+                         f"{SAFE}:WV_002", f"{SAFE}:WV_002", f"{SAFE}:WV_003"],
+        "primary_key": ["None_82.21_-53.72"] * 3 + ["a", "b", "c", "d", "e"],
+        "ref_param_1": [45., np.nan, 90., 0., 40., 359., 1., np.nan],
+    })
+    kept, steps = curate_frame(frame, [rule()])
+    assert kept.index.tolist() == [5, 6]
+    step = steps[0]
+    assert step["missing_identity_rows"] == 3
+    assert step["invalid_direction_rows"] == 1
+    assert step["spread_removed_rows"] == 2
+    assert step["all_invalid_groups"] == 1
+    assert step["before"] == (step["remaining"] + step["missing_identity_rows"]
+                               + step["invalid_direction_rows"] + step["spread_removed_rows"])
+
+
+@pytest.mark.parametrize("identity", [SAFE, SAFE + ":WV_1", SAFE + ":WV_001junk"])
+def test_malformed_nonempty_imagette_is_an_error(identity):
     frame = pd.DataFrame({"sar_safe_slc": [identity], "ref_param_1": [None]})
     with pytest.raises(ValueError, match="imagette identity"):
         curate_frame(frame, [rule()])
@@ -181,6 +199,29 @@ def test_cli_group_rule_native_curated_and_duplicate_policy(tmp_path, variable):
     assert "evaluated multi-matchup groups: 2" in report
     assert "spread-rejected imagettes: 1" in report
     assert "invalid direction rows: 2" in report
+
+
+def test_cli_logs_missing_identity_exclusions_and_records_them(tmp_path, capsys):
+    source = hscat_source(tmp_path)
+    original = pq.read_table(source)
+    frame = original.to_pandas().iloc[[0] * 4].reset_index(drop=True)
+    frame["sar_safe_slc"] = [f"{SAFE}:WV_001", None, "", "   "]
+    frame["primary_key"] = ["valid", "None_82.21_-53.72", "None_78.92_-53.55", "None_79.13_-48.67"]
+    table = pa.Table.from_pandas(frame, preserve_index=False).replace_schema_metadata(
+        original.schema.metadata)
+    pq.write_table(table, source)
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(recipe_text(source) + GROUP_TOML)
+    assert cli_main(["--recipe", str(recipe)]) == 0
+    assert "S1A: excluded 3 rows with missing sar_safe_slc" in capsys.readouterr().out
+    manifest = json.loads((tmp_path / "output/manifest.json").read_text())
+    entry = manifest["sources"][0]
+    assert entry["quality_filter_steps"][-1]["missing_identity_rows"] == 3
+    assert pq.read_table(entry["curated_path"])["primary_key"].to_pylist() == ["valid"]
+    for role in ["test", "target"]:
+        assert pq.read_table(manifest[f"{role}_parquet"])["primary_key"].to_pylist() == ["valid"]
+    report = Path(manifest["report_tex"]).read_text()
+    assert "missing identity rows: 3" in report
 
 
 @pytest.mark.parametrize("operand", ["missing_direction", "missing_identity"])

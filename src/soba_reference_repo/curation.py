@@ -285,12 +285,16 @@ def clause_mask(frame, clause):
 def _imagette_circstd_mask(frame, clause):
     column, _, (identity, threshold) = clause
     keys = frame[identity].astype("string").str.rsplit("/", n=1).str[-1]
-    valid_keys = keys.str.fullmatch(r"[^/:\s]+\.SAFE:WV_[0-9]{3}").fillna(False)
-    if not valid_keys.all():
-        raise ValueError(f"{identity}: missing or malformed imagette identity; "
-                         "expected final basename SAFE:WV_###")
+    missing = (keys.isna() | keys.str.strip().eq("").fillna(False)).astype(bool)
+    valid_keys = keys.str.fullmatch(r"[^/:\s]+\.SAFE:WV_[0-9]{3}").fillna(False).astype(bool)
+    malformed = ~missing & ~valid_keys
+    if malformed.any():
+        examples = frame.loc[malformed, identity].head(3).tolist()
+        raise ValueError(f"{identity}: malformed imagette identity; "
+                         f"expected final basename SAFE:WV_###; examples: {examples!r}")
     values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float, na_value=np.nan)
-    finite = np.isfinite(values)
+    identified = ~missing.to_numpy(dtype=bool)
+    finite = np.isfinite(values) & identified
     normalized = np.remainder(values[finite], 360)
     angles = np.deg2rad(normalized)
     valid = pd.DataFrame({"key": keys.to_numpy()[finite],
@@ -311,8 +315,9 @@ def _imagette_circstd_mask(frame, clause):
         "evaluated_multi_matchup_groups": int((counts >= 2).sum()),
         "rejected_imagettes": len(rejected),
         "singleton_groups": int((counts == 1).sum()),
-        "all_invalid_groups": int(keys.nunique() - len(counts)),
-        "invalid_direction_rows": int((~finite).sum()),
+        "all_invalid_groups": int(keys.loc[~missing].nunique() - len(counts)),
+        "missing_identity_rows": int(missing.sum()),
+        "invalid_direction_rows": int((~np.isfinite(values) & identified).sum()),
         "spread_removed_rows": int((finite & keys.isin(rejected)).sum()),
     }
 
