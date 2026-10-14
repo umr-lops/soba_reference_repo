@@ -196,9 +196,11 @@ def test_cli_group_rule_native_curated_and_duplicate_policy(tmp_path, variable):
     assert step["spread_removed_rows"] == 2
     report = Path(manifest["report_tex"]).read_text()
     assert "circular population STD" in report
-    assert "evaluated multi-matchup groups: 2" in report
-    assert "spread-rejected imagettes: 1" in report
-    assert "invalid direction rows: 2" in report
+    assert "Sequential quality-filter counts by mission" in report
+    assert "evaluated multi-matchup groups" not in report
+    assert "spread-rejected imagettes" not in report
+    assert "invalid direction rows" not in report
+    assert "Circular population STD uses" not in report
 
 
 def test_cli_logs_missing_identity_exclusions_and_records_them(tmp_path, capsys):
@@ -221,7 +223,7 @@ def test_cli_logs_missing_identity_exclusions_and_records_them(tmp_path, capsys)
     for role in ["test", "target"]:
         assert pq.read_table(manifest[f"{role}_parquet"])["primary_key"].to_pylist() == ["valid"]
     report = Path(manifest["report_tex"]).read_text()
-    assert "missing identity rows: 3" in report
+    assert "missing identity rows" not in report
 
 
 @pytest.mark.parametrize("operand", ["missing_direction", "missing_identity"])
