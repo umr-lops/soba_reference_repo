@@ -1001,7 +1001,7 @@ def compile_swot_pdf(output_dir: Path, stem: str, miktex_bin=None) -> Path:
 
 def run_recipe(recipe_path):
     """Save mission-specific Curated files and export TEST/TARGET without a merge artifact."""
-    from .curation import read_recipe, resolve_rules, write_curated, merge_curated
+    from .curation import curated_filename, read_recipe, resolve_rules, write_curated, merge_curated
 
     recipe_path = Path(recipe_path).resolve()
     recipe = read_recipe(recipe_path)
@@ -1013,6 +1013,9 @@ def run_recipe(recipe_path):
     catalogues = sorted(recipe["catalogues"], key=lambda item: item["mission"])
     expected_schema = None
     for item in catalogues:
+        item["curated_name"] = curated_filename(
+            item["path"], recipe["production_date"], recipe["version"]
+        )
         item["resolved_rules"] = resolve_rules(item.get("rules", []))
         schema = pq.read_schema(item["path"])
         if expected_schema is not None:
@@ -1050,10 +1053,7 @@ def run_recipe(recipe_path):
                 root
                 / "curated"
                 / mission
-                / (
-                    f"{mission}_curated_coaligned_dataset_WV_"
-                    f"{recipe['production_date']}_swh_{recipe['version']}.parquet"
-                )
+                / item["curated_name"]
             )
             target.parent.mkdir(parents=True, exist_ok=True)
             info = write_curated(item["path"], target, item["resolved_rules"], mission)

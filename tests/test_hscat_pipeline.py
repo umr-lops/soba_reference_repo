@@ -244,7 +244,8 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert _filter_expression([["sar_time", "date_lt", "2025-12-31"]]) == (
         r"sar\_time is strictly earlier than 00:00 UTC on 2025-12-31"
     )
-    assert "\\path|S1A_curated_coaligned_dataset_WV_20260103_windspeed_0.1.parquet|" in report
+    assert ("\\path|S1A_curated_WV_20160101_20160102_20260103_"
+            "SV_KNMI-HSCAT-HY2-25km_0.1.parquet|") in report
     assert report.count("\\section*{References}") == 0
     assert report.count("\\begin{thebibliography}") == 1
     assert "shortest angular distance" in report

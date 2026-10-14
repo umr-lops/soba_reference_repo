@@ -63,6 +63,15 @@ Add this optional rule last for each mission (it is already in the example)::
    name = "Per-imagette catalogue direction circular STD <= 10 degrees"
    clauses = [["ref_param_1", "imagette_circstd_le", ["sar_safe_slc", 10]]]
 
+Curated filenames
+-----------------
+
+Both SWOT and HSCAT use
+``S1{A,B,C,D}_curated_<mode>_<startdate>_<stopdate>_<productiondate>_<polarization>_<refproductname>_<version>.parquet``.
+Coverage dates, polarization, and reference product retain the source catalogue
+values, including for empty Curated outputs; they are not recalculated after
+filtering. Production date and version come from the recipe. Native data and
+TEST/TARGET filenames are unchanged. Invalid source names fail before output creation.
 
 Validate Parquets
 -----------------

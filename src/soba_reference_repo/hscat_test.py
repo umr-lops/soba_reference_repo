@@ -15,7 +15,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .curation import (
-    merge_curated, read_recipe, resolve_rules, validate_filter_columns, write_curated,
+    curated_filename, merge_curated, read_recipe, resolve_rules,
+    validate_filter_columns, write_curated,
 )
 from .hscat_report import plot_hscat_figures
 from .pdf_support import (
@@ -480,6 +481,9 @@ def run_hscat_recipe(recipe_path):
     product = "HSCAT"
     catalogues = sorted(recipe["catalogues"], key=lambda item: item["mission"])
     for item in catalogues:
+        item["curated_name"] = curated_filename(
+            item["path"], recipe["production_date"], recipe["version"]
+        )
         item["info"], item["attrs"] = validate_scat_input(item["path"], product)
         item["resolved_rules"] = resolve_rules(
             item.get("rules", []), defaults=HSCAT_DEFAULT_RULES if product == "HSCAT" else ()
@@ -517,10 +521,7 @@ def run_hscat_recipe(recipe_path):
                 root
                 / "curated"
                 / mission
-                / (
-                    f"{mission}_curated_coaligned_dataset_WV_{recipe['production_date']}_"
-                    f"{recipe['reference_variable']}_{recipe['version']}.parquet"
-                )
+                / item["curated_name"]
             )
             info = write_curated(item["path"], destination, item["resolved_rules"], mission)
             curated[mission] = destination

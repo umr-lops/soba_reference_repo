@@ -1,7 +1,7 @@
 # SOBA reference TEST datasets
 
 [![CI](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-195-blue)
+![Tests](https://img.shields.io/badge/tests-200-blue)
 [![Build](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml)
 [![conda-forge build](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml/badge.svg)](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
@@ -59,6 +59,8 @@ datasets/                   Paired TEST and TARGET Parquets
 report/                     TeX, optional PDF, figures, and report assets directly
 manifest.json               Source files, rules, counts, and output paths
 ```
+
+Curated filenames retain the source catalogue coverage dates, polarization, and reference product; production date and version come from the recipe.
 
 Each satellite starts with 13 predefined SWOT filters. A `[[catalogues.rules]]` entry changes a default filter when its `id` matches a default rule; a new `id` adds a filter after the defaults. The example includes commented overrides and additions. Filters run in order: report counts read `remaining / removed` after each filter. Curated counts can exceed TEST counts because the exporter also checks required fields and duplicate keys. A satellite can contribute zero rows if no input row passes its filters. Recipe rules support UTC `date_gt` and `date_lt` comparisons: they select timestamps strictly later or earlier than midnight UTC on the stated date; invalid or missing timestamps do not match. SCAT rule clauses also support `abs_diff_le` for absolute differences between two columns.
 

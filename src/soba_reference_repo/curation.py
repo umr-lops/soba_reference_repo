@@ -344,14 +344,15 @@ def curate_frame(frame, rules):
     return selected, steps
 
 
-def curated_filename(mission, mode, production_date, variable, version):
-    """Name the supported SWOT WV Curated Parquet."""
-    if not isinstance(mission, str) or not re.fullmatch(r"S1[A-D]", mission):
-        raise ValueError("invalid mission")
-    if mode != "WV":
-        raise ValueError("only WV mode is supported")
-    if variable != "swh":
-        raise ValueError("only swh variable is supported")
+def curated_filename(source_path, production_date, version):
+    """Retain source catalogue coverage/product identity; use the Curated run version/date."""
+    match = re.fullmatch(
+        r"(S1[A-D])_coaligned_catalogue_(WV)_(\d{8})_(\d{8})_(\d{8})_"
+        r"(SV|DV|SH|DH)_([A-Za-z0-9][A-Za-z0-9.-]*)_(\d+\.\d+)\.parquet",
+        Path(source_path).name,
+    )
+    if match is None:
+        raise ValueError(f"invalid WV catalogue filename: {Path(source_path).name}")
     if not isinstance(production_date, str) or not re.fullmatch(r"[0-9]{8}", production_date):
         raise ValueError("production_date must use YYYYMMDD")
     try:
@@ -360,9 +361,17 @@ def curated_filename(mission, mode, production_date, variable, version):
         raise ValueError("invalid production_date") from error
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+", version):
         raise ValueError("version must use X.Y")
+    mission, mode, start, stop, source_date, polarization, product, _ = match.groups()
+    for date in (start, stop, source_date):
+        try:
+            datetime.strptime(date, "%Y%m%d")
+        except ValueError as error:
+            raise ValueError("invalid catalogue date") from error
+    if start > stop:
+        raise ValueError("catalogue startdate must not exceed stopdate")
     return (
-        f"{mission}_curated_coaligned_dataset_{mode}_"
-        f"{production_date}_{variable}_{version}.parquet"
+        f"{mission}_curated_{mode}_{start}_{stop}_{production_date}_"
+        f"{polarization}_{product}_{version}.parquet"
     )
 
 
