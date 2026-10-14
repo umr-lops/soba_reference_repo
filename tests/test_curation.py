@@ -181,11 +181,31 @@ def test_default_rules_match_current_thirteen_filter_verdicts(tmp_path):
     assert [step["removed"] for step in steps] == [step["removed"] for step in old_steps]
 
 
-def test_curated_filename_uses_mission_mode_date_variable_version():
-    assert curation.curated_filename("S1A", "WV", "20260930", "swh", "0.1") == (
-        "S1A_curated_coaligned_dataset_WV_20260930_swh_0.1.parquet")
-    with pytest.raises(ValueError, match="WV"):
-        curation.curated_filename("S1A", "IW", "20260930", "swh", "0.1")
+def test_curated_filename_retains_catalogue_identity_with_run_date_and_version():
+    source = (
+        "S1A_coaligned_catalogue_WV_20190116_20260629_20260908_"
+        "SV_KNMI-HSCAT-HY2-25km_0.2.parquet"
+    )
+    assert curation.curated_filename(source, "20261014", "1.0") == (
+        "S1A_curated_WV_20190116_20260629_20261014_"
+        "SV_KNMI-HSCAT-HY2-25km_1.0.parquet"
+    )
+
+
+@pytest.mark.parametrize("source,date,version", [
+    ("S1A_coaligned_catalogue_WV_sample.parquet", "20261014", "1.0"),
+    ("S1A_coaligned_catalogue_WV_20260230_20260301_20260302_SV_PRODUCT_0.1.parquet",
+     "20261014", "1.0"),
+    ("S1A_coaligned_catalogue_WV_20260302_20260301_20260303_SV_PRODUCT_0.1.parquet",
+     "20261014", "1.0"),
+    ("S1A_coaligned_catalogue_WV_20260101_20260131_20260201_SV_PRODUCT_0.1.parquet",
+     "20260230", "1.0"),
+    ("S1A_coaligned_catalogue_WV_20260101_20260131_20260201_SV_PRODUCT_0.1.parquet",
+     "20261014", "v1"),
+])
+def test_curated_filename_rejects_invalid_names_dates_and_versions(source, date, version):
+    with pytest.raises(ValueError):
+        curation.curated_filename(source, date, version)
 
 
 def test_curated_parquet_keeps_source_schema_and_original_row_ordinals(tmp_path):
