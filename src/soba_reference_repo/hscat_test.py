@@ -524,6 +524,15 @@ def run_hscat_recipe(recipe_path):
                 / item["curated_name"]
             )
             info = write_curated(item["path"], destination, item["resolved_rules"], mission)
+            for rule, step in zip(item["resolved_rules"], info["steps"], strict=True):
+                missing = step.get("missing_identity_rows", 0)
+                if missing:
+                    identity = rule["clauses"][0][2][0]
+                    print(
+                        f"{mission}: excluded {missing:,} rows with missing {identity} "
+                        f"imagette identity before circular STD ({step['id']}).",
+                        flush=True,
+                    )
             curated[mission] = destination
             source = {
                 "mission": mission,

@@ -295,17 +295,19 @@ def _filter_tables(sources):
                 "rejected_imagettes": "spread-rejected imagettes",
                 "singleton_groups": "untested singleton groups",
                 "all_invalid_groups": "all-invalid groups",
+                "missing_identity_rows": "missing identity rows",
                 "invalid_direction_rows": "invalid direction rows",
                 "spread_removed_rows": "rows removed due to spread",
             }
             tables.append(
                 r"\par " + _tex(mission) + ": "
-                + "; ".join(f"{label}: {step[key]:,}" for key, label in labels.items()) + "."
+                + "; ".join(f"{label}: {step.get(key, 0):,}" for key, label in labels.items()) + "."
             )
             tables.append(
                 r"\par Circular population STD uses equally weighted eligible catalogue rows "
                 "across SCAT satellites, not raw SCAT cells or maximum pairwise distance. "
-                "Invalid directions are removed first; singletons pass without a consistency test."
+                "Missing identities are excluded and counted separately before grouping. "
+                "Invalid directions are removed next; singletons pass without a consistency test."
             )
     tables.append(r"\textbf{Sequential counts by mission (Remaining / removed):}")
     header = " & ".join(
