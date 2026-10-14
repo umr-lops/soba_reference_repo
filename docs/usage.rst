@@ -28,7 +28,8 @@ Each SWOT catalogue starts with 13 ordered quality filters. Change a default
 filter under its catalogue with ``[[catalogues.rules]]`` and the default's ``id``;
 set ``enabled = false`` to skip it. A new ``id`` with ``name`` and ``clauses``
 appends a rule. Operators are ``eq``, ``gt``, ``ge``, ``lt``, ``le``, ``in``,
-``present``, ``date_gt``, ``date_lt``, and ``abs_diff_le``. Date operators parse
+``present``, ``date_gt``, ``date_lt``, ``abs_diff_le``, ``angle_diff_le``, and
+``imagette_circstd_le``. Date operators parse
 values as UTC: ``date_gt`` keeps timestamps strictly after midnight UTC on the
 given date, while ``date_lt`` keeps timestamps strictly before that midnight.
 Missing or invalid timestamps do not match. Unsupported references fail before
@@ -36,9 +37,11 @@ output files are written.
 
 For HSCAT, copy ``examples/hscat-curation.toml`` and set each ``path`` and a new
 ``output_dir``. Choose one ``reference_variable`` per run: ``windspeed`` or
-``winddirection``. Wind-speed runs apply only
-``abs(ecmwf_wind_speed - ref_param_2) <= 2 m/s``. No rain filter is built in;
-other filters can be added in the recipe once their definitions are settled. Rows
+``winddirection``. Both use the sole built-in speed-difference rule,
+``abs(ecmwf_wind_speed - ref_param_2) <= 2 m/s``. The example explicitly adds
+circular ECMWF/HSCAT direction difference <= 30 degrees, zero ice probability,
+``ref_flag == 0``, mission-specific dates, and final imagette consistency.
+No rain filter is built in. Rows
 with duplicate ``primary_key`` values after curation are excluded as a group from
 both outputs; the manifest and report record those integrity exclusions separately
 from filter counts. HSCAT and SWOT TEST/TARGET filenames share the compact pattern
@@ -49,6 +52,17 @@ and reference-product details remain in the run manifest.
 Reference-distribution plots show each mission as a distinct step line, normalized
 to percentages on shared bins, with sample counts in a centered legend.
 Wind-direction bins span 0–360 degrees.
+
+Per-imagette HSCAT direction consistency
+--------------------------------------------------
+
+Add this optional rule last for each mission (it is already in the example)::
+
+   [[catalogues.rules]]
+   id = "imagette_direction_consistency"
+   name = "Per-imagette catalogue direction circular STD <= 10 degrees"
+   clauses = [["ref_param_1", "imagette_circstd_le", ["sar_safe_slc", 10]]]
+
 
 Validate Parquets
 -----------------

@@ -1,7 +1,7 @@
 # SOBA reference TEST datasets
 
 [![CI](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-164-blue)
+![Tests](https://img.shields.io/badge/tests-195-blue)
 [![Build](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml/badge.svg)](https://github.com/umr-lops/soba_reference_repo/actions/workflows/build.yml)
 [![conda-forge build](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml/badge.svg)](https://github.com/conda-forge/soba_reference_repo-feedstock/actions/workflows/conda-build.yml)
 [![Python](https://img.shields.io/badge/python-3.11-blue)](https://www.python.org/downloads/)
@@ -64,9 +64,7 @@ Each satellite starts with 13 predefined SWOT filters. A `[[catalogues.rules]]` 
 
 ## Run an HSCAT recipe
 
-Copy `examples/hscat-curation.toml` to `runs/`, update the HSCAT paths, and choose `windspeed` or `winddirection`. Each run writes paired TEST/TARGET Parquets for HSCAT. Wind-speed runs apply only `abs(ecmwf_wind_speed - ref_param_2) <= 2 m/s`; no rain filter is built in. Other filters can be added in the recipe once their definitions are settled. Rows with duplicate `primary_key` values after curation are excluded as a group from both outputs; the manifest and report record those integrity exclusions separately from filter counts.
-
-The example has no TOML filter clauses because the **wind-speed difference rule is built** in.
+Copy `examples/hscat-curation.toml` to `runs/`, update the paths, and choose `windspeed` or `winddirection`. The example rejects imagettes whose eligible SCAT matchup directions have circular STD above 10°. Keep this configurable rule last. Existing duplicate-key handling is unchanged. See [usage details](docs/usage.rst).
 
 ## Build a CHALLENGER
 
