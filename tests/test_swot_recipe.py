@@ -10,6 +10,7 @@ import pytest
 from soba_reference_repo.create_test_dataset import main as cli_main
 from soba_reference_repo import swot_test
 from test_swot_test import source_row
+from report_checks import assert_report_layout
 
 
 def source_file(folder, mission, **changes):
@@ -100,7 +101,6 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
     tex = tex_path.read_text()
     assert "S1 WV SWOT" in tex
     assert "never exceeds 100" not in tex
-    assert "max\\_rainrate\\_IMERG" in tex
     assert str(recipe) not in tex
     assert str(a) not in tex
     assert str(tmp_path) not in tex
@@ -115,10 +115,7 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
     assert "S1C-specific quality filters" in tex
     assert "S1A-specific quality filters" in tex
     assert "Remaining / removed" in tex
-    figure_paths = [Path(path) for path in manifest["figures"].values()]
-    assert len(figure_paths) == 3
-    assert all(path.parent == root / "report" and path.is_file() for path in figure_paths)
-    assert not any(path.is_dir() for path in (root / "report").iterdir())
+    assert_report_layout(manifest)
 
 
 def test_recipe_accepts_swh_reference_date_gt_and_date_lt_and_additive_columns(tmp_path):

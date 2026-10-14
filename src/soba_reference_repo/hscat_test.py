@@ -587,7 +587,7 @@ def run_hscat_recipe(recipe_path):
         report_dir.mkdir(parents=True, exist_ok=True)
         values = summary["reference_values"]
         figures = plot_hscat_figures(
-            test_path, recipe["reference_variable"], report_dir
+            test_path, recipe["reference_variable"], report_dir / f"images_{test_path.stem}"
         )
         if sum(figures["mission_counts"].values()) != summary["accepted_rows"]:
             raise ValueError("report mission counts do not equal accepted TEST rows")

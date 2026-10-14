@@ -319,30 +319,6 @@ def test_summary_handles_empty_frame():
     assert summary["mission_counts"] == {}
 
 
-def test_plot_swot_figures_writes_three_pngs(tmp_path):
-    paths = [
-        write_catalogue(
-            tmp_path,
-            mission,
-            [
-                source_row(
-                    sar_safe_slc=f"/archive/{mission}_WV_SLC__1SSV_20260107.SAFE:WV_033",
-                )
-            ],
-        )
-        for mission in MISSIONS
-    ]
-    test, _, _ = build_swot_test_frames(paths)
-
-    figures = plot_swot_figures(test, tmp_path / "images")
-
-    assert set(figures) == {"coverage", "monthly_rows", "swot_waveheight"}
-    assert all(
-        path.is_file() and path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-        for path in figures.values()
-    )
-
-
 def test_figures_include_every_row_with_distinct_mission_colors(tmp_path, monkeypatch):
     missions = ("S1A", "S1B", "S1C", "S1D")
     test = pd.DataFrame(
@@ -363,7 +339,9 @@ def test_figures_include_every_row_with_distinct_mission_colors(tmp_path, monkey
     monkeypatch.setattr(plt, "close", lambda figure: figures.append(figure))
     try:
         paths = plot_swot_figures(test, tmp_path)
-        assert all(path.is_file() for path in paths.values())
+        assert set(paths) == {"coverage", "monthly_rows", "swot_waveheight"}
+        assert all(path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+                   for path in paths.values())
         assert len(figures) == 3
         coverage = figures[0].axes[0]
         assert coverage.get_legend() is None
