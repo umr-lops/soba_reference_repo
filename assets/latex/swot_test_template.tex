@@ -6,7 +6,8 @@
 \DTMsetdatestyle{iso}
 
 % Utilisation du style SOBA (défini dans soba.sty)
-\usepackage{soba}
+\usepackage{@@STYLE_FILE@@}
+\graphicspath{{@@GRAPHICS_DIRECTORY@@/}}
 % soba.sty loads hyperref without options, which draws a red box around every
 % cross-reference, table-of-contents entry and URL.
 \hypersetup{hidelinks}

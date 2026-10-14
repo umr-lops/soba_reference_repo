@@ -20,6 +20,7 @@ from soba_reference_repo.hscat_test import (
     write_scat_pair_chunked,
 )
 from soba_reference_repo.validator import main as validate_main, validate_file
+from report_checks import assert_report_layout
 
 
 def hscat_source(folder, mission="S1A", include_ecmwf=True):
@@ -250,13 +251,9 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert report.count("\\begin{thebibliography}") == 1
     assert "shortest angular distance" in report
     assert report.count(r"\begin{figure}[H]") == 3
-    figure_paths = [Path(path) for path in manifest["figures"].values()]
-    assert len(figure_paths) == 3
+    assert_report_layout(manifest)
     reference_plot = mpimg.imread(manifest["figures"]["reference_distribution"])
     assert reference_plot.shape[:2] == (750, 1350)
-    assert all(path.parent == tmp_path / "output/report" and path.is_file()
-               for path in figure_paths)
-    assert not any(path.is_dir() for path in (tmp_path / "output/report").iterdir())
     assert not (tmp_path / "output/merged").exists()
     assert "curated_merge" not in manifest
     assert [entry["id"] for entry in manifest["filters_applied"]] == [

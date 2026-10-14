@@ -32,7 +32,7 @@ def library_version() -> str:
 
 
 def stage_latex_assets(latex_dir: Path, output_dir: Path) -> list[Path]:
-    """Copy companion files next to a report's TeX file."""
+    """Copy the style and logo into the report's asset directory."""
     latex_dir, output_dir = Path(latex_dir), Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     staged = []

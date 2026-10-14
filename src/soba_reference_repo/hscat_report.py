@@ -332,7 +332,8 @@ def _filter_tables(sources):
 def build_hscat_report(test_path, target_path, manifest, summary, figures, report_dir):
     """Fill the standard SOBA reference-report template without a merge export."""
     report_dir = Path(report_dir)
-    stage_latex_assets(ASSET_DIR / "latex", report_dir)
+    assets_name = f"images_{Path(test_path).stem}"
+    stage_latex_assets(ASSET_DIR / "latex", report_dir / assets_name)
     template_path = ASSET_DIR / "latex" / "hscat_test_template.tex"
     text = template_path.read_text(encoding="utf-8")
     schema = pq.read_schema(test_path)
@@ -479,6 +480,8 @@ def build_hscat_report(test_path, target_path, manifest, summary, figures, repor
         ]
     )
     mapping = {
+        "STYLE_FILE": f"{assets_name}/soba",
+        "GRAPHICS_DIRECTORY": assets_name,
         "DATASET_NAME": "HSCAT windspeed" if variable == "windspeed" else "HSCAT winddirection",
         "SCOPE_TEXT": (
             "This document describes a Sentinel-1 WV TEST dataset paired with independent "

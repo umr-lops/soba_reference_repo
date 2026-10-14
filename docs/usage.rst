@@ -20,9 +20,10 @@ The recipe supports any nonempty subset of S1A through S1D. Dates use ``YYYYMMDD
 and versions use ``X.Y``. The output directory must not already exist. The tool
 saves one Curated Parquet per satellite and writes aligned TEST and TARGET Parquets.
 It uses a temporary merge for pairing but does not persist a merged Curated file.
-The run's ``report/`` directory holds the editable TeX, optional PDF, figures, and
-template assets directly. Set ``compile = true`` to request a PDF if pdflatex or
-Tectonic is installed.
+The run's ``report/`` directory holds the editable TeX and optional PDF. Figures,
+``soba.sty`` and the logo live in ``images_<report-stem>/``; the TeX uses relative
+paths to that folder. Upload the TeX and this folder together to PLMLatex.
+Set ``compile = true`` to request a PDF if pdflatex or Tectonic is installed.
 
 Each SWOT catalogue starts with 13 ordered quality filters. Change a default
 filter under its catalogue with ``[[catalogues.rules]]`` and the default's ``id``;

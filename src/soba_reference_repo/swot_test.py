@@ -813,7 +813,10 @@ def build_swot_test_report(test_path, manifest, summary, figures, report_dir, co
             "write and validate the aligned TEST and TARGET Parquets.",
         )
     )
+    assets_name = f"images_{test_path.stem}"
     tokens = {
+        "@@STYLE_FILE@@": f"{assets_name}/soba",
+        "@@GRAPHICS_DIRECTORY@@": assets_name,
         "@@GEO_CRITERION@@": (
             r"The geographic conditions for each catalogue are listed in its filter rows below."
         ),
@@ -1081,9 +1084,10 @@ def run_recipe(recipe_path):
         stage = "report"
         report_dir = root / "report"
         report_dir.mkdir(parents=True, exist_ok=True)
-        figures = plot_swot_figures(test, report_dir)
+        assets_dir = report_dir / f"images_{test_path.stem}"
+        figures = plot_swot_figures(test, assets_dir)
         summary = summarize_swot_test(test, result)
-        stage_latex_assets(DEFAULT_SWOT_TEMPLATE.parent, report_dir)
+        stage_latex_assets(DEFAULT_SWOT_TEMPLATE.parent, assets_dir)
         tex = build_swot_test_report(
             test_path,
             result,
