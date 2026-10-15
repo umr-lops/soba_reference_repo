@@ -637,6 +637,7 @@ def run_hscat_recipe(recipe_path):
                 "Global coverage of Curated rows": figures["coverage"],
                 "Monthly Curated rows by mission": figures["monthly_rows"],
                 "HSCAT reference-value distribution by mission": figures["reference_distribution"],
+                "HSCAT wind-direction distribution": figures["reference_direction_distribution"],
             },
             summary=stats,
             field_descriptions={

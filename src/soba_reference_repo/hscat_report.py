@@ -12,7 +12,7 @@ import pyarrow.parquet as pq
 from matplotlib import pyplot as plt
 
 from .pdf_support import ASSET_DIR, _path, stage_latex_assets
-from .plotting import MISSION_COLORS, plot_mission_distribution
+from .plotting import MISSION_COLORS, finish_density_map, plot_mission_distribution
 
 MISSION_RE = re.compile(r"^(?:.*/)?(S1[A-D])")
 
@@ -46,19 +46,26 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
     ).get(variable)
     if value_column is None:
         raise ValueError(f"unsupported HSCAT variable: {variable}")
+    if curated:
+        # Plot both native variables, regardless of recipe selection.
+        value_column = "ref_param_2"
     mission_column = "_curation_mission" if curated else "sar_safe_slc"
     parquet = pq.ParquetFile(test_path)
     required = ["sar_lon", "sar_lat", "sar_time", mission_column, value_column]
+    if curated:
+        required.append("ref_param_1")
     missing = set(required) - set(parquet.schema_arrow.names)
     if missing:
         raise ValueError(f"HSCAT TEST file lacks figure columns: {sorted(missing)}")
 
     coverage_path = output_dir / "sar_coverage.png"
     monthly_path = output_dir / "monthly_rows.png"
-    distribution_path = output_dir / f"scat_{variable}_distribution.png"
+    distribution_path = output_dir / ("scat_wind_distributions.png" if curated
+                                      else f"scat_{variable}_distribution.png")
     monthly_counts = Counter()
     mission_counts = Counter()
     min_value, max_value = np.inf, -np.inf
+    density = None
     figure, axis = plt.subplots(figsize=(10, 5))
     for batch in parquet.iter_batches(batch_size=batch_size, columns=required):
         frame = batch.to_pandas()
@@ -70,10 +77,21 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
         finite_values = np.isfinite(values)
         if not curated and not (finite_coordinates.all() and finite_values.all()):
             raise ValueError("HSCAT TEST figure inputs contain non-finite values")
-        axis.scatter(
-            lon[finite_coordinates], lat[finite_coordinates],
-            s=3, alpha=0.55, color="#526F85", linewidths=0,
-        )
+        if curated:
+            cells = axis.hexbin(
+                lon[finite_coordinates], lat[finite_coordinates], gridsize=360,
+                extent=(-180, 180, -90, 90), mincnt=0, linewidths=0,
+            )
+            if density is None:
+                density = cells
+            else:
+                density.set_array(density.get_array() + cells.get_array())
+                cells.remove()
+        else:
+            axis.scatter(
+                lon[finite_coordinates], lat[finite_coordinates],
+                s=3, alpha=0.55, color="#526F85", linewidths=0,
+            )
         # Counts describe all Curated rows; each plot uses its available finite inputs.
         mission_counts.update(missions.tolist())
         months = pd.to_datetime(frame["sar_time"], utc=True).dt.strftime("%Y-%m")
@@ -93,6 +111,8 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
     )
     axis.grid(alpha=0.2)
     figure.tight_layout()
+    if curated:
+        finish_density_map(figure, axis, density)
     figure.savefig(coverage_path, dpi=150)
     plt.close(figure)
 
@@ -123,40 +143,71 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
     figure.savefig(monthly_path, dpi=150)
     plt.close(figure)
 
-    if variable == "winddirection":
-        edges = np.linspace(0, 360, 37)
-    else:
-        if not np.isfinite([min_value, max_value]).all():
-            min_value, max_value = 0.0, 1.0
-        elif min_value == max_value:
-            min_value, max_value = min_value - 0.5, max_value + 0.5
-        edges = np.linspace(min_value, max_value, 41)
-    histogram = {mission: np.zeros(len(edges) - 1, dtype=np.int64) for mission in present}
+    if not np.isfinite([min_value, max_value]).all():
+        min_value, max_value = 0.0, 1.0
+    elif min_value == max_value:
+        min_value, max_value = min_value - 0.5, max_value + 0.5
+    variables = ["windspeed", "winddirection"] if curated else [variable]
+    edges_by_variable = {
+        name: np.linspace(0, 360, 37) if name == "winddirection"
+        else np.linspace(min_value, max_value, 41)
+        for name in variables
+    }
+    columns = {name: ("ref_param_2" if name == "windspeed" else "ref_param_1")
+               if curated else value_column for name in variables}
+    histograms = {
+        name: {mission: np.zeros(len(edges_by_variable[name]) - 1, dtype=np.int64)
+               for mission in present} for name in variables
+    }
     for batch in parquet.iter_batches(
-        batch_size=batch_size, columns=[mission_column, value_column]
+        batch_size=batch_size, columns=[mission_column, *columns.values()]
     ):
         frame = batch.to_pandas()
-        missions = _mission_series(frame)
-        values = pd.to_numeric(frame[value_column], errors="coerce").to_numpy(dtype=float)
-        for mission in present:
-            selected = values[(missions.to_numpy() == mission) & np.isfinite(values)]
-            if selected.size:
-                histogram[mission] += np.histogram(selected, bins=edges)[0]
-    figure, axis = plt.subplots(figsize=(9, 5.0))
-    plot_mission_distribution(axis, histogram, edges, MISSION_COLORS)
-    if variable == "windspeed":
-        xlabel, title = "HSCAT wind speed (m/s)", "Reference wind-speed distribution"
+        missions = _mission_series(frame).to_numpy()
+        for name in variables:
+            values = pd.to_numeric(frame[columns[name]], errors="coerce").to_numpy(dtype=float)
+            for mission in present:
+                selected = values[(missions == mission) & np.isfinite(values)]
+                if selected.size:
+                    histograms[name][mission] += np.histogram(
+                        selected, bins=edges_by_variable[name],
+                    )[0]
+    figure, axes = plt.subplots(len(variables), 1, figsize=(9, 8.2) if curated else (9, 5.0))
+    for axis, name in zip(np.atleast_1d(axes), variables, strict=True):
+        plot_mission_distribution(axis, histograms[name], edges_by_variable[name], MISSION_COLORS)
+        if name == "windspeed":
+            xlabel, title = "HSCAT wind speed (m/s)", "Wind-speed distribution"
+        else:
+            xlabel, title = "HSCAT wind direction (degrees)", "Wind-direction distribution"
+            axis.set_xlim(0, 360)
+        axis.set(xlabel=xlabel, title=title)
+        if curated:
+            axis.set_ylabel("Curated rows per mission (%)")
+            if axis.get_legend() is not None:
+                axis.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2),
+                            ncol=2, frameon=False, fontsize=9)
+        axis.grid(axis="y", alpha=0.2)
+    figure.tight_layout(h_pad=5.5, rect=(0, 0.08 if curated else 0.18, 1, 1))
+    extra_figures = {}
+    if curated:
+        figure.canvas.draw()
+        for axis, name in zip(np.atleast_1d(axes), variables, strict=True):
+            path = output_dir / f"scat_{name}_distribution.png"
+            bounds = axis.get_tightbbox(figure.canvas.get_renderer())
+            bounds = bounds.transformed(figure.dpi_scale_trans.inverted()).expanded(1.04, 1.08)
+            figure.savefig(path, dpi=180, bbox_inches=bounds)
+            if name == "windspeed":
+                distribution_path = path
+            else:
+                extra_figures["reference_direction_distribution"] = path
     else:
-        xlabel, title = "HSCAT wind direction (degrees)", "Reference wind-direction distribution"
-    axis.set(xlabel=xlabel, title=title)
-    axis.grid(axis="y", alpha=0.2)
-    figure.tight_layout(rect=(0, 0.18, 1, 1))
-    figure.savefig(distribution_path, dpi=150)
+        figure.savefig(distribution_path, dpi=180)
     plt.close(figure)
     return {
         "coverage": coverage_path,
         "monthly_rows": monthly_path,
         "reference_distribution": distribution_path,
+        **extra_figures,
         "mission_counts": dict(sorted(mission_counts.items())),
     }
 

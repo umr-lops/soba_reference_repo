@@ -138,7 +138,7 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
     curated_name = Path(manifest["sources"][0]["curated_path"]).name
     assert r"\path|" + curated_name + "|" in tex
     assert "IMERG" in tex
-    assert r"swot\_waveheight" in tex
+    assert r"ref\_mean\_hs\_karin" in tex
     assert tex.count(r"\begin{longtable}") == 0
     assert_report_layout(manifest)
 
