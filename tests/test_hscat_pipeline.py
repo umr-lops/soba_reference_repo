@@ -209,48 +209,37 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     manifest = json.loads(tex)
     test_path = Path(manifest["test_parquet"])
     target_path = Path(manifest["target_parquet"])
+    assert Path(manifest["report_tex"]).name == (
+        "S1_curated_WV_SV_KNMI-HSCAT-HY2-25km.tex"
+    )
+    assert Path(manifest["figures"]["coverage"]).parent.name == (
+        "images_S1_curated_WV_SV_KNMI-HSCAT-HY2-25km"
+    )
+    report = Path(manifest["report_tex"]).read_text()
+    assert "Catalogue Columns" in report
+    assert "Selection of Tiles / Filtered Co-locations" in report
+    assert "TEST" not in report and "TARGET" not in report
+    assert r"scat\_windspeed" in report
+    assert Path(manifest["report_tex"]).parent == tmp_path / "output/report"
     assert test_path.name == "S1_reference_test_dataset_WV_20260103_windspeed_0.1.parquet"
     assert target_path.name == "S1_target_dataset_WV_20260103_windspeed_0.1.parquet"
-    assert Path(manifest["report_tex"]).stem == test_path.stem
-    report = Path(manifest["report_tex"]).read_text()
-    assert report
-    assert Path(manifest["report_tex"]).parent == tmp_path / "output/report"
-    assert r"\texttt{scat\_windspeed}" in report
     sections = [
-        "Global Coverage Map",
-        "Monthly Distribution of Matchups",
-        "Reference Parameter Distribution",
-        "Catalogue Columns",
-        "Global Metadata",
-        "Dataset Production Steps",
+        "Version History", "Dataset Content Description", "Global Coverage Map",
+        "Monthly Distribution of Matchups", "HSCAT Wind-Speed Distribution",
+        "Catalogue Columns", "Global Metadata", "Dataset Production Steps",
+        "Selected Products", "Selection of Tiles / Filtered Co-locations",
     ]
     positions = [report.index(section) for section in sections]
     assert positions == sorted(positions)
-    captions = [
-        "Global spatial distribution of all retained Sentinel-1 WV matchups",
-        "Monthly count of retained HSCAT matchups",
-        "Normalized HSCAT windspeed step histograms by mission.",
-    ]
-    caption_positions = [report.index(caption) for caption in captions]
-    assert caption_positions == sorted(caption_positions)
-    assert "Versioning of the documentation" in report
-    assert "Versioning of test catalogue files" in report
-    assert "Creation of the HSCAT TEST dataset document & Ilias Reguig" in report
-    assert "circular difference (ecmwf\\_wind\\_dir\\_360, ref\\_param\\_1)" in report
-    assert "at most 30 degrees" in report
-    assert "ref\\_ice\\_prob == 0" in report
-    assert "ref\\_flag == 0" in report
-    assert "SAR acquisitions after 2025-12-31" in report
-    assert "strictly later than 00:00 UTC on 2025-12-31" in report
+    assert "wind-direction agreement with meteorological estimates" in report
+    assert "ice-free reference observations" in report
+    assert "strictly after 2025-12-31 at 00:00 UTC" in report
     assert _filter_expression([["sar_time", "date_lt", "2025-12-31"]]) == (
         r"sar\_time is strictly earlier than 00:00 UTC on 2025-12-31"
     )
-    assert ("\\path|S1A_curated_WV_20160101_20160102_20260103_"
-            "SV_KNMI-HSCAT-HY2-25km_0.1.parquet|") in report
-    assert report.count("\\section*{References}") == 0
-    assert report.count("\\begin{thebibliography}") == 1
-    assert "shortest angular distance" in report
-    assert report.count(r"\begin{figure}[H]") == 3
+    assert "S1A_curated_WV_20160101_20160102_20260103_" in report
+    assert "KNMI for EUMETSAT OSI SAF" in report
+    assert report.count(r"\includegraphics[") == 5
     assert_report_layout(manifest)
     reference_plot = mpimg.imread(manifest["figures"]["reference_distribution"])
     assert reference_plot.shape[:2] == (750, 1350)

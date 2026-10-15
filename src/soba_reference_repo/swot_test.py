@@ -899,7 +899,13 @@ def plot_swot_figures(test: pd.DataFrame, figures_dir: Path) -> dict[str, Path]:
         "swot_waveheight": figures_dir / "swot_waveheight_distribution.png",
     }
 
-    missions = test["sar_safe_slc"].astype("string").str.extract(r"^(S1[A-D])", expand=False)
+    missions = (
+        test["_curation_mission"].astype("string")
+        if "_curation_mission" in test
+        else test["sar_safe_slc"].astype("string").str.extract(
+            r"^(?:.*/)?(S1[A-D])", expand=False
+        )
+    )
     if missions.isna().any():
         raise ValueError("cannot identify the SAR mission for every TEST row")
     present = [mission for mission in MISSION_COLORS if missions.eq(mission).any()]
@@ -943,7 +949,7 @@ def plot_swot_figures(test: pd.DataFrame, figures_dir: Path) -> dict[str, Path]:
         bottom += counts
     if present:
         axis.legend()
-    axis.set(xlabel="SAR month", ylabel="TEST rows", title="TEST rows by month")
+    axis.set(xlabel="SAR month", ylabel="Curated rows", title="Curated rows by month")
     axis.tick_params(axis="x", labelrotation=45)
     axis.grid(axis="y", alpha=0.2)
     figure.tight_layout()
@@ -1084,25 +1090,68 @@ def run_recipe(recipe_path):
         stage = "report"
         report_dir = root / "report"
         report_dir.mkdir(parents=True, exist_ok=True)
-        assets_dir = report_dir / f"images_{test_path.stem}"
-        figures = plot_swot_figures(test, assets_dir)
-        summary = summarize_swot_test(test, result)
+        from .curated_report import build_curated_report
+
+        document_stem = "S1_curated_WV_SWOT_PODAAC_D0"
+        assets_dir = report_dir / f"images_{document_stem}"
+        curated = pq.read_table(
+            merged_path,
+            columns=[
+                "sar_lon", "sar_lat", "sar_time", "sar_safe_slc",
+                "_curation_mission", "ref_mean_hs_karin",
+            ],
+        ).to_pandas().rename(columns={"ref_mean_hs_karin": "swot_waveheight"})
+        figures = plot_swot_figures(curated, assets_dir)
+        if len(curated) != sum(item["curated_rows"] for item in manifest["sources"]):
+            raise ValueError("report row count does not equal Curated mission totals")
+        swh = pd.to_numeric(curated["swot_waveheight"], errors="coerce").to_numpy(dtype=float)
+        summary = {
+            "rows": len(curated),
+            "mean": float(np.nanmean(swh)),
+            "median": float(np.nanmedian(swh)),
+        }
         stage_latex_assets(DEFAULT_SWOT_TEMPLATE.parent, assets_dir)
-        tex = build_swot_test_report(
-            test_path,
-            result,
-            summary,
-            figures,
-            report_dir,
-            compile_report=recipe.get("compile", False),
+        tex = build_curated_report(
+            title="Sentinel-1 Curated dataset",
+            platform="WV | SWOT | PODAAC-D0",
+            instrument="Sentinel-1 WV",
+            reference="SWOT KaRIn L2 WINDWAVE PID0",
+            variable="significant wave height (m)",
+            document_stem=document_stem,
+            observation_path=test_path,
+            recipe=recipe,
+            manifest=result,
+            figures={
+                "Global coverage of Curated rows": figures["coverage"],
+                "Monthly Curated rows by mission": figures["monthly_rows"],
+                "SWOT reference significant wave-height distribution": figures["swot_waveheight"],
+            },
+            summary=summary,
+            field_descriptions={
+                "sar_safe_slc": SWOT_COLUMN_DESCRIPTIONS["sar_safe_slc"],
+                "sar_safe_ocn": SWOT_COLUMN_DESCRIPTIONS["sar_safe_ocn"],
+                "_curation_mission": "Sentinel-1 mission identifier recorded during curation.",
+                "_curation_row": "Zero-based row number in the original source Parquet.",
+                "sar_lon": SWOT_COLUMN_DESCRIPTIONS["sar_lon"],
+                "sar_lat": SWOT_COLUMN_DESCRIPTIONS["sar_lat"],
+                "sar_time": SWOT_COLUMN_DESCRIPTIONS["sar_time"],
+                "ref_lon": "SWOT reference longitude in degrees.",
+                "ref_lat": "SWOT reference latitude in degrees.",
+                "ref_time": "UTC acquisition time of the SWOT reference observation.",
+                "ref_mean_hs_karin": "SWOT KaRIn mean significant wave height in metres.",
+                "primary_key": "Source matchup primary key retained in the Curated catalogue.",
+            },
         )
-        tex_path = report_dir / f"{test_path.stem}.tex"
+        tex_path = report_dir / f"{document_stem}.tex"
         tex_path.write_text(tex, encoding="utf-8")
         pdf_path = None
         if recipe.get("compile", False):
             stage = "pdf"
-            pdf_path = compile_swot_pdf(report_dir, test_path.stem)
-            purge_latex_byproducts(report_dir, test_path.stem)
+            pdf_path = compile_swot_pdf(report_dir, document_stem)
+            purge_latex_byproducts(report_dir, document_stem)
+            versioned_pdf = report_dir / f"{document_stem}_{recipe['version']}.pdf"
+            pdf_path.replace(versioned_pdf)
+            pdf_path = versioned_pdf
         result.update(
             {
                 "status": "complete",

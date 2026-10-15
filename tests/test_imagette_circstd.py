@@ -195,8 +195,8 @@ def test_cli_group_rule_native_curated_and_duplicate_policy(tmp_path, variable):
     assert step["all_invalid_groups"] == 1
     assert step["spread_removed_rows"] == 2
     report = Path(manifest["report_tex"]).read_text()
-    assert "circular population STD" in report
-    assert "Sequential quality-filter counts by mission" in report
+    assert "consistent reference directions within each SAR image" in report
+    assert "Matches before and after the additional selection" in report
     assert "evaluated multi-matchup groups" not in report
     assert "spread-rejected imagettes" not in report
     assert "invalid direction rows" not in report

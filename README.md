@@ -56,11 +56,13 @@ The example writes to `runs/swot-WV-20260930-0.1/` (paths resolve relative to th
 recipe.toml                 Copy of the run settings
 curated/                    One Curated Parquet per satellite
 datasets/                   Paired TEST and TARGET Parquets
-report/                     TeX, optional PDF, figures, and report assets directly
+report/                     TeX, optional PDF, and images_<report-stem>/ assets
 manifest.json               Source files, rules, counts, and output paths
 ```
 
 Curated filenames retain the source catalogue coverage dates, polarization, and reference product; production date and version come from the recipe.
+
+Reports describe Curated observations, keep sequential filter counts, and document the generated observation schema without assigning a final split. TeX and image-folder names stay versionless; only PDFs carry the recipe version. See [report details](docs/usage.rst).
 
 Each satellite starts with 13 predefined SWOT filters. A `[[catalogues.rules]]` entry changes a default filter when its `id` matches a default rule; a new `id` adds a filter after the defaults. The example includes commented overrides and additions. Filters run in order: report counts read `remaining / removed` after each filter. Curated counts can exceed TEST counts because the exporter also checks required fields and duplicate keys. A satellite can contribute zero rows if no input row passes its filters. Recipe rules support UTC `date_gt` and `date_lt` comparisons: they select timestamps strictly later or earlier than midnight UTC on the stated date; invalid or missing timestamps do not match. SCAT rule clauses also support `abs_diff_le` for absolute differences between two columns.
 

@@ -20,9 +20,11 @@ from .curation import (
 )
 from .hscat_report import plot_hscat_figures
 from .pdf_support import (
+    ASSET_DIR,
     compile_pdf,
     library_version,
     purge_latex_byproducts,
+    stage_latex_assets,
 )
 
 SOURCE_COLUMNS = (
@@ -585,12 +587,26 @@ def run_hscat_recipe(recipe_path):
         stage = "report"
         report_dir = root / "report"
         report_dir.mkdir(parents=True, exist_ok=True)
-        values = summary["reference_values"]
+        from .curated_report import build_curated_report
+
+        document_stem = "S1_curated_WV_SV_KNMI-HSCAT-HY2-25km"
+        assets_dir = report_dir / f"images_{document_stem}"
         figures = plot_hscat_figures(
-            test_path, recipe["reference_variable"], report_dir / f"images_{test_path.stem}"
+            merged_path, recipe["reference_variable"], assets_dir, curated=True
         )
-        if sum(figures["mission_counts"].values()) != summary["accepted_rows"]:
-            raise ValueError("report mission counts do not equal accepted TEST rows")
+        if sum(figures["mission_counts"].values()) != sum(
+            item["curated_rows"] for item in manifest["sources"]
+        ):
+            raise ValueError("report mission counts do not equal Curated row counts")
+        value_column = {
+            "windspeed": "ref_param_2",
+            "winddirection": "ref_param_1",
+        }[recipe["reference_variable"]]
+        values = pq.read_table(merged_path, columns=[value_column]).column(0).to_numpy(
+            zero_copy_only=False
+        ).astype(float)
+        if not np.isfinite(values).all():
+            raise ValueError("Curated HSCAT reference values contain non-finite values")
         stats = {
             "rows": len(values),
             "min": float(values.min()),
@@ -606,15 +622,48 @@ def run_hscat_recipe(recipe_path):
             offsets = (values - mean_direction + 180) % 360 - 180
             stats["mean"] = float(mean_direction)
             stats["median"] = float((mean_direction + np.median(offsets)) % 360)
-        tex_path, pdf_path = _report(
-            test_path,
-            target_path,
-            manifest,
-            stats,
-            figures,
-            report_dir,
-            recipe.get("compile", False),
+        recipe_for_report = {**recipe, "version": recipe["version"]}
+        tex = build_curated_report(
+            title="Sentinel-1 Curated dataset",
+            platform="WV | SV | KNMI-HSCAT-HY2-25km",
+            instrument="Sentinel-1 WV",
+            reference="KNMI-HSCAT-HY2-25km",
+            variable=("wind speed (m/s)" if recipe["reference_variable"] == "windspeed"
+                      else "wind direction (degrees)"),
+            document_stem=document_stem,
+            observation_path=test_path,
+            recipe=recipe_for_report,
+            manifest=manifest,
+            figures={
+                "Global coverage of Curated rows": figures["coverage"],
+                "Monthly Curated rows by mission": figures["monthly_rows"],
+                "HSCAT reference-value distribution by mission": figures["reference_distribution"],
+            },
+            summary=stats,
+            field_descriptions={
+                "sar_safe_slc": "Sentinel-1 SLC SAFE identifier and WV imagette.",
+                "sar_safe_ocn": "Sentinel-1 OCN SAFE identifier.",
+                "sar_lon": "Longitude of the co-aligned Sentinel-1 WV matchup, in degrees.",
+                "sar_lat": "Latitude of the co-aligned Sentinel-1 WV matchup, in degrees.",
+                "sar_time": "Sentinel-1 SAR acquisition time.",
+                "ref_param_1": "HSCAT reference wind direction, in degrees.",
+                "ref_param_2": "HSCAT reference wind speed, in metres per second.",
+                "_curation_mission": "Sentinel-1 mission identifier recorded during curation.",
+                "_curation_row": "Zero-based row number in the original source Parquet.",
+                "primary_key": "Source matchup primary key retained in the Curated catalogue.",
+            },
         )
+        tex_path = report_dir / f"{document_stem}.tex"
+        stage_latex_assets(ASSET_DIR / "latex", assets_dir)
+        tex_path.write_text(tex, encoding="utf-8")
+        pdf_path = None
+        if recipe.get("compile", False):
+            stage = "pdf"
+            pdf_path = compile_pdf(report_dir, document_stem)
+            purge_latex_byproducts(report_dir, document_stem)
+            versioned_pdf = report_dir / f"{document_stem}_{recipe['version']}.pdf"
+            pdf_path.replace(versioned_pdf)
+            pdf_path = versioned_pdf
         manifest.update(
             {
                 "status": "complete",

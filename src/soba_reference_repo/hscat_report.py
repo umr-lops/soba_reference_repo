@@ -14,11 +14,14 @@ from matplotlib import pyplot as plt
 from .pdf_support import ASSET_DIR, _path, stage_latex_assets
 from .plotting import MISSION_COLORS, plot_mission_distribution
 
-MISSION_RE = re.compile(r"^(S1[A-D])")
+MISSION_RE = re.compile(r"^(?:.*/)?(S1[A-D])")
 
 
 def _mission_series(frame):
-    missions = frame["sar_safe_slc"].astype("string").str.extract(MISSION_RE, expand=False)
+    if "_curation_mission" in frame:
+        missions = frame["_curation_mission"].astype("string")
+    else:
+        missions = frame["sar_safe_slc"].astype("string").str.extract(MISSION_RE, expand=False)
     if missions.isna().any():
         raise ValueError("could not identify Sentinel-1 mission from sar_safe_slc")
     return missions
@@ -32,17 +35,20 @@ def _annual_tick_indices(months):
     return indices
 
 
-def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536):
+def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, curated=False):
     """Create coverage, monthly-count, and reference-value figures by Parquet batch."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    value_column = {"windspeed": "scat_windspeed", "winddirection": "scat_winddirection"}.get(
-        variable
-    )
+    value_column = (
+        {"windspeed": "ref_param_2", "winddirection": "ref_param_1"}
+        if curated
+        else {"windspeed": "scat_windspeed", "winddirection": "scat_winddirection"}
+    ).get(variable)
     if value_column is None:
         raise ValueError(f"unsupported HSCAT variable: {variable}")
+    mission_column = "_curation_mission" if curated else "sar_safe_slc"
     parquet = pq.ParquetFile(test_path)
-    required = ["sar_lon", "sar_lat", "sar_time", "sar_safe_slc", value_column]
+    required = ["sar_lon", "sar_lat", "sar_time", mission_column, value_column]
     missing = set(required) - set(parquet.schema_arrow.names)
     if missing:
         raise ValueError(f"HSCAT TEST file lacks figure columns: {sorted(missing)}")
@@ -100,7 +106,8 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536):
         )
         bottom += heights
     axis.legend()
-    axis.set(xlabel="SAR month", ylabel="TEST rows", title="TEST rows by month")
+    count_label = "Curated rows" if curated else "TEST rows"
+    axis.set(xlabel="SAR month", ylabel=count_label, title=f"{count_label} by month")
     tick_indices = _annual_tick_indices(months)
     axis.set_xticks(tick_indices, [months[index] for index in tick_indices])
     axis.tick_params(axis="x", labelrotation=45)
@@ -117,7 +124,7 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536):
         edges = np.linspace(min_value, max_value, 41)
     histogram = {mission: np.zeros(len(edges) - 1, dtype=np.int64) for mission in present}
     for batch in parquet.iter_batches(
-        batch_size=batch_size, columns=["sar_safe_slc", value_column]
+        batch_size=batch_size, columns=[mission_column, value_column]
     ):
         frame = batch.to_pandas()
         missions = _mission_series(frame)
