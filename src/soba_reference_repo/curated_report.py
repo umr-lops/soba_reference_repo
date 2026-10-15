@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from graphlib import TopologicalSorter
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
 import numpy as np
@@ -217,9 +217,24 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             if previous is not None:
                 predecessors[rule_id].add(previous)
             previous = rule_id
+    try:
+        step_groups = [
+            [steps_by_mission[source["mission"]].get(rule_id) for source in sources]
+            for rule_id in TopologicalSorter(predecessors).static_order()
+        ]
+    except CycleError:
+        # Repeat conflicting rows rather than reorder either mission's filters.
+        pending = [list(steps_by_mission[source["mission"]].values()) for source in sources]
+        step_groups = []
+        while any(pending):
+            rule_id = next(steps[0]["id"] for steps in pending if steps)
+            step_groups.append([
+                steps.pop(0) if steps and steps[0]["id"] == rule_id else None
+                for steps in pending
+            ])
     count_rows = []
-    for rule_id in TopologicalSorter(predecessors).static_order():
-        steps = [steps_by_mission[source["mission"]].get(rule_id) for source in sources]
+    for steps in step_groups:
+        rule_id = next(step["id"] for step in steps if step)
         name = next(step["name"] for step in steps if step)
         if rule_id in {"sar_start", "sar_end"}:
             name = "SAR acquisition " + ("start" if rule_id == "sar_start" else "end")

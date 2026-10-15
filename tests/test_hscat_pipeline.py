@@ -198,6 +198,27 @@ def test_hscat_recipe_filters_direction_circularity_ice_and_ref_flag():
     ]
 
 
+@pytest.mark.parametrize("bad_column", ["sar_lon", "ref_param_2"])
+def test_hscat_report_handles_nonfinite_curated_values(tmp_path, bad_column):
+    source = hscat_source(tmp_path)
+    frame = pd.read_parquet(source)
+    frame.loc[0, bad_column] = float("nan")
+    frame.to_parquet(source, index=False)
+    text = recipe_text(source)
+    if bad_column == "ref_param_2":
+        text = text.replace(
+            'id = "ecmwf_scat_speed_difference"\n',
+            'id = "ecmwf_scat_speed_difference"\nenabled = false\n',
+        )
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(text, encoding="utf-8")
+    assert cli_main(["--recipe", str(recipe)]) == 0
+    manifest = json.loads((tmp_path / "output/manifest.json").read_text())
+    assert manifest["sources"][0]["curated_rows"] == (2 if bad_column == "sar_lon" else 3)
+    assert manifest["accepted_rows"] == manifest["sources"][0]["curated_rows"] - 1
+    assert_report_layout(manifest)
+
+
 def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     source = hscat_source(tmp_path)
     recipe = tmp_path / "recipe.toml"

@@ -605,8 +605,7 @@ def run_hscat_recipe(recipe_path):
         values = pq.read_table(merged_path, columns=[value_column]).column(0).to_numpy(
             zero_copy_only=False
         ).astype(float)
-        if not np.isfinite(values).all():
-            raise ValueError("Curated HSCAT reference values contain non-finite values")
+        values = values[np.isfinite(values)]
         stats = {
             "rows": len(values),
             "min": float(values.min()),
