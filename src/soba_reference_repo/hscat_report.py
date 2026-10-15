@@ -66,14 +66,21 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
         lon = pd.to_numeric(frame["sar_lon"], errors="coerce").to_numpy(dtype=float)
         lat = pd.to_numeric(frame["sar_lat"], errors="coerce").to_numpy(dtype=float)
         values = pd.to_numeric(frame[value_column], errors="coerce").to_numpy(dtype=float)
-        if not (np.isfinite(lon).all() and np.isfinite(lat).all() and np.isfinite(values).all()):
+        finite_coordinates = np.isfinite(lon) & np.isfinite(lat)
+        finite_values = np.isfinite(values)
+        if not curated and not (finite_coordinates.all() and finite_values.all()):
             raise ValueError("HSCAT TEST figure inputs contain non-finite values")
-        axis.scatter(lon, lat, s=3, alpha=0.55, color="#526F85", linewidths=0)
+        axis.scatter(
+            lon[finite_coordinates], lat[finite_coordinates],
+            s=3, alpha=0.55, color="#526F85", linewidths=0,
+        )
+        # Counts describe all Curated rows; each plot uses its available finite inputs.
         mission_counts.update(missions.tolist())
         months = pd.to_datetime(frame["sar_time"], utc=True).dt.strftime("%Y-%m")
         monthly_counts.update(zip(months.tolist(), missions.tolist(), strict=True))
-        min_value = min(min_value, float(values.min()))
-        max_value = max(max_value, float(values.max()))
+        if finite_values.any():
+            min_value = min(min_value, float(values[finite_values].min()))
+            max_value = max(max_value, float(values[finite_values].max()))
     if not mission_counts:
         plt.close(figure)
         raise ValueError("HSCAT TEST file has no rows for report figures")
@@ -119,7 +126,9 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
     if variable == "winddirection":
         edges = np.linspace(0, 360, 37)
     else:
-        if min_value == max_value:
+        if not np.isfinite([min_value, max_value]).all():
+            min_value, max_value = 0.0, 1.0
+        elif min_value == max_value:
             min_value, max_value = min_value - 0.5, max_value + 0.5
         edges = np.linspace(min_value, max_value, 41)
     histogram = {mission: np.zeros(len(edges) - 1, dtype=np.int64) for mission in present}
@@ -130,7 +139,7 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
         missions = _mission_series(frame)
         values = pd.to_numeric(frame[value_column], errors="coerce").to_numpy(dtype=float)
         for mission in present:
-            selected = values[missions.to_numpy() == mission]
+            selected = values[(missions.to_numpy() == mission) & np.isfinite(values)]
             if selected.size:
                 histogram[mission] += np.histogram(selected, bins=edges)[0]
     figure, axis = plt.subplots(figsize=(9, 5.0))

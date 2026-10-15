@@ -25,6 +25,35 @@ def source_file(folder, mission, **changes):
     return path
 
 
+def test_report_preserves_conflicting_mission_filter_orders(tmp_path):
+    catalogues = {mission: source_file(tmp_path, mission) for mission in ("S1A", "S1C")}
+    text = (
+        'reference = "swot"\noutput_dir = "output"\n'
+        'production_date = "20260930"\nversion = "0.1"\ncompile = false\n'
+    )
+    for mission, order in (("S1A", ("a", "b")), ("S1C", ("b", "a"))):
+        text += f'[[catalogues]]\nmission = "{mission}"\npath = "{catalogues[mission].name}"\n'
+        for rule in order:
+            text += (
+                f'[[catalogues.rules]]\nid = "custom_{rule}"\nname = "Filter {rule.upper()}"\n'
+                'clauses = [["sar_lat", "le", 90]]\n'
+            )
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(text, encoding="utf-8")
+    assert cli_main(["--recipe", str(recipe)]) == 0
+    (tex_path,) = (tmp_path / "output/report").glob("*.tex")
+    rows = [
+        [cell.strip() for cell in line.rstrip("\\").split("&")]
+        for line in tex_path.read_text().splitlines()
+        if line.startswith(("Filter A &", "Filter B &"))
+    ]
+    assert rows == [
+        ["Filter A", "1 / 0", "--"],
+        ["Filter B", "1 / 0", "1 / 0"],
+        ["Filter A", "--", "1 / 0"],
+    ]
+
+
 def test_generator_uses_saved_merge_without_reapplying_default_filters(tmp_path):
     from soba_reference_repo.curation import merge_curated, resolve_rules, write_curated
 
