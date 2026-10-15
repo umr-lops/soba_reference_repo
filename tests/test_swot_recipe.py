@@ -54,6 +54,30 @@ def test_report_preserves_conflicting_mission_filter_orders(tmp_path):
     ]
 
 
+def test_curated_swot_plots_use_density_and_curated_labels(tmp_path, monkeypatch):
+    from matplotlib.figure import Figure
+
+    source = source_file(tmp_path, "S1A")
+    frame = pd.read_parquet(source).rename(columns={"ref_mean_hs_karin": "swot_waveheight"})
+    frame["_curation_mission"] = "S1A"
+    original_save = Figure.savefig
+    labels = []
+
+    def capture_save(figure, path, *args, **kwargs):
+        if str(path).endswith("sar_coverage.png"):
+            counts = figure.axes[0].collections[0].get_array()
+            assert counts is not None
+            assert float(counts.sum()) == len(frame)
+            assert "SWOT" in figure.axes[0].get_title()
+        if str(path).endswith("swot_waveheight_distribution.png"):
+            labels.append(figure.axes[0].get_ylabel())
+        return original_save(figure, path, *args, **kwargs)
+
+    monkeypatch.setattr(Figure, "savefig", capture_save)
+    swot_test.plot_swot_figures(frame, tmp_path / "figures")
+    assert labels == ["Curated rows per mission (%)"]
+
+
 def test_generator_uses_saved_merge_without_reapplying_default_filters(tmp_path):
     from soba_reference_repo.curation import merge_curated, resolve_rules, write_curated
 
@@ -139,7 +163,9 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
     assert r"\path|" + curated_name + "|" in tex
     assert "IMERG" in tex
     assert r"ref\_mean\_hs\_karin" in tex
-    assert tex.count(r"\begin{longtable}") == 0
+    assert "Time difference SAR - SWOT (seconds)" in tex
+    assert "Maximum rain rate from IMERG (mm/h)" in tex
+    assert tex.count(r"\begin{longtable}") <= 1
     assert_report_layout(manifest)
 
 

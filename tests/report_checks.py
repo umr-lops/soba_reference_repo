@@ -26,7 +26,7 @@ def assert_report_layout(manifest):
     assert tex.count(r"\begin{thebibliography}") == 1
     assert "Checked by" in tex
     assert tex.count(r"\bibitem{") == 1
-    assert r"\begin{longtable}" not in tex
+    assert tex.count(r"\begin{longtable}") <= 1
     assert tex.index("Sequential quality-filter counts") < tex.index("Matches before and after")
     assert "Summary statistics for ref" not in tex
     assert "docs.google.com" not in tex
@@ -44,7 +44,8 @@ def assert_report_layout(manifest):
     assert "Sequential quality-filter counts by mission" in tex
     assert "soba.ifremer.fr/documents/dataset_description/" in tex
     assert "sobadataflow.png" in tex
-    columns = tex.split(r"\label{tab:columns}", 1)[1].split(r"\end{tabular}", 1)[0]
+    table_end = r"\end{longtable}" if r"\begin{longtable}" in tex else r"\end{tabular}"
+    columns = tex.split(r"\label{tab:columns}", 1)[1].split(table_end, 1)[0]
     schema_rows = [line.split(" & ") for line in columns.splitlines()
                    if " & " in line and not line.lstrip().startswith(r"\textbf{")]
     fields = list(dict.fromkeys(

@@ -14,6 +14,68 @@ from .hscat_report import _tex
 from .pdf_support import ASSET_DIR, _path, library_version
 
 
+# Documented definitions: supplied S1D SWOT catalogue PDF, Table 4, printed pages 7-8.
+# Measurement-file paths were also checked against actual source-column values.
+COMMON_COLUMN_DESCRIPTIONS = {
+    "sar_path_ocn": "Path to the Sentinel-1 OCN measurement file.",
+    "sar_path_slc": "Path to the Sentinel-1 SLC measurement file.",
+    "s1_sensor": "SAR mission identifier (e.g., S1D).",
+    "s1_wv_mode": "WV sub-swath (wv1 or wv2).",
+    "sar_distance_to_coast": "Distance from centroid to nearest coastline (km, from NASA data).",
+    "ww3_hs": "WW3 model significant wave height (m).",
+    "oswTotalHs": "SWH from ESA S1 OCN processor (m).",
+    "oswTotalHsStdev": "Standard deviation of SWH (m).",
+    "oswWindSpeed": "Wind speed from OCN processor (m/s).",
+    "oswEcmwfWindSpeed": "ECMWF wind speed (m/s).",
+    "oswSkew": "Wave skewness.",
+    "oswKurt": "Wave kurtosis.",
+    "oswNv": "Number of valid waves.",
+    "mean_rainrate_IMERG": "Mean rain rate from IMERG (mm/h).",
+    "max_rainrate_IMERG": "Maximum rain rate from IMERG (mm/h).",
+}
+SWOT_COLUMN_DESCRIPTIONS = {
+    "ref_time_delta": "Time difference SAR - SWOT (seconds).",
+    "ref_distance_delta": "Great-circle distance SAR centroid to SWOT pixel (km).",
+    "ref_hs_alti_closest": "SWH from SWOT Karin nadir altimeter (m).",
+    "ref_mean_hs_karin": "Mean SWH from SWOT Karin across the segment (m).",
+    "ref_param_count": "Number of SWOT pixels in the overlap (estimated from overlap_pct).",
+    "ref_flag": "Quality flag: clear/rain/ice.",
+    "overlap_pct": "Percentage of SAR imagette overlapped by SWOT (0-100).",
+    "swot_dynamic_ice_flag": "SWOT dynamic ice flag.",
+    "swot_rain_flag": "SWOT rain flag.",
+    "swot_cycle": "SWOT cycle number.",
+    "swot_pass": "SWOT pass number.",
+    "swot_crid": "SWOT CRID (PGD0/PID0).",
+}
+# Field-name interpretations requested by the owner; do not invent units or flag codes.
+INFERRED_COLUMN_DESCRIPTIONS = {
+    "sar_path_safe_slc": "Path to the Sentinel-1 SLC SAFE product (inferred).",
+    "swot_path": "Path to the SWOT source product (inferred).",
+    "swot_path_hpc": "SWOT product path in the processing environment (inferred).",
+    "oswLandCoverage": "Land coverage reported by the OCN processor (inferred; scale unverified).",
+    "oswDepth": "Water depth reported by the OCN processor (inferred; units unverified).",
+    "s1_subpath": "Sentinel-1 product subpath (inferred).",
+    "s1_path": "Path to the Sentinel-1 source product (inferred).",
+    "s1_path_hpc": "Sentinel-1 product path in the processing environment (inferred).",
+    "std_KR_swh": "Standard deviation of KaRIn significant wave height (inferred).",
+    "median_KR_swh": "Median KaRIn significant wave height (inferred).",
+    "mad_KR_swh": "Median absolute deviation of KaRIn significant wave height (inferred).",
+    "imagette_number": "Imagette number within the Sentinel-1 product (inferred).",
+    "legacy_usage": "Legacy-use indicator retained from the source (inferred; codes unverified).",
+    "swh_swot_l3_20km": "SWOT Level-3 SWH over a 20 km neighborhood (inferred).",
+    "swh_swot_l3_20km_std": "SWH standard deviation over that 20 km neighborhood (inferred).",
+    "swh_swot_l3_20km_nvalid": "Valid-sample count in that 20 km neighborhood (inferred).",
+    "swh_swot_l3_center_i": "First grid index of the Level-3 extraction center (inferred).",
+    "swh_swot_l3_center_j": "Second grid index of the Level-3 extraction center (inferred).",
+    "swh_swot_l3_status": "Level-3 extraction status (inferred; codes unverified).",
+    "ref_distance_km": "Separation between SAR and reference locations (inferred; km).",
+    "ecmwf_source": "Source identifier or path for ECMWF ancillary data (inferred).",
+    **{f"class_{i}": f"Scene-class label {i} (inferred)." for i in (1, 2, 3)},
+    **{f"prob_{i}": f"Probability associated with class_{i} (inferred; scale unverified)."
+       for i in (1, 2, 3)},
+}
+
+
 def _rows(rows):
     return "\n".join(" & ".join(row) + r" \\" for row in rows)
 
@@ -50,7 +112,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         ("HSCAT wind directions" if selected_variable == "winddirection" else "HSCAT wind speeds")
         if hscat else "SWOT significant wave heights"
     )
-    dataset_name = "HSCAT" if hscat else "SWOT significant wave height"
+    dataset_name = "HSCAT" if hscat else "SWOT"
     row_count = sum(item["curated_rows"] for item in sources)
     values = np.concatenate([
         pq.read_table(item["curated_path"], columns=[value_column]).column(0)
@@ -97,6 +159,11 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "primary_key": "Source matchup identifier retained in the Curated catalogue.",
         "__index_level_0__": "Original source DataFrame index, retained as supplied.",
     })
+    for name, description in {
+        **INFERRED_COLUMN_DESCRIPTIONS, **COMMON_COLUMN_DESCRIPTIONS,
+        **({} if hscat else SWOT_COLUMN_DESCRIPTIONS),
+    }.items():
+        descriptions.setdefault(name, description)
     groups = {label: [] for label in ("Identification", "SAR geometry", "Reference", "Ancillary")}
     for field in catalogue_fields.values():
         name = field.name
@@ -317,12 +384,10 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "COVERAGE_DESCRIPTION": (
             "The heatmap shows retained matches per 1-degree-wide hexagonal cell on a logarithmic "
             "color scale. Matches without finite coordinates are omitted."
-            if hscat else "The map shows the locations of all retained Sentinel-1 matches."
         ),
         "COVERAGE_FIGURE": f"{assets}/{Path(paths[0]).name}",
         "COVERAGE_CAPTION": (
-            "Global density of retained Sentinel-1 / HSCAT matches."
-            if hscat else "Global spatial distribution of retained Sentinel-1 matches."
+            f"Global density of retained Sentinel-1 / {product} matches."
         ),
         "MONTHLY_DESCRIPTION": "Retained matches by SAR acquisition month, stacked by mission.",
         "MONTHLY_FIGURE": f"{assets}/{Path(paths[1]).name}",
@@ -364,4 +429,26 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     leftovers = re.findall(r"@@[A-Z_]+@@", text)
     if leftovers:
         raise ValueError(f"Unfilled Curated report fields: {leftovers}")
+    if len(catalogue_fields) > 35:
+        # Long native schemas need repeated headers, not a clipped unbreakable table.
+        caption = r"\caption{Columns of the Curated Parquet files.}"
+        position = text.index(caption)
+        start = text.rfind(r"\begin{table}[H]\centering", 0, position)
+        end = text.index(r"\end{table}", position) + len(r"\end{table}")
+        block = text[start:end]
+        spec = next(line for line in block.splitlines() if line.startswith(r"\begin{tabular}"))
+        header = r"\textbf{Column} & \textbf{Type} & \textbf{Description} " + chr(92) * 2
+        long_rows = [line.rstrip() + "*" if line.startswith(r"\multicolumn") else line
+                     for line in column_lines]
+        long_table = "\n".join([
+            r"{\small", spec.replace(r"\begin{tabular}", r"\begin{longtable}"),
+            r"\caption{Columns of the Curated Parquet files.\label{tab:columns}}" + chr(92) * 2,
+            r"\toprule", header, r"\midrule", r"\endfirsthead",
+            r"\caption[]{Columns of the Curated Parquet files (continued).}" + chr(92) * 2,
+            r"\toprule", header, r"\midrule", r"\endhead",
+            r"\midrule", r"\multicolumn{3}{r}{Continued on next page.}" + chr(92) * 2,
+            r"\endfoot", r"\bottomrule", r"\endlastfoot",
+            *long_rows, r"\end{longtable}", "}",
+        ])
+        text = text[:start] + long_table + text[end:]
     return text
