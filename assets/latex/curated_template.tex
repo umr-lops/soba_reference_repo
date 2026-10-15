@@ -1,5 +1,6 @@
 \documentclass[11pt,a4paper]{article}
 \usepackage[useregional]{datetime2}
+\usepackage{needspace}
 
 
 % Date Time
@@ -51,8 +52,7 @@
         \textbf{Document Version} & 1.1.0 \\
         \textbf{Date} & \DTMtoday \\
         \textbf{Authors} & SOBA consortium \\
-        \textbf{Intended Audience} & external challengers \\
-        \textbf{Project delivrable document identifier} & TN5 \\
+        \textbf{Intended Audience} & internal \\
     \end{tabular}
     \end{center}
 
@@ -128,22 +128,19 @@
     \label{fig:monthly_distribution}
 \end{figure}
 
+\Needspace{0.43\textheight}
 \subsection{@@DISTRIBUTION_TITLE@@}
 \textbf{Description:} @@REFERENCE_DESCRIPTION@@
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.9\textwidth]{@@WINDSPEED_FIGURE@@}
-    \caption{@@REFERENCE_CAPTION@@}
-    \label{fig:ref_distribution}
-\end{figure}
+@@DISTRIBUTION_FIGURES@@
 
 Table~\ref{tab:reference_stats} summarises the retained @@REFERENCE_LABEL@@.
 @@REFERENCE_STATS_TABLE@@
 
+\Needspace{0.98\textheight}
 \subsection{Catalogue Columns}
-Table~\ref{tab:columns} gives the columns and types of the generated observation dataset. A large dataset may subsequently be split, while a small dataset may be used directly for testing; no final split assignment is implied here.
+Table~\ref{tab:columns} gives the columns and stored types of the Curated Parquet files, including both reference variables and curation provenance.
 \begin{table}[H]\centering
-\caption{Columns of the generated observation dataset.}
+\caption{Columns of the Curated Parquet files.}
 \label{tab:columns}
 {\small
 \begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.1cm}>{\raggedright\arraybackslash}p{2.6cm}>{\raggedright\arraybackslash}p{8.1cm}@{}}
@@ -158,6 +155,7 @@ Table~\ref{tab:columns} gives the columns and types of the generated observation
 
 @@SAMPLING_NOTE@@
 
+\Needspace{0.65\textheight}
 \subsection{Global Metadata}
 Product metadata and provenance are listed below. Original source attributes remain in the Parquet files; run-specific provenance is recorded in the accompanying manifest.
 \begin{table}[H]\centering

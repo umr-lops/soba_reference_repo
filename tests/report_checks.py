@@ -14,9 +14,7 @@ def assert_report_layout(manifest):
     headings = re.findall(r"\\(?:section\*?|subsection)\{([^}]+)\}", tex)
     distribution = ("SWOT Significant Wave-Height Distribution"
                     if manifest.get("reference") == "swot" else
-                    "HSCAT Wind-Direction Distribution"
-                    if manifest.get("reference_variable") == "winddirection" else
-                    "HSCAT Wind-Speed Distribution")
+                    "HSCAT Wind-Speed and Wind-Direction Distributions")
     assert headings == [
         "Version History", "Dataset Content Description", "Global Coverage Map",
         "Monthly Distribution of Matchups", distribution,
@@ -49,12 +47,17 @@ def assert_report_layout(manifest):
     columns = tex.split(r"\label{tab:columns}", 1)[1].split(r"\end{tabular}", 1)[0]
     schema_rows = [line.split(" & ") for line in columns.splitlines()
                    if " & " in line and not line.lstrip().startswith(r"\textbf{")]
-    schema = pq.read_schema(manifest["test_parquet"])
-    assert [row[0].replace(r"\_", "_").strip() for row in schema_rows] == schema.names
-    assert [row[1].replace(r"\_", "_").strip() for row in schema_rows] == [
-        str(field.type) for field in schema
-    ]
-    assert len(figures) == 3
+    fields = list(dict.fromkeys(
+        (field.name, str(field.type))
+        for source in sorted(manifest["sources"], key=lambda item: item["mission"])
+        for field in pq.read_schema(source["curated_path"])
+    ))
+    actual = [(row[0].replace(r"\_", "_").strip(), row[1].replace(r"\_", "_").strip())
+              for row in schema_rows]
+    assert sorted(actual) == sorted(fields)
+    assert all(r"\textbf{" + group + "}" in columns
+               for group in ("Identification", "SAR geometry", "Reference", "Ancillary"))
+    assert len(figures) == (3 if manifest.get("reference") == "swot" else 4)
     assert assets_dir.is_dir()
     assert set(assets_dir.iterdir()) == {
         *figures, assets_dir / "soba.sty", assets_dir / "logo_soba.png",

@@ -33,8 +33,11 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             attrs.update(json.loads(schema.metadata[b"utils_meta"]).get("attrs", {}))
         metadata[mission] = attrs
     native_names = set().union(*(set(schema.names) for schema in schemas.values()))
-    observation_schema = pq.read_schema(observation_path)
-    names = observation_schema.names
+    catalogue_fields = {
+        (field.name, str(field.type)): field
+        for schema in schemas.values() for field in schema
+    }
+    names = list(dict.fromkeys(field.name for field in catalogue_fields.values()))
     hscat = "HSCAT" in reference
     product = "HSCAT" if hscat else "SWOT"
     selected_variable = recipe.get("reference_variable", "swh")
@@ -47,7 +50,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         ("HSCAT wind directions" if selected_variable == "winddirection" else "HSCAT wind speeds")
         if hscat else "SWOT significant wave heights"
     )
-    dataset_name = f"HSCAT {selected_variable}" if hscat else "SWOT significant wave height"
+    dataset_name = "HSCAT" if hscat else "SWOT significant wave height"
     row_count = sum(item["curated_rows"] for item in sources)
     values = np.concatenate([
         pq.read_table(item["curated_path"], columns=[value_column]).column(0)
@@ -91,15 +94,34 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "swot_time": "UTC SWOT reference acquisition time.",
         "swot_waveheight": "SWOT significant wave height in metres.",
         "swot_source": "Identifier of the source SWOT observation product.",
-        "primary_key": ("Source matchup identifier retained in the observation file."
-                        if hscat else
-                        "SLC SAFE and reference longitude/latitude at one decimal degree."),
+        "primary_key": "Source matchup identifier retained in the Curated catalogue.",
+        "__index_level_0__": "Original source DataFrame index, retained as supplied.",
     })
-    column_lines = [_rows([
-        (_tex(field.name), _tex(field.type),
-         _tex(descriptions.get(field.name, "Value associated with this matched observation.")
-              .replace("co-aligned", "matched")))
-    ]) for field in observation_schema]
+    groups = {label: [] for label in ("Identification", "SAR geometry", "Reference", "Ancillary")}
+    for field in catalogue_fields.values():
+        name = field.name
+        if name == "primary_key" or name.startswith(
+            ("sar_safe_", "sar_path_", "_curation_", "__index_")
+        ):
+            group = "Identification"
+        elif name.startswith("sar_"):
+            group = "SAR geometry"
+        elif name.startswith(("ref_", "scat_", "swot_")):
+            group = "Reference"
+        else:
+            group = "Ancillary"
+        groups[group].append(field)
+    column_lines = []
+    for group, fields in groups.items():
+        if not fields:
+            continue
+        column_lines.append(r"\multicolumn{3}{l}{\textbf{" + group + "}} " + chr(92) * 2)
+        column_lines.append(r"\midrule")
+        column_lines.extend(_rows([
+            (_tex(field.name), _tex(field.type),
+             _tex(descriptions.get(field.name, "Value associated with this matched observation.")
+                  .replace("co-aligned", "matched")))
+        ]) for field in fields)
     keys = sorted(set().union(*(set(attrs) for attrs in metadata.values())) - native_names)
     metadata_rows = []
     for key in keys:
@@ -179,7 +201,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "software_version": library_version(), "recipe_snapshot": "recipe.toml",
         "command": "python -m soba_reference_repo.create_test_dataset --recipe recipe.toml",
         "date_selection_rationale": "Supplied evaluation windows; no further rationale recorded.",
-        "observation_schema_file": Path(observation_path).name,
+        "curated_schema_files": [Path(item["curated_path"]).name for item in sources],
         "source_catalogues": [
             {"mission": item["mission"], "filename": Path(item["path"]).name,
              "version": Path(item["path"]).stem.rsplit("_", 1)[-1]}
@@ -279,8 +301,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "DATASET_NAME": _tex(dataset_name), "DOCUMENT_PRODUCT": product,
         "REFERENCE_LABEL": reference_label,
         "DISTRIBUTION_TITLE": (
-            ("HSCAT Wind-Direction Distribution" if selected_variable == "winddirection"
-             else "HSCAT Wind-Speed Distribution") if hscat
+            "HSCAT Wind-Speed and Wind-Direction Distributions" if hscat
             else "SWOT Significant Wave-Height Distribution"
         ),
         "SCOPE_TEXT": f"A curated set of Sentinel-1 Wave Mode observations matched to "
@@ -293,17 +314,38 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             f"{sar_product} observations are first matched in space and time to {ref_product}, "
             "then additional filters select reliable, consistent matches for evaluation."
         ),
-        "COVERAGE_DESCRIPTION": "The map shows the locations of all retained Sentinel-1 matches.",
+        "COVERAGE_DESCRIPTION": (
+            "The heatmap shows retained matches per 1-degree-wide hexagonal cell on a logarithmic "
+            "color scale. Matches without finite coordinates are omitted."
+            if hscat else "The map shows the locations of all retained Sentinel-1 matches."
+        ),
         "COVERAGE_FIGURE": f"{assets}/{Path(paths[0]).name}",
-        "COVERAGE_CAPTION": "Global spatial distribution of retained Sentinel-1 matches.",
+        "COVERAGE_CAPTION": (
+            "Global density of retained Sentinel-1 / HSCAT matches."
+            if hscat else "Global spatial distribution of retained Sentinel-1 matches."
+        ),
         "MONTHLY_DESCRIPTION": "Retained matches by SAR acquisition month, stacked by mission.",
         "MONTHLY_FIGURE": f"{assets}/{Path(paths[1]).name}",
         "MONTHLY_CAPTION": f"Monthly count of retained {product} matches, stacked by mission.",
-        "REFERENCE_DESCRIPTION": f"Colored lines show {_tex(variable)} by mission. "
-                                 "Each mission is normalized to its own sample count, "
-                                 "shown in the legend; percentages do not compare absolute counts.",
+        "REFERENCE_DESCRIPTION": (
+            "Colored lines show HSCAT wind speed (top) and wind direction (bottom) by mission. "
+            if hscat else f"Colored lines show {_tex(variable)} by mission. "
+        ) + "Each mission is normalized to its own finite sample count, shown in the legend; "
+            "percentages do not compare absolute counts.",
         "WINDSPEED_FIGURE": f"{assets}/{Path(paths[2]).name}",
         "REFERENCE_CAPTION": f"Normalized {product} distributions of retained matches by mission.",
+        "DISTRIBUTION_FIGURES": "\n".join(
+            r"\begin{figure}[H]\centering" + "\n"
+            + r"\includegraphics[width=0.9\textwidth]{" + assets + "/" + Path(path).name + "}\n"
+            + r"\caption{" + caption + "}\n"
+            + r"\label{fig:ref_distribution" + ("" if index == 0 else "_direction") + "}\n"
+            + r"\end{figure}"
+            for index, (path, caption) in enumerate(
+                [(paths[2], "Normalized HSCAT wind-speed distribution by mission."),
+                 (paths[3], "Normalized HSCAT wind-direction distribution by mission.")]
+                if hscat else [(paths[2], f"Normalized {product} distributions by mission.")]
+            )
+        ),
         "REFERENCE_STATS_TABLE": stats_table, "TEST_COLUMNS": "\n".join(column_lines),
         "SAMPLING_NOTE": r"\noindent\textbf{Sampling point.} SAR geometry and " + product +
                          " values describe observations matched in space and time.",

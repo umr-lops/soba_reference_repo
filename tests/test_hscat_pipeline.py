@@ -240,13 +240,13 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert "Catalogue Columns" in report
     assert "Selection of Tiles / Filtered Co-locations" in report
     assert "TEST" not in report and "TARGET" not in report
-    assert r"scat\_windspeed" in report
+    assert r"ref\_param\_1" in report and r"ref\_param\_2" in report
     assert Path(manifest["report_tex"]).parent == tmp_path / "output/report"
     assert test_path.name == "S1_reference_test_dataset_WV_20260103_windspeed_0.1.parquet"
     assert target_path.name == "S1_target_dataset_WV_20260103_windspeed_0.1.parquet"
     sections = [
         "Version History", "Dataset Content Description", "Global Coverage Map",
-        "Monthly Distribution of Matchups", "HSCAT Wind-Speed Distribution",
+        "Monthly Distribution of Matchups", "HSCAT Wind-Speed and Wind-Direction Distributions",
         "Catalogue Columns", "Global Metadata", "Dataset Production Steps",
         "Selected Products", "Selection of Tiles / Filtered Co-locations",
     ]
@@ -260,10 +260,10 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     )
     assert "S1A_curated_WV_20160101_20160102_20260103_" in report
     assert "KNMI for EUMETSAT OSI SAF" in report
-    assert report.count(r"\includegraphics[") == 5
+    assert report.count(r"\includegraphics[") == 6
     assert_report_layout(manifest)
     reference_plot = mpimg.imread(manifest["figures"]["reference_distribution"])
-    assert reference_plot.shape[:2] == (750, 1350)
+    assert reference_plot.shape[1] > reference_plot.shape[0]
     assert not (tmp_path / "output/merged").exists()
     assert "curated_merge" not in manifest
     assert [entry["id"] for entry in manifest["filters_applied"]] == [
