@@ -16,7 +16,7 @@ MISSION_COLORS = {
 }
 
 
-def finish_density_map(figure, axis, cells):
+def finish_density_map(figure, axis, cells, reference="HSCAT"):
     """Style accumulated counts on a one-degree-wide geographic hexagonal grid."""
     counts = cells.get_array()
     maximum = max(2, int(counts.max()))
@@ -36,7 +36,7 @@ def finish_density_map(figure, axis, cells):
                     ["180°", "120°W", "60°W", "0°", "60°E", "120°E", "180°"])
     axis.set_yticks(np.arange(-90, 91, 30), ["90°S", "60°S", "30°S", "0°", "30°N", "60°N", "90°N"])
     axis.set(xlabel="", ylabel="",
-             title=f"{int(counts.sum()):,} retained Sentinel-1 / HSCAT matchups")
+             title=f"{int(counts.sum()):,} retained Sentinel-1 / {reference} matchups")
     axis.tick_params(labelsize=8)
     axis.set_axisbelow(True)
     ticks = [value for value in (1, 2, 3, 6, 10, 20, 30, 60, 100, 300, 1000) if value <= maximum]

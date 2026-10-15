@@ -24,7 +24,8 @@ from .pdf_support import (
     stage_latex_assets,
     _path,
 )
-from .plotting import MISSION_COLORS, plot_mission_distribution
+from .hscat_report import _annual_tick_indices
+from .plotting import MISSION_COLORS, finish_density_map, plot_mission_distribution
 
 MISSION_PATTERN = re.compile(r"^(S1[A-Z])_coaligned_catalogue_(WV)_")
 EXPECTED_MISSIONS = ("S1A", "S1C", "S1D")
@@ -890,7 +891,8 @@ def build_swot_test_report(test_path, manifest, summary, figures, report_dir, co
 
 
 def plot_swot_figures(test: pd.DataFrame, figures_dir: Path) -> dict[str, Path]:
-    """Write coverage, monthly-count, and SWH-distribution figures for the TEST rows."""
+    """Write coverage, monthly-count, and SWH-distribution figures for the supplied rows."""
+    curated = "_curation_mission" in test
     figures_dir = Path(figures_dir)
     figures_dir.mkdir(parents=True, exist_ok=True)
     paths = {
@@ -911,7 +913,13 @@ def plot_swot_figures(test: pd.DataFrame, figures_dir: Path) -> dict[str, Path]:
     present = [mission for mission in MISSION_COLORS if missions.eq(mission).any()]
 
     figure, axis = plt.subplots(figsize=(9, 4.5))
-    if len(test):
+    if curated:
+        lon = pd.to_numeric(test["sar_lon"], errors="coerce").to_numpy(dtype=float)
+        lat = pd.to_numeric(test["sar_lat"], errors="coerce").to_numpy(dtype=float)
+        valid = np.isfinite(lon) & np.isfinite(lat)
+        cells = axis.hexbin(lon[valid], lat[valid], gridsize=360,
+                            extent=(-180, 180, -90, 90), mincnt=0, linewidths=0)
+    elif len(test):
         axis.scatter(test["sar_lon"], test["sar_lat"], s=2, alpha=0.4, color="#355C7D")
     axis.set(
         xlim=(-180, 180),
@@ -922,6 +930,8 @@ def plot_swot_figures(test: pd.DataFrame, figures_dir: Path) -> dict[str, Path]:
     )
     axis.grid(alpha=0.2)
     figure.tight_layout()
+    if curated:
+        finish_density_map(figure, axis, cells, reference="SWOT")
     figure.savefig(paths["coverage"], dpi=150)
     plt.close(figure)
 
@@ -949,7 +959,10 @@ def plot_swot_figures(test: pd.DataFrame, figures_dir: Path) -> dict[str, Path]:
         bottom += counts
     if present:
         axis.legend()
-    axis.set(xlabel="SAR month", ylabel="Curated rows", title="Curated rows by month")
+    count_label = "Curated rows" if curated else "TEST rows"
+    axis.set(xlabel="SAR month", ylabel=count_label, title=f"{count_label} by month")
+    ticks = _annual_tick_indices(monthly.index.astype(str).tolist())
+    axis.set_xticks(ticks, monthly.index.astype(str)[ticks])
     axis.tick_params(axis="x", labelrotation=45)
     axis.grid(axis="y", alpha=0.2)
     figure.tight_layout()
@@ -974,6 +987,8 @@ def plot_swot_figures(test: pd.DataFrame, figures_dir: Path) -> dict[str, Path]:
     figure, axis = plt.subplots(figsize=(9, 5.0))
     plot_mission_distribution(axis, histogram, edges, MISSION_COLORS)
     axis.set(xlabel="SWOT significant wave height (m)", title="Reference SWH distribution")
+    if curated:
+        axis.set_ylabel("Curated rows per mission (%)")
     axis.grid(axis="y", alpha=0.2)
     figure.tight_layout(rect=(0, 0.18, 1, 1))
     figure.savefig(paths["swot_waveheight"], dpi=150)
