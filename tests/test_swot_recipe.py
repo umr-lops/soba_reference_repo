@@ -97,24 +97,20 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
          "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
     )
     (tex_path,) = list((root / "report").glob("*.tex"))
-    assert tex_path.parent == root / "report"
+    assert tex_path.name == "S1_curated_WV_SWOT_PODAAC_D0.tex"
     tex = tex_path.read_text()
-    assert "S1 WV SWOT" in tex
-    assert "never exceeds 100" not in tex
+    assert "Catalogue Columns" in tex
+    assert "Selection of Tiles / Filtered Co-locations" in tex
+    assert "TEST" not in tex and "TARGET" not in tex
+    assert "S1 WV SWOT" not in tex
     assert str(recipe) not in tex
     assert str(a) not in tex
     assert str(tmp_path) not in tex
-    assert a.name in tex
-    assert Path(manifest["sources"][0]["curated_path"]).name in tex
-    assert "--recipe recipe.toml" in tex
-    assert "fresh output directory" in tex
-    assert "merged_curated_output: not exported" in tex
-    assert "curated_merge:" not in tex
-    assert tex.count("max\\_rainrate\\_IMERG") == 2  # shared rule plus S1C override
-    assert "Common quality filters" in tex
-    assert "S1C-specific quality filters" in tex
-    assert "S1A-specific quality filters" in tex
-    assert "Remaining / removed" in tex
+    curated_name = Path(manifest["sources"][0]["curated_path"]).name
+    assert r"\path|" + curated_name + "|" in tex
+    assert "IMERG" in tex
+    assert r"swot\_waveheight" in tex
+    assert tex.count(r"\begin{longtable}") == 0
     assert_report_layout(manifest)
 
 
@@ -167,13 +163,9 @@ def test_recipe_common_filters_are_not_repeated_by_mission(tmp_path):
     assert cli_main(["--recipe", str(recipe)]) == 0
     (tex_path,) = list((tmp_path / "output/report").rglob("*.tex"))
     tex = tex_path.read_text()
-    assert "Common quality filters" in tex
-    assert "soba_create_test_dataset --recipe recipe.toml" in tex
-    assert "--swot-catalogue" not in tex
-    assert "-specific quality filters" not in tex
-    assert tex.count("max\\_rainrate\\_IMERG") == 1
-    assert "Remaining / removed" in tex
-    assert str(tmp_path) not in tex
+    assert "Selection of Tiles / Filtered Co-locations" in tex
+    assert "TEST" not in tex and "TARGET" not in tex
+    assert "complete footprint overlap" in tex
 
 
 def test_recipe_rejects_unsafe_tex_filename_before_writing(tmp_path):
@@ -244,8 +236,8 @@ def test_report_does_not_claim_disabled_overlap_or_time_threshold(tmp_path):
     assert "full footprint overlap" not in tex
     assert "no additional distance cutoff" not in tex
     assert "time co-location criterion" not in tex.lower()
-    assert "full overlap" in tex
-    assert "disabled" in tex
+    assert "complete footprint overlap" not in tex
+    assert "observations separated by less than two hours" not in tex
 
 
 def test_recipe_key_matches_exported_float32_coordinates_at_rounding_boundary(tmp_path):

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soba_reference_repo"
-version = "0.2.0"
+version = "0.3.0"
 description = "Recipe-driven SOBA reference TEST/TARGET dataset exporter"
 readme = "README.md"
 license = "MIT"
@@ -35,6 +35,9 @@ soba_produce_challenger = "soba_reference_repo.challenger:main"
 
 [project.urls]
 Repository = "https://github.com/umr-lops/soba_reference_repo"
+
+[tool.hatch.build]
+exclude = [".hermes/**"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/soba_reference_repo"]

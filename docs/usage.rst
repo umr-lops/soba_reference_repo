@@ -44,12 +44,21 @@ circular ECMWF/HSCAT direction difference <= 30 degrees, zero ice probability,
 ``ref_flag == 0``, mission-specific dates, and final imagette consistency.
 No rain filter is built in. Rows
 with duplicate ``primary_key`` values after curation are excluded as a group from
-both outputs; the manifest and report record those integrity exclusions separately
-from filter counts. HSCAT and SWOT TEST/TARGET filenames share the compact pattern
+both outputs; the manifest records those integrity exclusions separately from
+Curated quality-filter counts. HSCAT and SWOT TEST/TARGET filenames share the compact pattern
 ``S1_reference_test_dataset_WV_<production-date>_<variable>_<version>.parquet`` and
 ``S1_target_dataset_WV_<production-date>_<variable>_<version>.parquet``. The report
-``.tex`` and optional PDF use the TEST filename stem. Source coverage, polarization,
-and reference-product details remain in the run manifest.
+TeX names are ``S1_curated_WV_SV_KNMI-HSCAT-HY2-25km.tex`` and
+``S1_curated_WV_SWOT_PODAAC_D0.tex``. Their ``images_<report-stem>/`` folders
+contain the three data figures, SOBA dataflow, style, and logo. Only the PDF gains
+the recipe version suffix: ``<report-stem>_<version>.pdf``. Parquet naming is unchanged.
+
+Reports use Curated rows for figures and counts. Table 4 lists the generated
+observation file's exact columns and types; its TEST filename does not assign a
+final split. Sequential quality-filter counts precede the before/after summary.
+Product providers and the current SOBA reference appear in the public report;
+commands and recipe details remain in the manifest. Source coverage, polarization,
+and reference-product details remain traceable there.
 Reference-distribution plots show each mission as a distinct step line, normalized
 to percentages on shared bins, with sample counts in a centered legend.
 Wind-direction bins span 0–360 degrees.
