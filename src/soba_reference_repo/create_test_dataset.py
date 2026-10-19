@@ -16,14 +16,16 @@ def main(argv=None) -> int:
     from .curation import read_recipe
 
     recipe = read_recipe(args.recipe)
+    if recipe["reference"] == "altimeter":
+        raise SystemExit(
+            "this recipe uses reference = 'altimeter' (curation-only: no TEST/TARGET "
+            "pair or report). Run it with the dedicated command:\n"
+            "    soba_curate_dataset --recipe <this recipe>"
+        )
     if recipe["reference"] == "scat":
         from .hscat_test import run_hscat_recipe
 
         return run_hscat_recipe(args.recipe)
-    if recipe["reference"] == "altimeter":
-        from .alti_test import run_alti_recipe
-
-        return run_alti_recipe(args.recipe)
     from .swot_test import run_recipe
 
     return run_recipe(args.recipe)

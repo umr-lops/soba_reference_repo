@@ -1,4 +1,4 @@
-"""WV x altimeter curation: a curation-only reference with no SWOT pair/report."""
+"""Curation-only recipe: catalogue -> curated, with no TEST/TARGET pair or report."""
 
 import json
 
@@ -6,7 +6,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from soba_reference_repo import alti_test, curation
+from soba_reference_repo import curation, curate_dataset
 
 CCI_PRODUCT = "CCI-SEATSTATE_ALTI_L2P-V5"
 CMEMS_PRODUCT = "CMEMS-ALTI-L3-VAVH"
@@ -87,7 +87,7 @@ def test_run_alti_recipe_curates_no_rain_and_writes_manifest(tmp_path):
     recipe = tmp_path / "recipe.toml"
     recipe.write_text(recipe_text([("S1A", str(p1)), ("S1A", str(p2))], output_dir="run"))
 
-    assert alti_test.run_alti_recipe(recipe) == 0
+    assert curate_dataset.run_curate_recipe(recipe) == 0
 
     root = tmp_path / "run"
     curated = sorted((root / "curated" / "S1A").glob("*.parquet"))
@@ -108,7 +108,7 @@ def test_run_alti_recipe_curates_no_rain_and_writes_manifest(tmp_path):
     assert len(manifest["sources"]) == 2
 
 
-def test_run_alti_recipe_applies_no_default_swot_rules(tmp_path):
+def test_run_curate_recipe_applies_no_default_swot_rules(tmp_path):
     # A source with only the filter column. If the 13 SWOT defaults ran, this
     # would fail on missing columns (oswLandCoverage, ref_mean_hs_karin, ...).
     path = tmp_path / alti_name("S1C", CMEMS_PRODUCT)
@@ -116,15 +116,37 @@ def test_run_alti_recipe_applies_no_default_swot_rules(tmp_path):
     recipe = tmp_path / "recipe.toml"
     recipe.write_text(recipe_text([("S1C", str(path))], output_dir="run"))
 
-    assert alti_test.run_alti_recipe(recipe) == 0
+    assert curate_dataset.run_curate_recipe(recipe) == 0
     kept = pq.read_table(sorted((tmp_path / "run" / "curated" / "S1C").glob("*.parquet"))[0])
     assert kept.num_rows == 1
 
 
-def test_run_alti_recipe_rejects_existing_output_dir(tmp_path):
+def test_run_curate_recipe_rejects_existing_output_dir(tmp_path):
     p1 = write_alti_source(tmp_path, "S1A", CCI_PRODUCT)
     (tmp_path / "run").mkdir()
     recipe = tmp_path / "recipe.toml"
     recipe.write_text(recipe_text([("S1A", str(p1))], output_dir="run"))
     with pytest.raises(FileExistsError):
-        alti_test.run_alti_recipe(recipe)
+        curate_dataset.run_curate_recipe(recipe)
+
+
+def test_curate_dataset_rejects_non_altimeter_reference(tmp_path):
+    # The curation-only entry point must not run SWOT/SCAT recipes.
+    p1 = write_alti_source(tmp_path, "S1A", CCI_PRODUCT)
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(recipe_text([("S1A", str(p1))], output_dir="run").replace(
+        'reference = "altimeter"', 'reference = "swot"'))
+    with pytest.raises(ValueError, match="altimeter"):
+        curate_dataset.run_curate_recipe(recipe)
+
+
+def test_create_test_dataset_routes_altimeter_to_curate_command(tmp_path):
+    # soba_create_test_dataset must refuse curation-only recipes and point to
+    # the dedicated soba_curate_dataset command (no TEST/TARGET pair here).
+    from soba_reference_repo import create_test_dataset
+
+    p1 = write_alti_source(tmp_path, "S1A", CCI_PRODUCT)
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(recipe_text([("S1A", str(p1))], output_dir="run"))
+    with pytest.raises(SystemExit, match="soba_curate_dataset"):
+        create_test_dataset.main(["--recipe", str(recipe)])
