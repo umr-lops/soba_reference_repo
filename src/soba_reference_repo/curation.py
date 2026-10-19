@@ -39,6 +39,15 @@ DEFAULT_SWOT_RULES = tuple(
     for identifier, name, clauses in _DEFAULT_SPEC
 )
 
+# WV x altimeter coaligned catalogue filenames carry full timestamps
+# (YYYYMMDDTHHMMSS) in the start/stop/production slots and a CCI or CMEMS
+# product token. Example:
+#   S1A_..._WV_20191001T005910_20260629T193043_20261018T022921_SV_CMEMS-ALTI-L3-VAVH_1.0.parquet
+S1_WV_ALTI_NAME_RE = re.compile(
+    r"(S1[A-D])_coaligned_catalogue_(WV)_(\d{8}T\d{6})_(\d{8}T\d{6})_(\d{8}T\d{6})_"
+    r"(SV|DV|SH|DH)_([A-Za-z0-9][A-Za-z0-9._-]*)_(\d+\.\d+)\.parquet"
+)
+
 
 def resolve_rules(overrides, include_defaults=True, defaults=None):
     """Resolve ordered rule overrides over a caller-selected default set."""
@@ -162,13 +171,15 @@ def read_recipe(path):
         },
         {"reference", "output_dir", "production_date", "version", "catalogues"},
     )
-    if recipe["reference"] not in {"swot", "scat"}:
-        raise ValueError(f"unsupported reference: {recipe['reference']!r}; supported: swot, scat")
+    if recipe["reference"] not in {"swot", "scat", "altimeter"}:
+        raise ValueError(
+            f"unsupported reference: {recipe['reference']!r}; supported: swot, scat, altimeter"
+        )
     if recipe["reference"] == "swot":
         recipe.setdefault("reference_variable", "swh")
         if recipe["reference_variable"] != "swh":
             raise ValueError("SWOT WV supports only reference_variable = 'swh'")
-    else:
+    elif recipe["reference"] == "scat":
         if "reference_variable" not in recipe:
             raise ValueError(
                 "HSCAT recipes require reference_variable = "
@@ -205,7 +216,7 @@ def read_recipe(path):
         mission = catalogue["mission"]
         if not isinstance(mission, str) or not re.fullmatch(r"S1[A-D]", mission):
             raise ValueError(f"invalid mission: {mission!r}")
-        if mission in missions:
+        if recipe["reference"] != "altimeter" and mission in missions:
             raise ValueError(f"duplicate mission: {mission}")
         missions.add(mission)
         if not isinstance(catalogue["path"], str):
@@ -217,13 +228,15 @@ def read_recipe(path):
             raise FileNotFoundError(f"missing catalogue: {catalogue['path']}")
         if recipe["reference"] == "swot":
             match = re.match(r"^(S1[A-D])_coaligned_catalogue_(WV)_", catalogue["path"].name)
-        else:
+        elif recipe["reference"] == "scat":
             match = re.match(
                 r"^(S1[A-D])_coaligned_catalogue_WV_\d{8}_\d{8}_\d{8}_"
                 r"(SV|DV|SH|DH)_KNMI-HSCAT-HY2-25km_"
                 r"\d+\.\d+\.parquet$",
                 catalogue["path"].name,
             )
+        else:
+            match = S1_WV_ALTI_NAME_RE.match(catalogue["path"].name)
         if match is None or match.group(1) != mission:
             raise ValueError(
                 "mission/filename conflict or unsupported HSCAT catalogue: "
@@ -349,15 +362,27 @@ def curate_frame(frame, rules):
     return selected, steps
 
 
+def _parse_catalogue_date(value):
+    """Return the YYYYMMDD part of a catalogue date (YYYYMMDD or YYYYMMDDTHHMMSS)."""
+    if len(value) == 8:
+        parsed = datetime.strptime(value, "%Y%m%d")
+    elif len(value) == 15 and value[8] == "T":
+        parsed = datetime.strptime(value, "%Y%m%dT%H%M%S")
+    else:
+        raise ValueError(f"invalid catalogue date: {value}")
+    return parsed.date().strftime("%Y%m%d")
+
+
 def curated_filename(source_path, production_date, version):
     """Retain source catalogue coverage/product identity; use the Curated run version/date."""
-    match = re.fullmatch(
+    name = Path(source_path).name
+    match = S1_WV_ALTI_NAME_RE.match(name) or re.fullmatch(
         r"(S1[A-D])_coaligned_catalogue_(WV)_(\d{8})_(\d{8})_(\d{8})_"
         r"(SV|DV|SH|DH)_([A-Za-z0-9][A-Za-z0-9.-]*)_(\d+\.\d+)\.parquet",
-        Path(source_path).name,
+        name,
     )
     if match is None:
-        raise ValueError(f"invalid WV catalogue filename: {Path(source_path).name}")
+        raise ValueError(f"invalid WV catalogue filename: {name}")
     if not isinstance(production_date, str) or not re.fullmatch(r"[0-9]{8}", production_date):
         raise ValueError("production_date must use YYYYMMDD")
     try:
@@ -367,15 +392,13 @@ def curated_filename(source_path, production_date, version):
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+", version):
         raise ValueError("version must use X.Y")
     mission, mode, start, stop, source_date, polarization, product, _ = match.groups()
-    for date in (start, stop, source_date):
-        try:
-            datetime.strptime(date, "%Y%m%d")
-        except ValueError as error:
-            raise ValueError("invalid catalogue date") from error
-    if start > stop:
+    start_d = _parse_catalogue_date(start)
+    stop_d = _parse_catalogue_date(stop)
+    _parse_catalogue_date(source_date)
+    if start_d > stop_d:
         raise ValueError("catalogue startdate must not exceed stopdate")
     return (
-        f"{mission}_curated_{mode}_{start}_{stop}_{production_date}_"
+        f"{mission}_curated_{mode}_{start_d}_{stop_d}_{production_date}_"
         f"{polarization}_{product}_{version}.parquet"
     )
 
