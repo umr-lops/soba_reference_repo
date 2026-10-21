@@ -1,0 +1,62 @@
+# WV altimeter curation only: no TEST/TARGET export or report.
+# Replace every path with a real timestamped CCI/CMEMS catalogue.
+# Filenames and coverage dates below are illustrative.
+# Keep one input per satellite/product; CCI and CMEMS may share a satellite.
+reference = "altimeter"
+output_dir = "../runs/alti-curation-1.0"
+production_date = "20261021"
+version = "1.0"
+
+[[catalogues]]
+mission = "S1A"
+path = "../data/S1A_coaligned_catalogue_WV_20191001T005910_20260629T193043_20261018T021205_SV_CCI-SEATSTATE_ALTI_L2P-V5_1.0.parquet"
+
+[[catalogues.rules]]
+id = "no_rain"
+name = "IMERG rain rate == 0 mm/h"
+clauses = [["imerg_rainrate", "eq", 0]]
+
+[[catalogues]]
+mission = "S1A"
+path = "../data/S1A_coaligned_catalogue_WV_20191001T005910_20260629T193043_20261018T022921_SV_CMEMS-ALTI-L3-VAVH_1.0.parquet"
+
+[[catalogues.rules]]
+id = "no_rain"
+name = "IMERG rain rate == 0 mm/h"
+clauses = [["imerg_rainrate", "eq", 0]]
+
+[[catalogues]]
+mission = "S1B"
+path = "../data/S1B_coaligned_catalogue_WV_20191001T005910_20211223T193043_20261018T022921_SV_CMEMS-ALTI-L3-VAVH_1.0.parquet"
+
+[[catalogues.rules]]
+id = "no_rain"
+name = "IMERG rain rate == 0 mm/h"
+clauses = [["imerg_rainrate", "eq", 0]]
+
+[[catalogues]]
+mission = "S1C"
+path = "../data/S1C_coaligned_catalogue_WV_20250118T005910_20260629T193043_20261018T021205_SV_CCI-SEATSTATE_ALTI_L2P-V5_1.0.parquet"
+
+[[catalogues.rules]]
+id = "no_rain"
+name = "IMERG rain rate == 0 mm/h"
+clauses = [["imerg_rainrate", "eq", 0]]
+
+[[catalogues]]
+mission = "S1C"
+path = "../data/S1C_coaligned_catalogue_WV_20250118T005910_20260629T193043_20261018T022921_SV_CMEMS-ALTI-L3-VAVH_1.0.parquet"
+
+[[catalogues.rules]]
+id = "no_rain"
+name = "IMERG rain rate == 0 mm/h"
+clauses = [["imerg_rainrate", "eq", 0]]
+
+[[catalogues]]
+mission = "S1D"
+path = "../data/S1D_coaligned_catalogue_WV_20260107T005910_20260629T193043_20261018T022921_SV_CMEMS-ALTI-L3-VAVH_1.0.parquet"
+
+[[catalogues.rules]]
+id = "no_rain"
+name = "IMERG rain rate == 0 mm/h"
+clauses = [["imerg_rainrate", "eq", 0]]

@@ -70,6 +70,16 @@ Each satellite starts with 13 predefined SWOT filters. A `[[catalogues.rules]]` 
 
 Copy `examples/hscat-curation.toml` to `runs/`, update the paths, and choose `windspeed` or `winddirection`. The example rejects imagettes whose eligible SCAT matchup directions have circular STD above 10°. Keep this configurable rule last. Existing duplicate-key handling is unchanged. See [usage details](docs/usage.rst).
 
+## Curate WV altimeter catalogues
+
+Copy [examples/alti-curation.toml](examples/alti-curation.toml) to `runs/`, update the timestamped CCI/CMEMS catalogue paths and run settings, and choose a new output directory. Keep one input per satellite/product, then run:
+
+```bash
+soba_curate_dataset --recipe runs/alti-recipe.toml
+```
+
+Only recipe filters apply; the example keeps `imerg_rainrate == 0`. Outputs are separate Curated Parquets and a manifest—no TEST/TARGET or report.
+
 ## Build a CHALLENGER
 
 Copy `examples/cci-seastate-challenger.toml`, set its paths and run settings, then run:
