@@ -363,6 +363,16 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     )
     mapping = {
         "SEQUENTIAL_COUNTS": sequential_counts,
+        "DIRECTION_STD_NOTE": (
+            r"\noindent The direction-STD filter excludes WV imagettes whose eligible HSCAT "
+            "references disagree, avoiding an ambiguous wind-direction target. All remaining "
+            "matchups for an imagette are rejected when their circular STD exceeds the "
+            "configured threshold. The aim is reference consistency; the threshold is a chosen "
+            "setting whose scientific validation is not documented here."
+            if hscat and any(clause[1] == "imagette_circstd_le"
+                             for _, step in active for clause in step.get("clauses", []))
+            else ""
+        ),
         "DATAFLOW_FIGURE": f"{assets}/sobadataflow.png",
         "STYLE_FILE": f"{assets}/soba", "GRAPHICS_DIRECTORY": assets,
         "DATASET_NAME": _tex(dataset_name), "DOCUMENT_PRODUCT": product,
