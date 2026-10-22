@@ -672,7 +672,12 @@ def run_hscat_recipe(recipe_path):
                 "report_tex": str(tex_path),
                 "pdf": str(pdf_path) if pdf_path else None,
                 "figures": {
-                    key: str(value) for key, value in figures.items() if key != "mission_counts"
+                    key: str(value) for key, value in figures.items()
+                    if key not in {"mission_counts", "coverage_legacy", "coverage_svg"}
+                },
+                "coverage_alternatives": {
+                    "global": str(figures["coverage_legacy"]),
+                    "platform_svg": str(figures["coverage_svg"]),
                 },
                 "summary": stats,
             }

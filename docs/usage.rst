@@ -63,6 +63,23 @@ Reference-distribution plots show each mission as a distinct step line, normaliz
 to percentages on shared bins, with sample counts in a centered legend.
 Wind-direction bins span 0–360 degrees.
 
+HSCAT coverage and rollback
+----------------------------------------
+
+The first HSCAT map (``sar_coverage.png``) separates Sentinel-1 missions and HY-2
+platforms, with one shared logarithmic count scale and per-panel dates/counts.
+Counts are Curated rows, not unique imagettes or observation rates. Invalid SAR
+coordinates are omitted; unrecognized reference IDs appear as ``Unknown HY-2``.
+SWOT and non-Curated TEST maps are unchanged.
+
+Each HSCAT run also retains the previous global map as
+``sar_coverage_global.png`` and an editable ``sar_coverage.svg``. Their paths are
+recorded under ``coverage_alternatives`` in the manifest, outside the report's
+figure list. To revert an existing report, change only the coverage figure path
+to ``sar_coverage_global.png``, restore the global-map description/caption, and
+recompile; no data rerun is needed. The pre-panel implementation is preserved in
+Git at ``b05936e`` (``hscat_report.py`` and ``curated_report.py``).
+
 Per-imagette HSCAT direction consistency
 --------------------------------------------------
 

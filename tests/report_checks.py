@@ -60,8 +60,13 @@ def assert_report_layout(manifest):
                for group in ("Identification", "SAR geometry", "Reference", "Ancillary"))
     assert len(figures) == (3 if manifest.get("reference") == "swot" else 4)
     assert assets_dir.is_dir()
+    alternatives = manifest.get("coverage_alternatives", {})
+    if manifest.get("reference") == "scat":
+        assert set(alternatives) == {"global", "platform_svg"}
+        assert Path(alternatives["global"]).name == "sar_coverage_global.png"
     assert set(assets_dir.iterdir()) == {
-        *figures, assets_dir / "soba.sty", assets_dir / "logo_soba.png",
+        *figures, *(Path(path) for path in alternatives.values()),
+        assets_dir / "soba.sty", assets_dir / "logo_soba.png",
         assets_dir / "sobadataflow.png"
     }
     assert r"\input{" + assets_dir.name + "/soba.sty}" in tex

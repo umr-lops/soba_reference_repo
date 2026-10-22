@@ -392,12 +392,19 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             "then additional filters select reliable, consistent matches for evaluation."
         ),
         "COVERAGE_DESCRIPTION": (
+            "Panels separate Sentinel-1 missions and HY-2 reference platforms at the SAR "
+            "imagette centres, with counts and date ranges. All panels share a logarithmic "
+            "count scale per 1-degree-wide hexagonal cell. Counts are Curated rows, not "
+            "unique imagettes or time-normalized rates; invalid coordinates are omitted. "
+            "Unrecognized reference identifiers appear as Unknown HY-2."
+            if hscat else
             "The heatmap shows retained matches per 1-degree-wide hexagonal cell on a logarithmic "
             "color scale. Matches without finite coordinates are omitted."
         ),
         "COVERAGE_FIGURE": f"{assets}/{Path(paths[0]).name}",
         "COVERAGE_CAPTION": (
-            f"Global density of retained Sentinel-1 / {product} matches."
+            "Geographic coverage of retained S1 / HY-2 matchups by platform." if hscat
+            else f"Global density of retained Sentinel-1 / {product} matches."
         ),
         "MONTHLY_DESCRIPTION": "Retained matches by SAR acquisition month, stacked by mission.",
         "MONTHLY_FIGURE": f"{assets}/{Path(paths[1]).name}",

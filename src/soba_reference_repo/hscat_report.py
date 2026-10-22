@@ -11,6 +11,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 from matplotlib import pyplot as plt
 
+from .hscat_coverage import plot_platform_coverage
 from .pdf_support import ASSET_DIR, _path, stage_latex_assets
 from .plotting import MISSION_COLORS, finish_density_map, plot_mission_distribution
 
@@ -53,7 +54,7 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
     parquet = pq.ParquetFile(test_path)
     required = ["sar_lon", "sar_lat", "sar_time", mission_column, value_column]
     if curated:
-        required.append("ref_param_1")
+        required.extend(["ref_param_1", "ref_id"])
     missing = set(required) - set(parquet.schema_arrow.names)
     if missing:
         raise ValueError(f"HSCAT TEST file lacks figure columns: {sorted(missing)}")
@@ -113,8 +114,11 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
     figure.tight_layout()
     if curated:
         finish_density_map(figure, axis, density)
-    figure.savefig(coverage_path, dpi=150)
+    legacy_coverage = output_dir / "sar_coverage_global.png" if curated else coverage_path
+    figure.savefig(legacy_coverage, dpi=150)
     plt.close(figure)
+    if curated:
+        plot_platform_coverage(test_path, coverage_path, batch_size=batch_size)
 
     present = sorted(mission_counts)
     months = sorted({month for month, _ in monthly_counts})
@@ -205,6 +209,8 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
     plt.close(figure)
     return {
         "coverage": coverage_path,
+        **({"coverage_legacy": legacy_coverage,
+            "coverage_svg": coverage_path.with_suffix(".svg")} if curated else {}),
         "monthly_rows": monthly_path,
         "reference_distribution": distribution_path,
         **extra_figures,
