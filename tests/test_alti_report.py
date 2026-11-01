@@ -18,7 +18,13 @@ def _alti_name(mission, product):
             f"20261018T021205_SV_{product}_1.0.parquet")
 
 
-def _curated_table(mission):
+def _fname_for(product):
+    if product == CCI:
+        return "ESACCI-SEASTATE-L2P-SWH-SARAL-20200101T000000-fv01.nc"
+    return "global_vavh_l3_rt_al_20200101_20200102_20200103.nc"
+
+
+def _curated_table(mission, product):
     """Tiny curated frame with every column the ALTI report reads."""
     times = pd.DatetimeIndex([f"2020-01-0{i} 12:00:00" for i in range(1, 5)]).tz_localize("UTC")
     return pa.table({
@@ -30,6 +36,7 @@ def _curated_table(mission):
         "imerg_rainrate": pa.array([0.0, 0.0, 0.0, 0.0]),
         "ref_lon": pa.array([-120.1, -119.6, -119.1, -118.6]),
         "ref_lat": pa.array([30.1, 30.6, 31.1, 31.6]),
+        "fname": pa.array([_fname_for(product)] * 4),
         "_curation_mission": pa.array([mission] * 4),
         "_curation_row": pa.array([0, 1, 2, 3]),
     })
@@ -46,10 +53,10 @@ def _build_alti_run(tmp_path):
               'production_date = "20261101"', 'version = "2.0"', 'compile = false', '']
     for product, label in ((CCI, "CCI"), (CMEMS, "CMEMS")):
         src = tmp_path / _alti_name("S1A", product)
-        pq.write_table(_curated_table("S1A"), src)
+        pq.write_table(_curated_table("S1A", product), src)
         curated = run / "curated" / "S1A" / (
             f"S1A_curated_WV_20150319_20251231_20261101_SV_{product}_2.0.parquet")
-        pq.write_table(_curated_table("S1A"), curated)
+        pq.write_table(_curated_table("S1A", product), curated)
         blocks += ['[[catalogues]]', 'mission = "S1A"', f'path = "{src.name}"',
                    '[[catalogues.rules]]', 'id = "no_rain"', 'name = "IMERG rain rate == 0"',
                    'clauses = [["imerg_rainrate", "eq", 0]]', '']
@@ -101,7 +108,21 @@ def test_build_alti_run_report_two_sources_one_document(tmp_path):
     assert "Filter & S1A CCI-SeaState & S1A CMEMS-VAVH" in tex
     # Distribution is described from the altimeter Hs variable.
     assert "Colored lines show significant wave height (m)" in tex
+    # Review additions: per-database source versions, split figures, initial-vs-final.
+    assert "Source catalogue versions" in tex
+    assert "L2P-V5 (source catalogue)" in tex
+    assert "CMEMS-ALTI-L3-VAVH (source catalogue)" in tex
+    assert "1.0 (source) / 2.0 (curated)" in tex
+    assert "cov_CCI_S1A.png" in tex and "cov_CMEMS_S1A.png" in tex
+    assert "monthly_CCI_S1A.png" in tex
+    assert "alti_swh_initial_vs_final.png" in tex
+    # Table 6 now reports remaining / removed / % removed (percent sign escaped).
+    assert "/ 0 (0.0\\%)" in tex
     assert result["pdf"] is None
     manifest = json.loads((run / "manifest.json").read_text())
     assert manifest["report_tex"] == str(tex_path)
     assert "figures" in manifest
+    # The split + initial-vs-final figures are written to the assets bundle.
+    assets = run / "report" / "images_S1_curated_WV_ALTI"
+    assert (assets / "cov_CCI_S1A.png").is_file()
+    assert (assets / "alti_swh_initial_vs_final.png").is_file()

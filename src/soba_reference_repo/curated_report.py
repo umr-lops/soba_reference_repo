@@ -92,8 +92,16 @@ def _source_label(source):
 
 def build_curated_report(*, title, platform, instrument, reference, variable,
                          document_stem, recipe, manifest, figures, summary, observation_path,
-                         field_descriptions):
-    """Preserve the supplied PDF's cover, section order, tables, and SOBA style."""
+                         field_descriptions, version_extra=None,
+                         coverage_extra="", monthly_extra="", distribution_extra="",
+                         filter_removal_figures=""):
+    """Preserve the supplied PDF's cover, section order, tables, and SOBA style.
+
+    ``version_extra`` adds a per-database source-version note (e.g. the distinct
+    CCI and CMEMS catalogue versions) after the Catalogue Columns table; the
+    ``*_extra`` figure blocks insert additional ALTI figures. All default to the
+    empty/None no-op so the SWOT and HSCAT documents are unchanged.
+    """
     sources = sorted(manifest["sources"],
                      key=lambda item: (item["mission"], Path(item["curated_path"]).name))
     source_schemas = [pq.read_schema(item["curated_path"]) for item in sources]
@@ -313,6 +321,50 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
          f"{item['input_rows'] - item['curated_rows']:,}")
         for label, item in zip(source_labels, sources)
     ]
+    # Per-database source versions (ALTI carries distinct CCI + CMEMS catalogues,
+    # so a single "Dataset version" row is ambiguous). Group sources by the
+    # catalogue product token in their filename and print each product's version.
+    catalogue_versions = ""
+    if version_extra:
+        product_re = re.compile(r"_(SV|DV|SH|DH)_([A-Za-z0-9._-]+)_(\d+\.\d+)$")
+        by_product = {}  # token -> (version, {missions})
+        for item in sources:
+            match = product_re.search(Path(item["path"]).stem)
+            if not match:
+                continue
+            token, version = match.group(2), match.group(3)
+            entry = by_product.setdefault(token, (version, set()))
+            entry[1].add(item["mission"])
+        rows = []
+        for token, (version, missions) in by_product.items():
+            rows.append((
+                _tex(f"{token} (source catalogue)"),
+                _tex(", ".join(sorted(missions))),
+                f"{version} (source) / {recipe['version']} (curated)",
+            ))
+        if rows:
+            catalogue_versions = "\n".join([
+                r"\noindent\textbf{Source catalogue versions.}",
+                "Each reference database ships its own version; the curated-set",
+                "version is shared across all catalogues.",
+                r"\begin{table}[H]\centering",
+                r"\caption{Source catalogue versions by reference database.}",
+                r"\label{tab:catalogue_versions}",
+                r"{\small",
+                r"\begin{tabular}{"
+                r"@{}>{\raggedright\arraybackslash}p{6.0cm}"
+                r">{\raggedright\arraybackslash}p{3.2cm}"
+                r">{\raggedright\arraybackslash}p{5.0cm}@{}}",
+                r"\toprule",
+                (r"\textbf{Reference database} & \textbf{Catalogues}"
+                 r" & \textbf{Version} " + chr(92) * 2),
+                r"\midrule",
+                _rows(rows),
+                r"\bottomrule",
+                r"\end{tabular}",
+                "}",
+                r"\end{table}",
+            ])
     # Keep each source's filter order, including mission-specific date rules.
     steps_by_label = {label: {} for label in source_labels}
     predecessors = {}
@@ -342,6 +394,18 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
                 steps.pop(0) if steps and steps[0]["id"] == rule_id else None
                 for steps in pending
             ])
+    def _count_cell(step):
+        """A sequential-count cell. ALTI adds the percent removed; the shared
+        SWOT/HSCAT documents keep the plain ``remaining / removed`` wording."""
+        if not step:
+            return "--"
+        if not alti:
+            return f"{step['remaining']:,} / {step['removed']:,}"
+        before = step.get("before", step["remaining"] + step["removed"])
+        pct = step["removed"] / before if before else 0.0
+        pct_str = f"{pct:.1%}".replace("%", r"\%")
+        return f"{step['remaining']:,} / {step['removed']:,} ({pct_str})"
+
     count_rows = []
     for steps in step_groups:
         rule_id = next(step["id"] for step in steps if step)
@@ -357,10 +421,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         }.items():
             name = name.replace(technical, explicit)
         name = name.replace("==", "equals").replace("<=", "at most")
-        count_rows.append((_tex(name), *(
-            f"{step['remaining']:,} / {step['removed']:,}" if step else "--"
-            for step in steps
-        )))
+        count_rows.append((_tex(name), *(_count_cell(step) for step in steps)))
     if len(sources) > 4:
         # ALTI release: one column per catalogue (CCI + CMEMS per mission).
         count_spec = (r"@{}>{\raggedright\arraybackslash}p{3.6cm}"
@@ -439,9 +500,14 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             "Geographic coverage of retained S1 / HY-2 matchups by platform." if hscat
             else f"Global density of retained Sentinel-1 / {product} matches."
         ),
+        "COVERAGE_EXTRA": coverage_extra,
         "MONTHLY_DESCRIPTION": "Retained matches by SAR acquisition month, stacked by mission.",
         "MONTHLY_FIGURE": f"{assets}/{Path(paths[1]).name}",
         "MONTHLY_CAPTION": f"Monthly count of retained {product} matches, stacked by mission.",
+        "MONTHLY_EXTRA": monthly_extra,
+        "DISTRIBUTION_EXTRA": distribution_extra,
+        "FILTER_REMOVAL_FIGURES": filter_removal_figures,
+        "CATALOGUE_VERSIONS": catalogue_versions,
         "REFERENCE_DESCRIPTION": (
             "Colored lines show HSCAT wind speed (top) and wind direction (bottom) by mission. "
             if hscat else f"Colored lines show {_tex(variable)} by mission. "
@@ -474,6 +540,18 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "PRODUCT_REFERENCES": references,
     }
     text = (ASSET_DIR / "latex" / "curated_template.tex").read_text()
+    # Optional placeholder lines that vanish entirely when empty, so the shared
+    # SWOT/HSCAT documents (which leave them blank) stay byte-identical.
+    optional_lines = {"COVERAGE_EXTRA", "MONTHLY_EXTRA", "DISTRIBUTION_EXTRA",
+                      "CATALOGUE_VERSIONS", "FILTER_REMOVAL_FIGURES"}
+    kept = []
+    for line in text.split("\n"):
+        match = re.fullmatch(r"@@([A-Z_]+)@@", line.strip())
+        if (match and match.group(1) in optional_lines
+                and mapping.get(match.group(1), "") == ""):
+            continue
+        kept.append(line)
+    text = "\n".join(kept)
     for key, value in mapping.items():
         text = text.replace(f"@@{key}@@", value)
     leftovers = re.findall(r"@@[A-Z_]+@@", text)
