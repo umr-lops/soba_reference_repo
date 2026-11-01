@@ -392,6 +392,3 @@ def test_not_in_window_for_raises_on_missing_time_column():
     with pytest.raises(ValueError, match="missing filter column"):
         curation.clause_mask(frame, ["fname", "not_in_window_for",
                                      ["sar_time", ["cfo"], "2019-01-01", "2024-01-01"]])
-
-
-
