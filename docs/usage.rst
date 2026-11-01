@@ -17,7 +17,8 @@ point each ``[[catalogues]]`` path to a WV co-aligned Parquet, and choose a new
 The recipe selects SWOT WV or HSCAT. ALTI is not supported. ``soba_reference_repo`` remains an alias for the same command. The recipe client module is ``soba_reference_repo.create_test_dataset``.
 
 The recipe supports any nonempty subset of S1A through S1D. Dates use ``YYYYMMDD``
-and versions use ``X.Y``. The output directory must not already exist. The tool
+and versions use ``X.Y`` (see ``Curated filenames`` below for the bump rule).
+The output directory must not already exist. The tool
 saves one Curated Parquet per satellite and writes aligned TEST and TARGET Parquets.
 It uses a temporary merge for pairing but does not persist a merged Curated file.
 The run's ``report/`` directory holds the editable TeX and optional PDF. Figures,
@@ -113,6 +114,18 @@ Coverage dates, polarization, and reference product retain the source catalogue
 values, including for empty Curated outputs; they are not recalculated after
 filtering. Production date and version come from the recipe. Native data and
 TEST/TARGET filenames are unchanged. Invalid source names fail before output creation.
+
+The ``X.Y`` version follows a fixed convention:
+
+- ``X`` (major) bumps when the curated **content** changes in a way visible to
+  users, e.g. adding, removing or tightening curation rules so that different
+  rows are kept or dropped.
+- ``Y`` (minor) bumps only when the build script changes but the resulting
+  Parquet content is unchanged.
+
+Example: adding the ``alti_ww3_30pct``, ``cfosat_pre2024`` and
+``hy2b_frozen_20230219`` rules to the v1.0 "no_rain" curation drops rows, so the
+output is v2.0 (not v1.1).
 
 Validate Parquets
 -----------------

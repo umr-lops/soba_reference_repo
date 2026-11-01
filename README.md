@@ -100,6 +100,18 @@ The `not_in_window_for` patterns match the reference filename that identifies
 the altimeter (CCI `SEASTATE-L2P-SWH-<sat>-…` and CMEMS ALTI-L3-VAVH
 `global_vavh_l3_rt_<token>_…` names), so a single rule covers both databases.
 
+Curated filenames use the `X.Y` naming convention:
+
+- `X` (major) bumps when the curated **content** changes in a way visible to
+  users, e.g. adding, removing or tightening curation rules so that different
+  rows are kept or dropped.
+- `Y` (minor) bumps only when the build script changes but the resulting
+  Parquet content is unchanged.
+
+Example: adding the `alti_ww3_30pct`, `cfosat_pre2024` and
+`hy2b_frozen_20230219` rules to the v1.0 "no_rain" curation drops rows, so the
+output is v2.0 (not v1.1). See [report details](docs/usage.rst).
+
 ## Build a CHALLENGER
 
 Copy `examples/cci-seastate-challenger.toml`, set its paths and run settings, then run:
