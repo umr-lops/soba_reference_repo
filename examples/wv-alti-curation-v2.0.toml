@@ -1,4 +1,4 @@
-# WV altimeter curation v1.1: no TEST/TARGET export or report.
+# WV altimeter curation v2.0: no TEST/TARGET export or report.
 #
 # Adds, on top of the v1.0 "no_rain" rule, three reference-quality rules:
 #
@@ -20,9 +20,9 @@
 # satellite/product; CCI and CMEMS may share a satellite.
 
 reference = "altimeter"
-output_dir = "../runs/wv-alti-curation-1.1"
+output_dir = "../runs/wv-alti-curation-2.0"
 production_date = "20261101"
-version = "1.1"
+version = "2.0"
 
 [[catalogues]]
 mission = "S1A"

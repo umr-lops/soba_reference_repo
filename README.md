@@ -82,7 +82,7 @@ Only recipe filters apply; the example keeps `imerg_rainrate == 0`. Outputs are 
 
 For a fuller reference-quality screen (altimeter vs WW3 agreement, mission/date
 blackouts such as CFOSAT pre-2024 or the HY2B 2023-02-19 frozen-value event),
-copy [examples/wv-alti-curation-v1.1.toml](examples/wv-alti-curation-v1.1.toml).
+copy [examples/wv-alti-curation-v2.0.toml](examples/wv-alti-curation-v2.0.toml).
 It uses two clause types added for this use case:
 
 ```toml
