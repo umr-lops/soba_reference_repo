@@ -105,6 +105,33 @@ Missing or blank imagette identities are excluded before grouping; the run logs
 and manifest record their count separately. Malformed non-empty identities
 raise an error with example values. This does not change the source catalogue.
 
+Curated reports
+---------------
+
+SWOT and HSCAT write their Curated document (figures + LaTeX + optional PDF)
+inside the run's ``report/`` directory when the recipe is run. The document stem
+and figure set are fixed per reference (``S1_curated_WV_SWOT_PODAAC_D0`` and
+``S1_curated_WV_SV_KNMI-HSCAT-HY2-25km``). All three share one LaTeX template,
+so the layout, style and page structure are identical.
+
+The altimeter curation (``reference = "altimeter"``, ``soba_curate_dataset``) is
+curation-only by default. To also build its Curated document, set ``report = true``
+(and ``compile = true`` for a PDF) in the recipe and re-run the same command, or
+rebuild the report from an already-curated run directory without re-running the
+curation::
+
+   soba_curate_dataset --run-dir path/to/curated-run [--no-compile]
+
+The altimeter report is a single document describing every Curated Parquet in the
+run (CCI SeaState V5 and CMEMS ALTI-L3-VAVH). When a satellite has both a CCI and a
+CMEMS catalogue, each gets its own labelled column (e.g. ``S1A CCI-SeaState`` and
+``S1A CMEMS-VAVH``) rather than being collapsed by mission. The reference-distribution
+figure uses ``ref_hs_alti_closest`` (the altimeter significant wave height).
+
+PDF compilation uses ``pdflatex`` and falls back to ``tectonic`` automatically when
+``pdflatex`` is absent or incomplete (e.g. a partial TeX Live install without its
+format files). Either engine is sufficient.
+
 Curated filenames
 -----------------
 

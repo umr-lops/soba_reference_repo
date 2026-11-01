@@ -70,15 +70,38 @@ Each satellite starts with 13 predefined SWOT filters. A `[[catalogues.rules]]` 
 
 Copy `examples/hscat-curation.toml` to `runs/`, update the paths, and choose `windspeed` or `winddirection`. The example rejects imagettes whose eligible SCAT matchup directions have circular STD above 10°. Keep this configurable rule last. Existing duplicate-key handling is unchanged. See [usage details](docs/usage.rst).
 
-## Curate WV altimeter catalogues
-
-Copy [examples/alti-curation.toml](examples/alti-curation.toml) to `runs/`, update the timestamped CCI/CMEMS catalogue paths and run settings, and choose a new output directory. Keep one input per satellite/product, then run:
-
-```bash
-soba_curate_dataset --recipe runs/alti-recipe.toml
-```
-
-Only recipe filters apply; the example keeps `imerg_rainrate == 0`. Outputs are separate Curated Parquets and a manifest—no TEST/TARGET or report.
+ ## Curate WV altimeter catalogues
+ 
+ Copy [examples/alti-curation.toml](examples/alti-curation.toml) to `runs/`, update the timestamped CCI/CMEMS catalogue paths and run settings, and choose a new output directory. Keep one input per satellite/product (CCI and CMEMS may share a satellite), then run:
+ 
+ ```bash
+ soba_curate_dataset --recipe runs/alti-recipe.toml
+ ```
+ 
+ Only recipe filters apply; the example keeps `imerg_rainrate == 0`. Outputs are separate Curated Parquets and a manifest—no TEST/TARGET or report.
+ 
+ ### WV altimeter curated report
+ 
+ To also build the Curated documentation (figures + LaTeX + optional PDF) from the
+ Curated Parquets, set `report = true` in the recipe (and `compile = true` for a PDF)
+ and re-run the same command:
+ 
+ ```bash
+ soba_curate_dataset --recipe runs/alti-recipe.toml
+ ```
+ 
+ Or rebuild the report from an already-curated run directory without re-running the
+ curation:
+ 
+ ```bash
+ soba_curate_dataset --run-dir path/to/curated-run [--no-compile]
+ ```
+ 
+ The report is one document describing every Curated Parquet in the run; when a
+ satellite has both a CCI and a CMEMS catalogue each gets its own labelled column.
+ The reference-distribution figure uses `ref_hs_alti_closest` (altimeter SWH). A PDF
+ is compiled with `pdflatex`, falling back to `tectonic` when `pdflatex` is absent or
+ incomplete. The same shared template drives the SWOT and HSCAT Curated documents.
 
 For a fuller reference-quality screen (altimeter vs WW3 agreement, mission/date
 blackouts such as CFOSAT pre-2024 or the HY2B 2023-02-19 frozen-value event),

@@ -80,39 +80,57 @@ def _rows(rows):
     return "\n".join(" & ".join(row) + r" \\" for row in rows)
 
 
+def _source_label(source):
+    """Short unique label when a mission has several catalogues (ALTI CCI + CMEMS)."""
+    name = Path(source["curated_path"]).name
+    if "CMEMS-ALTI-L3-VAVH" in name:
+        return f"{source['mission']} CMEMS-VAVH"
+    if "CCI-SEATSTATE" in name:
+        return f"{source['mission']} CCI-SeaState"
+    return source["mission"]
+
+
 def build_curated_report(*, title, platform, instrument, reference, variable,
                          document_stem, recipe, manifest, figures, summary, observation_path,
                          field_descriptions):
     """Preserve the supplied PDF's cover, section order, tables, and SOBA style."""
-    sources = sorted(manifest["sources"], key=lambda item: item["mission"])
-    schemas = {item["mission"]: pq.read_schema(item["curated_path"]) for item in sources}
+    sources = sorted(manifest["sources"],
+                     key=lambda item: (item["mission"], Path(item["curated_path"]).name))
+    source_schemas = [pq.read_schema(item["curated_path"]) for item in sources]
+    duplicate_missions = len({item["mission"] for item in sources}) != len(sources)
+    source_labels = [_source_label(item) if duplicate_missions else item["mission"]
+                     for item in sources]
     metadata = {}
-    for mission, schema in schemas.items():
+    for label, schema in zip(source_labels, source_schemas):
         attrs = {key.decode(): value.decode("utf-8", errors="replace")
                  for key, value in (schema.metadata or {}).items()
                  if key not in {b"pandas", b"ARROW:schema", b"utils_meta"}}
         if b"utils_meta" in (schema.metadata or {}):
             attrs.update(json.loads(schema.metadata[b"utils_meta"]).get("attrs", {}))
-        metadata[mission] = attrs
-    native_names = set().union(*(set(schema.names) for schema in schemas.values()))
+        metadata[label] = attrs
+    native_names = set().union(*(set(schema.names) for schema in source_schemas))
     catalogue_fields = {
         (field.name, str(field.type)): field
-        for schema in schemas.values() for field in schema
+        for schema in source_schemas for field in schema
     }
     names = list(dict.fromkeys(field.name for field in catalogue_fields.values()))
     hscat = "HSCAT" in reference
-    product = "HSCAT" if hscat else "SWOT"
+    alti = not hscat and reference.lower().startswith("alti")
+    product = "HSCAT" if hscat else ("ALTI" if alti else "SWOT")
     selected_variable = recipe.get("reference_variable", "swh")
     value_column = (
         ("ref_param_1" if selected_variable == "winddirection" else "ref_param_2")
-        if hscat else "ref_mean_hs_karin"
+        if hscat else ("ref_hs_alti_closest" if alti else "ref_mean_hs_karin")
     )
     units = ("degrees" if selected_variable == "winddirection" else "m/s") if hscat else "m"
-    reference_label = (
-        ("HSCAT wind directions" if selected_variable == "winddirection" else "HSCAT wind speeds")
-        if hscat else "SWOT significant wave heights"
-    )
-    dataset_name = "HSCAT" if hscat else "SWOT"
+    if hscat:
+        reference_label = ("HSCAT wind directions" if selected_variable == "winddirection"
+                           else "HSCAT wind speeds")
+    elif alti:
+        reference_label = "altimeter significant wave heights"
+    else:
+        reference_label = "SWOT significant wave heights"
+    dataset_name = product
     row_count = sum(item["curated_rows"] for item in sources)
     values = np.concatenate([
         pq.read_table(item["curated_path"], columns=[value_column]).column(0)
@@ -209,20 +227,19 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     ref_product = (
         "HY-2 HSCAT 25 km ocean surface winds, processed by KNMI for EUMETSAT OSI SAF"
         if hscat else
-        "SWOT KaRIn Level-2 WindWave D0 (PGD0/PID0), distributed by NASA/JPL PO.DAAC"
+        ("altimeter significant wave height (CCI SeaState V5 and CMEMS ALTI-L3-VAVH)"
+         if alti else
+         "SWOT KaRIn Level-2 WindWave D0 (PGD0/PID0), distributed by NASA/JPL PO.DAAC")
     )
-    disabled = {
-        (item["mission"], rule["id"])
-        for item in recipe.get("catalogues", [])
-        for rule in item.get("resolved_rules", item.get("rules", []))
-        if not rule.get("enabled", True)
-    }
+    disabled = {(rule["id"]) for item in recipe.get("catalogues", [])
+                for rule in item.get("resolved_rules", item.get("rules", []))
+                if not rule.get("enabled", True)}
     active = [
-        (source["mission"], step)
-        for source in sources
+        (label, step)
+        for label, source in zip(source_labels, sources)
         for step in source.get("quality_filter_steps", source.get("steps", []))
         if step.get("status") not in {"disabled", "skipped"}
-        and (source["mission"], step["id"]) not in disabled
+        and step["id"] not in disabled
     ]
     public_checks = {
         "ecmwf_scat_speed_difference": "wind-speed agreement with meteorological estimates",
@@ -231,11 +248,15 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "zero_ref_flag": "reference quality checks",
         "imagette_direction_consistency": "consistent reference directions within each SAR image",
         "sea_proxy": "open-water observations away from the coast",
+        "no_rain": "rain screening using IMERG",
         "no_dynamic_ice": "ice-free observations",
         "time_present": "valid time differences",
         "karin_positive": "positive SWOT wave heights",
         "ocn_positive": "positive Sentinel-1 ocean-product wave heights",
         "altimeter_positive": "positive nearby altimeter wave heights",
+        "alti_ww3_30pct": "altimeter Hs within 30 % of the WW3 model Hs",
+        "cfosat_pre2024": "CFOSAT observations before 2024-01-01 excluded",
+        "hy2b_frozen_20230219": "HY2B 2023-02-19 frozen-value rows excluded",
         "ww3_positive": "positive model wave heights",
         "classification_present": "available scene classifications",
         "time_under_two_hours": "observations separated by less than two hours",
@@ -245,7 +266,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "accepted_classes": "accepted ocean-scene classes",
     }
     checks = list(dict.fromkeys(public_checks[step["id"]] for _, step in active
-                               if step["id"] in public_checks))
+                                if step["id"] in public_checks))
     if any(clause[1] == "imagette_circstd_le"
            for _, step in active for clause in step.get("clauses", [])):
         checks.append("consistent reference directions within each SAR image")
@@ -253,20 +274,20 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     selection = ("The additional selection checks " + "; ".join(checks) + "."
                  if checks else "No additional quality screening is enabled.")
     dates = []
-    for source in sources:
+    for label in source_labels:
         windows = []
-        for mission, step in active:
-            if mission != source["mission"]:
+        for step_label, step in active:
+            if step_label != label:
                 continue
             for clause in step.get("clauses", []):
                 if clause[0] == "sar_time" and clause[1] in {"date_gt", "date_lt"}:
                     boundary = "after" if clause[1] == "date_gt" else "before"
                     windows.append(f"strictly {boundary} {clause[2]} at 00:00 UTC")
-        dates.append((source["mission"], "; ".join(windows) or "no additional date restriction"))
+        dates.append((label, "; ".join(windows) or "no additional date restriction"))
     provenance = {
         "sar_product_provider": sar_product, "reference_product_provider": ref_product,
         "software_version": library_version(), "recipe_snapshot": "recipe.toml",
-        "command": "python -m soba_reference_repo.create_test_dataset --recipe recipe.toml",
+        "command": "soba_curate_dataset --recipe recipe.toml",
         "date_selection_rationale": "Supplied evaluation windows; no further rationale recorded.",
         "curated_schema_files": [Path(item["curated_path"]).name for item in sources],
         "source_catalogues": [
@@ -283,37 +304,37 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         ("Dataset production date", _tex(recipe["production_date"])),
         ("Processing software version", _tex(provenance["software_version"])),
         ("Processing recipe", _path("recipe.toml")),
-        *[(f"{item['mission']} source catalogue", _path(Path(item["path"]).name))
-          for item in sources],
+        *[(f"{label} source catalogue", _path(Path(item["path"]).name))
+          for label, item in zip(source_labels, sources)],
         *metadata_rows,
     ]
     source_rows = [
-        (item["mission"], f"{item['input_rows']:,}", f"{item['curated_rows']:,}",
+        (label, f"{item['input_rows']:,}", f"{item['curated_rows']:,}",
          f"{item['input_rows'] - item['curated_rows']:,}")
-        for item in sources
+        for label, item in zip(source_labels, sources)
     ]
-    # Keep each mission's filter order, including mission-specific date rules.
-    steps_by_mission = {source["mission"]: {} for source in sources}
+    # Keep each source's filter order, including mission-specific date rules.
+    steps_by_label = {label: {} for label in source_labels}
     predecessors = {}
-    for source in sources:
+    for label, source in zip(source_labels, sources):
         previous = None
-        for mission, step in active:
-            if mission != source["mission"]:
+        for step in source.get("quality_filter_steps", source.get("steps", [])):
+            if step.get("status") in {"disabled", "skipped"} or step["id"] in disabled:
                 continue
             rule_id = step["id"]
-            steps_by_mission[mission][rule_id] = step
+            steps_by_label[label][rule_id] = step
             predecessors.setdefault(rule_id, set())
             if previous is not None:
                 predecessors[rule_id].add(previous)
             previous = rule_id
     try:
         step_groups = [
-            [steps_by_mission[source["mission"]].get(rule_id) for source in sources]
+            [steps_by_label[label].get(rule_id) for label in source_labels]
             for rule_id in TopologicalSorter(predecessors).static_order()
         ]
     except CycleError:
-        # Repeat conflicting rows rather than reorder either mission's filters.
-        pending = [list(steps_by_mission[source["mission"]].values()) for source in sources]
+        # Repeat conflicting rows rather than reorder either source's filters.
+        pending = [list(steps_by_label[label].values()) for label in source_labels]
         step_groups = []
         while any(pending):
             rule_id = next(steps[0]["id"] for steps in pending if steps)
@@ -340,9 +361,14 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             f"{step['remaining']:,} / {step['removed']:,}" if step else "--"
             for step in steps
         )))
-    count_spec = r"@{}>{\raggedright\arraybackslash}p{4.8cm}" + (
-        r">{\raggedright\arraybackslash}p{2.7cm}" * len(sources)) + "@{}"
-    count_header = _rows([("Filter", *(source["mission"] for source in sources))])
+    if len(sources) > 4:
+        # ALTI release: one column per catalogue (CCI + CMEMS per mission).
+        count_spec = (r"@{}>{\raggedright\arraybackslash}p{3.6cm}"
+                      + r">{\raggedright\arraybackslash}p{1.7cm}" * len(sources) + r"@{}")
+    else:
+        count_spec = r"@{}>{\raggedright\arraybackslash}p{4.8cm}" + (
+            r">{\raggedright\arraybackslash}p{2.7cm}" * len(sources)) + "@{}"
+    count_header = _rows([("Filter", *source_labels)])
     sequential_counts = "\n".join([
         r"\begin{table}[H]\centering",
         r"\caption{Sequential quality-filter counts by mission (remaining / removed).}",
@@ -379,10 +405,17 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "REFERENCE_LABEL": reference_label,
         "DISTRIBUTION_TITLE": (
             "HSCAT Wind-Speed and Wind-Direction Distributions" if hscat
-            else "SWOT Significant Wave-Height Distribution"
+            else ("Altimeter Significant Wave-Height Distribution" if alti
+                  else "SWOT Significant Wave-Height Distribution")
         ),
-        "SCOPE_TEXT": f"A curated set of Sentinel-1 Wave Mode observations matched to "
-                      f"{product} reference measurements for independent algorithm evaluation.",
+        "SCOPE_TEXT": (
+            "A curated set of Sentinel-1 Wave Mode observations matched to altimeter "
+            "significant-wave-height measurements (CCI SeaState V5 and CMEMS ALTI-L3-VAVH) "
+            "for independent algorithm evaluation."
+            if alti else
+            f"A curated set of Sentinel-1 Wave Mode observations matched to "
+            f"{product} reference measurements for independent algorithm evaluation."
+        ),
         "FILE_VERSION_ROW": _rows([
             (_path(Path(item["curated_path"]).name), recipe["production_date"],
              f"Contains {item['curated_rows']:,} retained matches.") for item in sources

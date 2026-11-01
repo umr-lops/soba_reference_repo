@@ -205,10 +205,12 @@ def read_recipe(path):
         recipe,
         {
             "reference", "reference_variable", "output_dir", "production_date",
-            "version", "compile", "catalogues",
+            "version", "compile", "report", "catalogues",
         },
         {"reference", "output_dir", "production_date", "version", "catalogues"},
     )
+    if "report" in recipe and not isinstance(recipe["report"], bool):
+        raise ValueError("report must be boolean")
     if recipe["reference"] not in {"swot", "scat", "altimeter"}:
         raise ValueError(
             f"unsupported reference: {recipe['reference']!r}; supported: swot, scat, altimeter"
