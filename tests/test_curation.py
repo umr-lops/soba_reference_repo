@@ -286,3 +286,112 @@ def test_date_lt_filters_strictly_before_midnight_utc():
 def test_date_lt_rejects_invalid_date(date):
     with pytest.raises(ValueError, match="date_lt"):
         curation._validate_clause(["time", "date_lt", date])
+
+
+@pytest.mark.parametrize(
+    ("alti", "ww3", "expected"),
+    [
+        (1.0, 1.0, True),
+        (1.29, 1.0, True),   # +29 %
+        (1.30, 1.0, True),   # +30 % (le: kept)
+        (1.31, 1.0, False),  # +31 % (rejected)
+        (0.70, 1.0, True),   # -30 %
+        (0.69, 1.0, False),  # -31 %
+        (2.5, 2.0, True),    # +25 %
+        (float("nan"), 1.0, False),
+        (1.0, float("nan"), False),
+        (1.0, 0.0, False),   # non-positive reference: rejected
+        (1.0, -0.5, False),  # non-positive reference: rejected
+    ],
+)
+def test_rel_diff_le_uses_relative_difference_against_reference(alti, ww3, expected):
+    frame = pd.DataFrame({"alti": [alti], "ww3": [ww3]})
+    result = curation.clause_mask(frame, ["alti", "rel_diff_le", ["ww3", 0.30]])
+    assert bool(result.iloc[0]) is expected
+
+
+def test_rel_diff_le_rejects_invalid_tolerance():
+    for bad in (["alti", "rel_diff_le", ["ww3", -0.1]],
+                ["alti", "rel_diff_le", ["ww3", float("nan")]],
+                ["alti", "rel_diff_le", ["ww3"]]):
+        with pytest.raises(ValueError, match="invalid filter operation"):
+            curation._validate_clause(bad)
+
+
+def _window_frame(times, fnames):
+    return pd.DataFrame({"sar_time": pd.to_datetime(times, utc=True),
+                         "fname": fnames})
+
+
+def test_not_in_window_for_rejects_matching_altimeter_inside_window():
+    frame = _window_frame(
+        ["2020-06-01T10:00:00Z", "2023-02-19T09:00:00Z", "2024-06-01T10:00:00Z"],
+        [
+            "global_vavh_l3_rt_cfo_20200601T090000_20200601T120000_20200602T000000.nc",
+            "global_vavh_l3_rt_h2b_20230219T090000_20230219T120000_20230220T220742.nc",
+            "global_vavh_l3_rt_cfo_20240601T090000_20240601T120000_20240602T000000.nc",
+        ],
+    )
+    clause = ["fname", "not_in_window_for",
+              ["sar_time", ["global_vavh_l3_rt_cfo_"], "2019-01-01", "2024-01-01"]]
+    curation._validate_clause(clause)
+    result = curation.clause_mask(frame, clause)
+    assert result.tolist() == [False, True, True]
+
+
+def test_not_in_window_for_covers_cci_and_cmems_names_together():
+    frame = _window_frame(
+        ["2020-06-01T10:00:00Z", "2020-06-01T11:00:00Z",
+         "2020-06-01T12:00:00Z", "2023-02-19T10:00:00Z"],
+        [
+            "SEASTATE-L2P-SWH-CFOSAT-20200601T100000-fv01.nc",
+            "global_vavh_l3_rt_cfo_20200601T090000_20200601T120000_20200602T000000.nc",
+            "SEASTATE-L2P-SWH-CryoSat-2-20200601T120000-fv01.nc",
+            "SEASTATE-L2P-SWH-CFOSAT-20230219T100000-fv01.nc",
+        ],
+    )
+    clause = ["fname", "not_in_window_for",
+              ["sar_time", ["SEASTATE-L2P-SWH-CFOSAT-", "global_vavh_l3_rt_cfo_"],
+               "2019-01-01", "2024-01-01"]]
+    result = curation.clause_mask(frame, clause)
+    assert result.tolist() == [False, False, True, False]
+
+
+def test_not_in_window_for_is_half_open_and_keeps_missing_times():
+    frame = _window_frame(
+        ["2023-02-18T23:59:59Z", "2023-02-19T00:00:00Z",
+         "2023-02-19T23:59:59Z", "2023-02-20T00:00:00Z", None],
+        [
+            "global_vavh_l3_rt_h2b_20230219T000000_20230219T030000_20230220T220753.nc",
+            "global_vavh_l3_rt_h2b_20230219T060000_20230219T090000_20230220T220755.nc",
+            "global_vavh_l3_rt_h2b_20230219T210000_20230220T000000_20230220T220757.nc",
+            "global_vavh_l3_rt_h2b_20230220T000000_20230220T030000_20230220T220759.nc",
+            "global_vavh_l3_rt_h2b_20230219T060000_20230219T090000_20230220T220755.nc",
+        ],
+    )
+    clause = ["fname", "not_in_window_for",
+              ["sar_time", ["global_vavh_l3_rt_h2b_"], "2023-02-19", "2023-02-20"]]
+    result = curation.clause_mask(frame, clause)
+    assert result.tolist() == [True, False, False, True, True]
+
+
+@pytest.mark.parametrize("window", [
+    ["sar_time", ["global_vavh_l3_rt_cfo_"], "2024-01-01", "2019-01-01"],
+    ["sar_time", [], "2019-01-01", "2024-01-01"],
+    ["sar_time", ["["], "2019-01-01", "2024-01-01"],          # invalid regex
+    ["sar_time", ["global_vavh_l3_rt_cfo_"], "2024-02-30", "2024-01-01"],
+    ["sar_time", ["global_vavh_l3_rt_cfo_"], "2024/01/01", "2024-01-01"],
+])
+def test_not_in_window_for_rejects_invalid_windows(window):
+    with pytest.raises(ValueError, match="invalid filter operation"):
+        curation._validate_clause(["fname", "not_in_window_for", window])
+
+
+def test_not_in_window_for_raises_on_missing_time_column():
+    frame = pd.DataFrame({"fname": ["global_vavh_l3_rt_cfo_x.nc"]})
+    with pytest.raises(ValueError, match="missing filter column"):
+        curation.clause_mask(frame, ["fname", "not_in_window_for",
+                                     ["sar_time", ["cfo"], "2019-01-01", "2024-01-01"]])
+
+
+

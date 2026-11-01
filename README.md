@@ -80,6 +80,26 @@ soba_curate_dataset --recipe runs/alti-recipe.toml
 
 Only recipe filters apply; the example keeps `imerg_rainrate == 0`. Outputs are separate Curated Parquets and a manifest—no TEST/TARGET or report.
 
+For a fuller reference-quality screen (altimeter vs WW3 agreement, mission/date
+blackouts such as CFOSAT pre-2024 or the HY2B 2023-02-19 frozen-value event),
+copy [examples/wv-alti-curation-v1.1.toml](examples/wv-alti-curation-v1.1.toml).
+It uses two clause types added for this use case:
+
+```toml
+# reject when |col - ref| exceeds `tolerance` *as a fraction* of `ref` (> 0)
+clauses = [["ref_hs_alti_closest", "rel_diff_le", ["ww3_swh", 0.30]]]
+
+# reject rows whose `fname` matches any reference-name pattern while the
+# row time (e.g. `sar_time`) is in the half-open window [from, to)
+clauses = [["fname", "not_in_window_for",
+            ["sar_time", ["SEASTATE-L2P-SWH-CFOSAT-", "global_vavh_l3_rt_cfo_"],
+             "2019-01-01", "2024-01-01"]]]
+```
+
+The `not_in_window_for` patterns match the reference filename that identifies
+the altimeter (CCI `SEASTATE-L2P-SWH-<sat>-…` and CMEMS ALTI-L3-VAVH
+`global_vavh_l3_rt_<token>_…` names), so a single rule covers both databases.
+
 ## Build a CHALLENGER
 
 Copy `examples/cci-seastate-challenger.toml`, set its paths and run settings, then run:
