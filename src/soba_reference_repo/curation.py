@@ -48,6 +48,14 @@ S1_WV_ALTI_NAME_RE = re.compile(
     r"(SV|DV|SH|DH)_([A-Za-z0-9][A-Za-z0-9._-]*)_(\d+\.\d+)\.parquet"
 )
 
+# Reference filenames identify the altimeter that produced the row:
+# * CMEMS ALTI-L3-VAVH : ``global_vavh_l3_rt_<token>_<start>_<stop>_<gen>.nc``
+#   (cfo = CFOSAT, h2b = HaiYang-2B, c2 = CryoSat-2, al = SARAL, j3 = Jason-3,
+#   h2c = HaiYang-2C, s3a/s3b/s6a/swon, ...)
+# * CCI SeaState L2P   : ``SEASTATE-L2P-SWH-<satellite>-<timestamp>-fv01.nc``
+# The ``not_in_window_for`` clause takes plain-English prefixes of these names
+# (e.g. ``global_vavh_l3_rt_cfo_`` or ``SEASTATE-L2P-SWH-CFOSAT-``) as regexes.
+
 
 def resolve_rules(overrides, include_defaults=True, defaults=None):
     """Resolve ordered rule overrides over a caller-selected default set."""
@@ -101,7 +109,10 @@ def validate_filter_columns(columns, rules):
             continue
         for clause in rule["clauses"]:
             required = [clause[0]]
-            if clause[1] in {"abs_diff_le", "angle_diff_le", "imagette_circstd_le"}:
+            if clause[1] in {"abs_diff_le", "angle_diff_le", "rel_diff_le",
+                             "imagette_circstd_le"}:
+                required.append(clause[2][0])
+            if clause[1] == "not_in_window_for":
                 required.append(clause[2][0])
             for name in required:
                 if name not in columns:
@@ -137,7 +148,8 @@ def _validate_clause(clause):
         except ValueError as error:
             raise ValueError(f"invalid {operation} date") from error
         return
-    if operation in {"abs_diff_le", "angle_diff_le", "imagette_circstd_le"} and len(clause) == 3:
+    if operation in {"abs_diff_le", "angle_diff_le", "rel_diff_le",
+                     "imagette_circstd_le"} and len(clause) == 3:
         comparison = clause[2]
         valid_tolerance = (
             isinstance(comparison, list)
@@ -152,10 +164,36 @@ def _validate_clause(clause):
             operation != "angle_diff_le" or comparison[1] <= 180
         ):
             return
+    if operation == "not_in_window_for" and len(clause) == 3:
+        window = clause[2]
+        if (isinstance(window, list) and len(window) == 4
+                and isinstance(window[0], str) and bool(window[0])
+                and isinstance(window[1], list)
+                and window[1]
+                and all(isinstance(pattern, str) and pattern for pattern in window[1])
+                and all(
+                    isinstance(bound, str) and _is_valid_yyyymmdd(bound)
+                    for bound in (window[2], window[3])
+                )
+                and window[2] < window[3]):
+            for pattern in window[1]:
+                try:
+                    re.compile(pattern)
+                except re.error:
+                    raise ValueError(f"invalid filter operation or operand: {clause!r}")
+            return
     if (operation in ("eq", "gt", "ge", "lt", "le") and len(clause) == 3
             and type(clause[2]) in (int, float) and math.isfinite(float(clause[2]))):
         return
     raise ValueError(f"invalid filter operation or operand: {clause!r}")
+
+
+def _is_valid_yyyymmdd(value):
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return True
 
 
 def read_recipe(path):
@@ -276,7 +314,7 @@ def clause_mask(frame, clause):
         boundary = pd.Timestamp(clause[2], tz="UTC")
         comparator = timestamp.gt if operation == "date_gt" else timestamp.lt
         return comparator(boundary).fillna(False)
-    if operation in {"abs_diff_le", "angle_diff_le"}:
+    if operation in {"abs_diff_le", "angle_diff_le", "rel_diff_le"}:
         comparison_column, tolerance = clause[2]
         if comparison_column not in frame:
             raise ValueError(f"missing filter column: {comparison_column}")
@@ -286,7 +324,29 @@ def clause_mask(frame, clause):
         if operation == "angle_diff_le":
             difference = difference.mod(360)
             difference = difference.where(difference <= 180, 360 - difference)
+            return difference.le(tolerance).fillna(False)
+        if operation == "rel_diff_le":
+            # relative difference against the reference column; the reference
+            # must be strictly positive (an Hs reference), NaN -> rejected
+            ratio = difference / right.where(right > 0)
+            return (ratio <= float(tolerance) + 1e-12).fillna(False)
         return difference.le(tolerance).fillna(False)
+    if operation == "not_in_window_for":
+        # Reject rows whose reference ``fname`` matches any of the patterns
+        # (the altimeter that produced the row) while the row time is in the
+        # half-open window [start_date, end_date).
+        time_column, patterns, start_date, end_date = clause[2]
+        if time_column not in frame:
+            raise ValueError(f"missing filter column: {time_column}")
+        timestamps = pd.to_datetime(frame[time_column], utc=True, errors="coerce")
+        start = pd.Timestamp(start_date, tz="UTC")
+        end = pd.Timestamp(end_date, tz="UTC")
+        in_window = timestamps.ge(start) & timestamps.lt(end)
+        names = frame[column].astype("string").fillna("")
+        name_match = pd.Series(False, index=frame.index)
+        for pattern in patterns:
+            name_match |= names.str.contains(pattern, regex=True, na=False)
+        return ~(in_window & name_match)
     values = pd.to_numeric(frame[column], errors="coerce")
     if operation == "present":
         return values.notna()

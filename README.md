@@ -80,6 +80,38 @@ soba_curate_dataset --recipe runs/alti-recipe.toml
 
 Only recipe filters apply; the example keeps `imerg_rainrate == 0`. Outputs are separate Curated Parquets and a manifest—no TEST/TARGET or report.
 
+For a fuller reference-quality screen (altimeter vs WW3 agreement, mission/date
+blackouts such as CFOSAT pre-2024 or the HY2B 2023-02-19 frozen-value event),
+copy [examples/wv-alti-curation-v2.0.toml](examples/wv-alti-curation-v2.0.toml).
+It uses two clause types added for this use case:
+
+```toml
+# reject when |col - ref| exceeds `tolerance` *as a fraction* of `ref` (> 0)
+clauses = [["ref_hs_alti_closest", "rel_diff_le", ["ww3_swh", 0.30]]]
+
+# reject rows whose `fname` matches any reference-name pattern while the
+# row time (e.g. `sar_time`) is in the half-open window [from, to)
+clauses = [["fname", "not_in_window_for",
+            ["sar_time", ["SEASTATE-L2P-SWH-CFOSAT-", "global_vavh_l3_rt_cfo_"],
+             "2019-01-01", "2024-01-01"]]]
+```
+
+The `not_in_window_for` patterns match the reference filename that identifies
+the altimeter (CCI `SEASTATE-L2P-SWH-<sat>-…` and CMEMS ALTI-L3-VAVH
+`global_vavh_l3_rt_<token>_…` names), so a single rule covers both databases.
+
+Curated filenames use the `X.Y` naming convention:
+
+- `X` (major) bumps when the curated **content** changes in a way visible to
+  users, e.g. adding, removing or tightening curation rules so that different
+  rows are kept or dropped.
+- `Y` (minor) bumps only when the build script changes but the resulting
+  Parquet content is unchanged.
+
+Example: adding the `alti_ww3_30pct`, `cfosat_pre2024` and
+`hy2b_frozen_20230219` rules to the v1.0 "no_rain" curation drops rows, so the
+output is v2.0 (not v1.1). See [report details](docs/usage.rst).
+
 ## Build a CHALLENGER
 
 Copy `examples/cci-seastate-challenger.toml`, set its paths and run settings, then run:
