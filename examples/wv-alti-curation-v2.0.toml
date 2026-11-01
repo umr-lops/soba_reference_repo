@@ -1,4 +1,5 @@
-# WV altimeter curation v2.0: no TEST/TARGET export or report.
+# WV altimeter curation v2.0: no TEST/TARGET export; with report = true it also
+# builds the Curated document (figures + LaTeX, + PDF when compile = true).
 #
 # Adds, on top of the v1.0 "no_rain" rule, three reference-quality rules:
 #
@@ -23,6 +24,9 @@ reference = "altimeter"
 output_dir = "../runs/wv-alti-curation-2.0"
 production_date = "20261101"
 version = "2.0"
+# Build the Curated document (figures + LaTeX) from the Curated Parquets.
+# Add compile = true to also produce the PDF.
+report = true
 
 [[catalogues]]
 mission = "S1A"
