@@ -80,39 +80,80 @@ def _rows(rows):
     return "\n".join(" & ".join(row) + r" \\" for row in rows)
 
 
+def _source_label(source):
+    """Short unique label when a mission has several catalogues (ALTI CCI + CMEMS)."""
+    name = Path(source["curated_path"]).name
+    if "CMEMS-ALTI-L3-VAVH" in name:
+        return f"{source['mission']} CMEMS-VAVH"
+    if "CCI-SEATSTATE" in name:
+        return f"{source['mission']} CCI-SeaState"
+    return source["mission"]
+
+
+def _doc_release_date(product, production_date):
+    """Real release date for the Version History table (was a hardcoded ``\\DTMtoday``).
+
+    The HSCAT and SWOT curated documents were first published in
+    ``/scale/.../dataset_description/`` on 2026-10-16 (their own history rows carry that
+    date), so they keep it. The ALTI document is new, so its release date is the run's
+    production date, formatted ``YYYY-MM-DD``.
+    """
+    if product != "ALTI":
+        return "2026-10-16"
+    date = str(production_date)
+    return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
+
+
 def build_curated_report(*, title, platform, instrument, reference, variable,
                          document_stem, recipe, manifest, figures, summary, observation_path,
-                         field_descriptions):
-    """Preserve the supplied PDF's cover, section order, tables, and SOBA style."""
-    sources = sorted(manifest["sources"], key=lambda item: item["mission"])
-    schemas = {item["mission"]: pq.read_schema(item["curated_path"]) for item in sources}
+                         field_descriptions, version_extra=None,
+                         coverage_extra="", monthly_extra="", distribution_extra="",
+                         filter_removal_figures=""):
+    """Preserve the supplied PDF's cover, section order, tables, and SOBA style.
+
+    ``version_extra`` adds a per-database source-version note (e.g. the distinct
+    CCI and CMEMS catalogue versions) after the Catalogue Columns table; the
+    ``*_extra`` figure blocks insert additional ALTI figures. All default to the
+    empty/None no-op so the SWOT and HSCAT documents are unchanged.
+    """
+    sources = sorted(manifest["sources"],
+                     key=lambda item: (item["mission"], Path(item["curated_path"]).name))
+    source_schemas = [pq.read_schema(item["curated_path"]) for item in sources]
+    duplicate_missions = len({item["mission"] for item in sources}) != len(sources)
+    source_labels = [_source_label(item) if duplicate_missions else item["mission"]
+                     for item in sources]
     metadata = {}
-    for mission, schema in schemas.items():
+    for label, schema in zip(source_labels, source_schemas):
         attrs = {key.decode(): value.decode("utf-8", errors="replace")
                  for key, value in (schema.metadata or {}).items()
                  if key not in {b"pandas", b"ARROW:schema", b"utils_meta"}}
         if b"utils_meta" in (schema.metadata or {}):
             attrs.update(json.loads(schema.metadata[b"utils_meta"]).get("attrs", {}))
-        metadata[mission] = attrs
-    native_names = set().union(*(set(schema.names) for schema in schemas.values()))
+        metadata[label] = attrs
+    native_names = set().union(*(set(schema.names) for schema in source_schemas))
     catalogue_fields = {
         (field.name, str(field.type)): field
-        for schema in schemas.values() for field in schema
+        for schema in source_schemas for field in schema
     }
     names = list(dict.fromkeys(field.name for field in catalogue_fields.values()))
     hscat = "HSCAT" in reference
-    product = "HSCAT" if hscat else "SWOT"
+    alti = not hscat and reference.lower().startswith("alti")
+    product = "HSCAT" if hscat else ("ALTI" if alti else "SWOT")
+    doc_release_date = _doc_release_date(product, recipe["production_date"])
     selected_variable = recipe.get("reference_variable", "swh")
     value_column = (
         ("ref_param_1" if selected_variable == "winddirection" else "ref_param_2")
-        if hscat else "ref_mean_hs_karin"
+        if hscat else ("ref_hs_alti_closest" if alti else "ref_mean_hs_karin")
     )
     units = ("degrees" if selected_variable == "winddirection" else "m/s") if hscat else "m"
-    reference_label = (
-        ("HSCAT wind directions" if selected_variable == "winddirection" else "HSCAT wind speeds")
-        if hscat else "SWOT significant wave heights"
-    )
-    dataset_name = "HSCAT" if hscat else "SWOT"
+    if hscat:
+        reference_label = ("HSCAT wind directions" if selected_variable == "winddirection"
+                           else "HSCAT wind speeds")
+    elif alti:
+        reference_label = "altimeter significant wave heights"
+    else:
+        reference_label = "SWOT significant wave heights"
+    dataset_name = product
     row_count = sum(item["curated_rows"] for item in sources)
     values = np.concatenate([
         pq.read_table(item["curated_path"], columns=[value_column]).column(0)
@@ -209,20 +250,19 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     ref_product = (
         "HY-2 HSCAT 25 km ocean surface winds, processed by KNMI for EUMETSAT OSI SAF"
         if hscat else
-        "SWOT KaRIn Level-2 WindWave D0 (PGD0/PID0), distributed by NASA/JPL PO.DAAC"
+        ("altimeter significant wave height (CCI SeaState V5 and CMEMS ALTI-L3-VAVH)"
+         if alti else
+         "SWOT KaRIn Level-2 WindWave D0 (PGD0/PID0), distributed by NASA/JPL PO.DAAC")
     )
-    disabled = {
-        (item["mission"], rule["id"])
-        for item in recipe.get("catalogues", [])
-        for rule in item.get("resolved_rules", item.get("rules", []))
-        if not rule.get("enabled", True)
-    }
+    disabled = {(rule["id"]) for item in recipe.get("catalogues", [])
+                for rule in item.get("resolved_rules", item.get("rules", []))
+                if not rule.get("enabled", True)}
     active = [
-        (source["mission"], step)
-        for source in sources
+        (label, step)
+        for label, source in zip(source_labels, sources)
         for step in source.get("quality_filter_steps", source.get("steps", []))
         if step.get("status") not in {"disabled", "skipped"}
-        and (source["mission"], step["id"]) not in disabled
+        and step["id"] not in disabled
     ]
     public_checks = {
         "ecmwf_scat_speed_difference": "wind-speed agreement with meteorological estimates",
@@ -231,11 +271,15 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "zero_ref_flag": "reference quality checks",
         "imagette_direction_consistency": "consistent reference directions within each SAR image",
         "sea_proxy": "open-water observations away from the coast",
+        "no_rain": "rain screening using IMERG",
         "no_dynamic_ice": "ice-free observations",
         "time_present": "valid time differences",
         "karin_positive": "positive SWOT wave heights",
         "ocn_positive": "positive Sentinel-1 ocean-product wave heights",
         "altimeter_positive": "positive nearby altimeter wave heights",
+        "alti_ww3_30pct": "altimeter Hs within 30 % of the WW3 model Hs",
+        "cfosat_pre2024": "CFOSAT observations before 2024-01-01 excluded",
+        "hy2b_frozen_20230219": "HY2B 2023-02-19 frozen-value rows excluded",
         "ww3_positive": "positive model wave heights",
         "classification_present": "available scene classifications",
         "time_under_two_hours": "observations separated by less than two hours",
@@ -245,7 +289,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "accepted_classes": "accepted ocean-scene classes",
     }
     checks = list(dict.fromkeys(public_checks[step["id"]] for _, step in active
-                               if step["id"] in public_checks))
+                                if step["id"] in public_checks))
     if any(clause[1] == "imagette_circstd_le"
            for _, step in active for clause in step.get("clauses", [])):
         checks.append("consistent reference directions within each SAR image")
@@ -253,20 +297,20 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     selection = ("The additional selection checks " + "; ".join(checks) + "."
                  if checks else "No additional quality screening is enabled.")
     dates = []
-    for source in sources:
+    for label in source_labels:
         windows = []
-        for mission, step in active:
-            if mission != source["mission"]:
+        for step_label, step in active:
+            if step_label != label:
                 continue
             for clause in step.get("clauses", []):
                 if clause[0] == "sar_time" and clause[1] in {"date_gt", "date_lt"}:
                     boundary = "after" if clause[1] == "date_gt" else "before"
                     windows.append(f"strictly {boundary} {clause[2]} at 00:00 UTC")
-        dates.append((source["mission"], "; ".join(windows) or "no additional date restriction"))
+        dates.append((label, "; ".join(windows) or "no additional date restriction"))
     provenance = {
         "sar_product_provider": sar_product, "reference_product_provider": ref_product,
         "software_version": library_version(), "recipe_snapshot": "recipe.toml",
-        "command": "python -m soba_reference_repo.create_test_dataset --recipe recipe.toml",
+        "command": "soba_curate_dataset --recipe recipe.toml",
         "date_selection_rationale": "Supplied evaluation windows; no further rationale recorded.",
         "curated_schema_files": [Path(item["curated_path"]).name for item in sources],
         "source_catalogues": [
@@ -283,37 +327,81 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         ("Dataset production date", _tex(recipe["production_date"])),
         ("Processing software version", _tex(provenance["software_version"])),
         ("Processing recipe", _path("recipe.toml")),
-        *[(f"{item['mission']} source catalogue", _path(Path(item["path"]).name))
-          for item in sources],
+        *[(f"{label} source catalogue", _path(Path(item["path"]).name))
+          for label, item in zip(source_labels, sources)],
         *metadata_rows,
     ]
     source_rows = [
-        (item["mission"], f"{item['input_rows']:,}", f"{item['curated_rows']:,}",
+        (label, f"{item['input_rows']:,}", f"{item['curated_rows']:,}",
          f"{item['input_rows'] - item['curated_rows']:,}")
-        for item in sources
+        for label, item in zip(source_labels, sources)
     ]
-    # Keep each mission's filter order, including mission-specific date rules.
-    steps_by_mission = {source["mission"]: {} for source in sources}
+    # Per-database source versions (ALTI carries distinct CCI + CMEMS catalogues,
+    # so a single "Dataset version" row is ambiguous). Group sources by the
+    # catalogue product token in their filename and print each product's version.
+    catalogue_versions = ""
+    if version_extra:
+        product_re = re.compile(r"_(SV|DV|SH|DH)_([A-Za-z0-9._-]+)_(\d+\.\d+)$")
+        by_product = {}  # token -> (version, {missions})
+        for item in sources:
+            match = product_re.search(Path(item["path"]).stem)
+            if not match:
+                continue
+            token, version = match.group(2), match.group(3)
+            entry = by_product.setdefault(token, (version, set()))
+            entry[1].add(item["mission"])
+        rows = []
+        for token, (version, missions) in by_product.items():
+            rows.append((
+                _tex(f"{token} (source catalogue)"),
+                _tex(", ".join(sorted(missions))),
+                f"{version} (source) / {recipe['version']} (curated)",
+            ))
+        if rows:
+            catalogue_versions = "\n".join([
+                r"\noindent\textbf{Source catalogue versions.}",
+                "Each reference database ships its own version; the curated-set",
+                "version is shared across all catalogues.",
+                r"\begin{table}[H]\centering",
+                r"\caption{Source catalogue versions by reference database.}",
+                r"\label{tab:catalogue_versions}",
+                r"{\small",
+                r"\begin{tabular}{"
+                r"@{}>{\raggedright\arraybackslash}p{6.0cm}"
+                r">{\raggedright\arraybackslash}p{3.2cm}"
+                r">{\raggedright\arraybackslash}p{5.0cm}@{}}",
+                r"\toprule",
+                (r"\textbf{Reference database} & \textbf{Catalogues}"
+                 r" & \textbf{Version} " + chr(92) * 2),
+                r"\midrule",
+                _rows(rows),
+                r"\bottomrule",
+                r"\end{tabular}",
+                "}",
+                r"\end{table}",
+            ])
+    # Keep each source's filter order, including mission-specific date rules.
+    steps_by_label = {label: {} for label in source_labels}
     predecessors = {}
-    for source in sources:
+    for label, source in zip(source_labels, sources):
         previous = None
-        for mission, step in active:
-            if mission != source["mission"]:
+        for step in source.get("quality_filter_steps", source.get("steps", [])):
+            if step.get("status") in {"disabled", "skipped"} or step["id"] in disabled:
                 continue
             rule_id = step["id"]
-            steps_by_mission[mission][rule_id] = step
+            steps_by_label[label][rule_id] = step
             predecessors.setdefault(rule_id, set())
             if previous is not None:
                 predecessors[rule_id].add(previous)
             previous = rule_id
     try:
         step_groups = [
-            [steps_by_mission[source["mission"]].get(rule_id) for source in sources]
+            [steps_by_label[label].get(rule_id) for label in source_labels]
             for rule_id in TopologicalSorter(predecessors).static_order()
         ]
     except CycleError:
-        # Repeat conflicting rows rather than reorder either mission's filters.
-        pending = [list(steps_by_mission[source["mission"]].values()) for source in sources]
+        # Repeat conflicting rows rather than reorder either source's filters.
+        pending = [list(steps_by_label[label].values()) for label in source_labels]
         step_groups = []
         while any(pending):
             rule_id = next(steps[0]["id"] for steps in pending if steps)
@@ -321,6 +409,18 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
                 steps.pop(0) if steps and steps[0]["id"] == rule_id else None
                 for steps in pending
             ])
+    def _count_cell(step):
+        """A sequential-count cell. ALTI adds the percent removed; the shared
+        SWOT/HSCAT documents keep the plain ``remaining / removed`` wording."""
+        if not step:
+            return "--"
+        if not alti:
+            return f"{step['remaining']:,} / {step['removed']:,}"
+        before = step.get("before", step["remaining"] + step["removed"])
+        pct = step["removed"] / before if before else 0.0
+        pct_str = f"{pct:.1%}".replace("%", r"\%")
+        return f"{step['remaining']:,} / {step['removed']:,} ({pct_str})"
+
     count_rows = []
     for steps in step_groups:
         rule_id = next(step["id"] for step in steps if step)
@@ -336,13 +436,15 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         }.items():
             name = name.replace(technical, explicit)
         name = name.replace("==", "equals").replace("<=", "at most")
-        count_rows.append((_tex(name), *(
-            f"{step['remaining']:,} / {step['removed']:,}" if step else "--"
-            for step in steps
-        )))
-    count_spec = r"@{}>{\raggedright\arraybackslash}p{4.8cm}" + (
-        r">{\raggedright\arraybackslash}p{2.7cm}" * len(sources)) + "@{}"
-    count_header = _rows([("Filter", *(source["mission"] for source in sources))])
+        count_rows.append((_tex(name), *(_count_cell(step) for step in steps)))
+    if len(sources) > 4:
+        # ALTI release: one column per catalogue (CCI + CMEMS per mission).
+        count_spec = (r"@{}>{\raggedright\arraybackslash}p{3.6cm}"
+                      + r">{\raggedright\arraybackslash}p{1.7cm}" * len(sources) + r"@{}")
+    else:
+        count_spec = r"@{}>{\raggedright\arraybackslash}p{4.8cm}" + (
+            r">{\raggedright\arraybackslash}p{2.7cm}" * len(sources)) + "@{}"
+    count_header = _rows([("Filter", *source_labels)])
     sequential_counts = "\n".join([
         r"\begin{table}[H]\centering",
         r"\caption{Sequential quality-filter counts by mission (remaining / removed).}",
@@ -376,13 +478,21 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "DATAFLOW_FIGURE": f"{assets}/sobadataflow.png",
         "STYLE_FILE": f"{assets}/soba", "GRAPHICS_DIRECTORY": assets,
         "DATASET_NAME": _tex(dataset_name), "DOCUMENT_PRODUCT": product,
+        "DOC_RELEASE_DATE": _tex(doc_release_date),
         "REFERENCE_LABEL": reference_label,
         "DISTRIBUTION_TITLE": (
             "HSCAT Wind-Speed and Wind-Direction Distributions" if hscat
-            else "SWOT Significant Wave-Height Distribution"
+            else ("Altimeter Significant Wave-Height Distribution" if alti
+                  else "SWOT Significant Wave-Height Distribution")
         ),
-        "SCOPE_TEXT": f"A curated set of Sentinel-1 Wave Mode observations matched to "
-                      f"{product} reference measurements for independent algorithm evaluation.",
+        "SCOPE_TEXT": (
+            "A curated set of Sentinel-1 Wave Mode observations matched to altimeter "
+            "significant-wave-height measurements (CCI SeaState V5 and CMEMS ALTI-L3-VAVH) "
+            "for independent algorithm evaluation."
+            if alti else
+            f"A curated set of Sentinel-1 Wave Mode observations matched to "
+            f"{product} reference measurements for independent algorithm evaluation."
+        ),
         "FILE_VERSION_ROW": _rows([
             (_path(Path(item["curated_path"]).name), recipe["production_date"],
              f"Contains {item['curated_rows']:,} retained matches.") for item in sources
@@ -392,23 +502,21 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             "then additional filters select reliable, consistent matches for evaluation."
         ),
         "COVERAGE_DESCRIPTION": (
-            "Panels separate Sentinel-1 missions and HY-2 reference platforms at the SAR "
-            "imagette centres, with counts and date ranges. All panels share a logarithmic "
-            "count scale per 1-degree-wide hexagonal cell. Counts are Curated rows, not "
-            "unique imagettes or time-normalized rates; invalid coordinates are omitted. "
-            "Unrecognized reference identifiers appear as Unknown HY-2."
-            if hscat else
             "The heatmap shows retained matches per 1-degree-wide hexagonal cell on a logarithmic "
             "color scale. Matches without finite coordinates are omitted."
         ),
         "COVERAGE_FIGURE": f"{assets}/{Path(paths[0]).name}",
         "COVERAGE_CAPTION": (
-            "Geographic coverage of retained S1 / HY-2 matchups by platform." if hscat
-            else f"Global density of retained Sentinel-1 / {product} matches."
+            f"Global density of retained Sentinel-1 / {product} matches."
         ),
+        "COVERAGE_EXTRA": coverage_extra,
         "MONTHLY_DESCRIPTION": "Retained matches by SAR acquisition month, stacked by mission.",
         "MONTHLY_FIGURE": f"{assets}/{Path(paths[1]).name}",
         "MONTHLY_CAPTION": f"Monthly count of retained {product} matches, stacked by mission.",
+        "MONTHLY_EXTRA": monthly_extra,
+        "DISTRIBUTION_EXTRA": distribution_extra,
+        "FILTER_REMOVAL_FIGURES": filter_removal_figures,
+        "CATALOGUE_VERSIONS": catalogue_versions,
         "REFERENCE_DESCRIPTION": (
             "Colored lines show HSCAT wind speed (top) and wind direction (bottom) by mission. "
             if hscat else f"Colored lines show {_tex(variable)} by mission. "
@@ -441,6 +549,18 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "PRODUCT_REFERENCES": references,
     }
     text = (ASSET_DIR / "latex" / "curated_template.tex").read_text()
+    # Optional placeholder lines that vanish entirely when empty, so the shared
+    # SWOT/HSCAT documents (which leave them blank) stay byte-identical.
+    optional_lines = {"COVERAGE_EXTRA", "MONTHLY_EXTRA", "DISTRIBUTION_EXTRA",
+                      "CATALOGUE_VERSIONS", "FILTER_REMOVAL_FIGURES"}
+    kept = []
+    for line in text.split("\n"):
+        match = re.fullmatch(r"@@([A-Z_]+)@@", line.strip())
+        if (match and match.group(1) in optional_lines
+                and mapping.get(match.group(1), "") == ""):
+            continue
+        kept.append(line)
+    text = "\n".join(kept)
     for key, value in mapping.items():
         text = text.replace(f"@@{key}@@", value)
     leftovers = re.findall(r"@@[A-Z_]+@@", text)

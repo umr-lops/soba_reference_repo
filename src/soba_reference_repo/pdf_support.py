@@ -68,9 +68,8 @@ def find_pdflatex(miktex_bin: str | Path | None = None) -> str:
     return binary
 
 
-def compile_pdf(output_dir: Path, stem: str, miktex_bin: str | Path | None = None) -> Path:
+def _compile_with_pdflatex(output_dir: Path, stem: str, miktex_bin) -> Path:
     """Run pdflatex twice from the build directory; require a PDF."""
-    output_dir = Path(output_dir)
     pdflatex = find_pdflatex(miktex_bin)
     for _ in range(2):
         completed = subprocess.run(
@@ -88,6 +87,45 @@ def compile_pdf(output_dir: Path, stem: str, miktex_bin: str | Path | None = Non
     if not pdf.is_file():
         raise RuntimeError(f"pdflatex reported success but {pdf} is missing")
     return pdf
+
+
+def _compile_with_tectonic(output_dir: Path, stem: str) -> Path:
+    """Compile with Tectonic (downloads the TeX Live bundle on demand)."""
+    tectonic = shutil.which("tectonic")
+    if tectonic is None:
+        raise FileNotFoundError("tectonic is not on PATH; install it or provide a working pdflatex")
+    completed = subprocess.run(
+        [tectonic, "--keep-intermediates", "--keep-logs", "--reruns", "1", f"{stem}.tex"],
+        cwd=output_dir, capture_output=True, text=True, check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stdout + completed.stderr)[-4000:]
+        raise RuntimeError(f"Tectonic failed for {stem}.tex:\n{detail}")
+    pdf = output_dir / f"{stem}.pdf"
+    if not pdf.is_file():
+        raise RuntimeError(f"Tectonic reported success but {pdf} is missing")
+    return pdf
+
+
+def compile_pdf(output_dir: Path, stem: str, miktex_bin: str | Path | None = None) -> Path:
+    """Compile the report, preferring pdflatex and falling back to Tectonic.
+
+    The fallback triggers when pdflatex is absent *or* fails (e.g. an incomplete
+    TeX Live install), so a partial TeX installation still yields a PDF.
+    """
+    output_dir = Path(output_dir)
+    errors = []
+    try:
+        return _compile_with_pdflatex(output_dir, stem, miktex_bin)
+    except Exception as exc:
+        if miktex_bin:
+            raise
+        errors.append(f"pdflatex: {exc}")
+    try:
+        return _compile_with_tectonic(output_dir, stem)
+    except Exception as exc:
+        errors.append(f"tectonic: {exc}")
+    raise RuntimeError("no working LaTeX engine (pdflatex/tectonic):\n" + "\n".join(errors))
 
 
 def purge_latex_byproducts(output_dir: Path, stem: str) -> list[Path]:

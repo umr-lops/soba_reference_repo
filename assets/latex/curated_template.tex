@@ -50,7 +50,7 @@
     \begin{center}
     \begin{tabular}{ll}
         \textbf{Document Version} & 1.1.0 \\
-        \textbf{Date} & \DTMtoday \\
+        \textbf{Date} & @@DOC_RELEASE_DATE@@ \\
         \textbf{Authors} & SOBA consortium \\
         \textbf{Intended Audience} & internal \\
     \end{tabular}
@@ -81,8 +81,8 @@
         \toprule
         \textbf{Version} & \textbf{Date} & \textbf{Modification} & \textbf{Author} & \textbf{Checked by} \\
         \midrule
-        1.0.0 & \DTMtoday & Creation of the @@DOCUMENT_PRODUCT@@ curated dataset document & Ilias Reguig & -- \\
-        1.1.0 & \DTMtoday & Public-facing sources and selection summary & Ilias Reguig & -- \\
+        1.0.0 & @@DOC_RELEASE_DATE@@ & Creation of the @@DOCUMENT_PRODUCT@@ curated dataset document & Ilias Reguig & -- \\
+        1.1.0 & @@DOC_RELEASE_DATE@@ & Public-facing sources and selection summary & Ilias Reguig & Antoine Grouazel \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -118,6 +118,7 @@
     \caption{@@COVERAGE_CAPTION@@}
     \label{fig:coverage_map}
 \end{figure}
+@@COVERAGE_EXTRA@@
 
 \Needspace{0.43\textheight}
 \subsection{Monthly Distribution of Matchups}
@@ -128,11 +129,13 @@
     \caption{@@MONTHLY_CAPTION@@}
     \label{fig:monthly_distribution}
 \end{figure}
+@@MONTHLY_EXTRA@@
 
 \Needspace{0.43\textheight}
 \subsection{@@DISTRIBUTION_TITLE@@}
 \textbf{Description:} @@REFERENCE_DESCRIPTION@@
 @@DISTRIBUTION_FIGURES@@
+@@DISTRIBUTION_EXTRA@@
 
 Table~\ref{tab:reference_stats} summarises the retained @@REFERENCE_LABEL@@.
 @@REFERENCE_STATS_TABLE@@
@@ -153,6 +156,7 @@ Table~\ref{tab:columns} gives the columns and stored types of the Curated Parque
 \end{tabular}
 }
 \end{table}
+@@CATALOGUE_VERSIONS@@
 
 @@SAMPLING_NOTE@@
 
@@ -196,6 +200,7 @@ Product metadata and provenance are listed below. Original source attributes rem
 @@SEQUENTIAL_COUNTS@@
 
 @@DIRECTION_STD_NOTE@@
+@@FILTER_REMOVAL_FIGURES@@
 
 \begin{table}[H]
     \centering
@@ -213,7 +218,7 @@ Product metadata and provenance are listed below. Original source attributes rem
 \end{table}
 \textbf{Before selection} counts the space/time-matched observations available at the end of the first preparation stage; \textbf{retained} counts those left after the date selection and additional quality filters. Multiple reference matches can correspond to one SAR image, so row counts are not counts of distinct images.
 
-
+\newpage
 \addcontentsline{toc}{section}{References}
 
 \begin{thebibliography}{9}

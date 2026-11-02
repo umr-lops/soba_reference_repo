@@ -62,14 +62,33 @@ def run_curate_recipe(recipe_path) -> int:
     for source in manifest["sources"]:
         print(f"  {source['mission']}: {source['curated_rows']:,}/{source['input_rows']:,} "
               f"-> {Path(source['curated_path']).name}")
+    if recipe.get("report", False):
+        from .alti_report import build_alti_run_report
+
+        report = build_alti_run_report(root, compile_report=recipe.get("compile", False))
+        print(f"REPORT: {report['tex']}")
+        if report["pdf"]:
+            print(f"PDF:    {report['pdf']}")
     return 0
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--recipe", required=True, type=Path)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--recipe", type=Path, help="curation recipe to run")
+    group.add_argument("--run-dir", type=Path,
+                       help="build the report from an existing curated run directory")
+    parser.add_argument("--no-compile", action="store_true", help="skip the PDF step")
     args = parser.parse_args(argv)
-    return run_curate_recipe(args.recipe)
+    if args.recipe is not None:
+        return run_curate_recipe(args.recipe)
+    from .alti_report import build_alti_run_report
+
+    result = build_alti_run_report(args.run_dir, compile_report=not args.no_compile)
+    print(f"REPORT: {result['tex']}")
+    if result["pdf"]:
+        print(f"PDF:    {result['pdf']}")
+    return 0
 
 
 if __name__ == "__main__":
