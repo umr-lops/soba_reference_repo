@@ -90,6 +90,20 @@ def _source_label(source):
     return source["mission"]
 
 
+def _doc_release_date(product, production_date):
+    """Real release date for the Version History table (was a hardcoded ``\\DTMtoday``).
+
+    The HSCAT and SWOT curated documents were first published in
+    ``/scale/.../dataset_description/`` on 2026-10-16 (their own history rows carry that
+    date), so they keep it. The ALTI document is new, so its release date is the run's
+    production date, formatted ``YYYY-MM-DD``.
+    """
+    if product != "ALTI":
+        return "2026-10-16"
+    date = str(production_date)
+    return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
+
+
 def build_curated_report(*, title, platform, instrument, reference, variable,
                          document_stem, recipe, manifest, figures, summary, observation_path,
                          field_descriptions, version_extra=None,
@@ -125,6 +139,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     hscat = "HSCAT" in reference
     alti = not hscat and reference.lower().startswith("alti")
     product = "HSCAT" if hscat else ("ALTI" if alti else "SWOT")
+    doc_release_date = _doc_release_date(product, recipe["production_date"])
     selected_variable = recipe.get("reference_variable", "swh")
     value_column = (
         ("ref_param_1" if selected_variable == "winddirection" else "ref_param_2")
@@ -463,6 +478,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "DATAFLOW_FIGURE": f"{assets}/sobadataflow.png",
         "STYLE_FILE": f"{assets}/soba", "GRAPHICS_DIRECTORY": assets,
         "DATASET_NAME": _tex(dataset_name), "DOCUMENT_PRODUCT": product,
+        "DOC_RELEASE_DATE": _tex(doc_release_date),
         "REFERENCE_LABEL": reference_label,
         "DISTRIBUTION_TITLE": (
             "HSCAT Wind-Speed and Wind-Direction Distributions" if hscat

@@ -69,6 +69,14 @@ def _build_alti_run(tmp_path):
     return run
 
 
+def test_doc_release_date_uses_real_release_dates():
+    from soba_reference_repo.curated_report import _doc_release_date
+    # HSCAT/SWOT keep their real /scale release date; ALTI uses the production date.
+    assert _doc_release_date("HSCAT", "20261014") == "2026-10-16"
+    assert _doc_release_date("SWOT", "20261014") == "2026-10-16"
+    assert _doc_release_date("ALTI", "20261101") == "2026-11-01"
+
+
 def test_source_label_disambiguates_duplicate_mission():
     from soba_reference_repo.curated_report import _source_label
     cci = _source_label({"mission": "S1A",
@@ -118,6 +126,11 @@ def test_build_alti_run_report_two_sources_one_document(tmp_path):
     assert "alti_swh_initial_vs_final.png" in tex
     # Table 6 now reports remaining / removed / % removed (percent sign escaped).
     assert "/ 0 (0.0\\%)" in tex
+    # Version-history dates use the real release date, not \DTMtoday. The ALTI doc is
+    # new, so its date is the run's production date (2026-11-01 here).
+    assert "\\DTMtoday" not in tex
+    assert "@@DOC_RELEASE_DATE@@" not in tex
+    assert tex.count("2026-11-01") >= 3  # cover date + 1.0.0 + 1.1.0 history rows
     assert result["pdf"] is None
     manifest = json.loads((run / "manifest.json").read_text())
     assert manifest["report_tex"] == str(tex_path)
