@@ -51,7 +51,8 @@ from .alti_report import (
 from .curation import S1_WV_ALTI_NAME_RE, read_recipe
 from .curated_report import build_curated_report
 from .hscat_report import _tex
-from .pdf_support import ASSET_DIR, compile_pdf, purge_latex_byproducts, stage_latex_assets
+from .pdf_support import (ASSET_DIR, _path, compile_pdf, purge_latex_byproducts,
+                          stage_latex_assets)
 
 DOCUMENT_STEM = "S1_catalogue_WV_ALTI"
 # Columns the report reads from each raw catalogue Parquet (``_curation_mission``
@@ -104,6 +105,27 @@ def _prod_date(path) -> str:
     """The catalogue production timestamp (3rd date in the filename); '' if absent."""
     match = S1_WV_ALTI_NAME_RE.match(Path(path).name)
     return match.group(5) if match else ""
+
+
+def _file_date(path) -> str:
+    """Production date (YYYY-MM-DD) taken from the 3rd date in the catalogue basename."""
+    stamp = _prod_date(path)  # e.g. 20261018T021205
+    if len(stamp) < 8:
+        return ""
+    return f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}"
+
+
+def _file_version_rows(sources) -> list[str]:
+    """One Table-2 row per catalogue, dated with that file's own production date."""
+    rows = []
+    for item in sources:
+        date = _file_date(item["path"]) or "unknown"
+        rows.append(" & ".join([
+            _path(Path(item["curated_path"]).name),
+            _tex(date),
+            f"Contains {item['curated_rows']:,} matches (production date from filename).",
+        ]) + r" \\")
+    return rows
 
 
 def _dedup_by_mission_db(catalogues) -> list[dict]:
@@ -295,6 +317,7 @@ def build_catalogue_report(catalogues, *, version, production_date, output_dir,
         column_caption="Columns of the co-aligned catalogue Parquet files",
         column_tables=column_tables,
         dataflow_extra=_dataflow_latex(),
+        file_version_rows=_file_version_rows(sources),
         template="catalogue_template.tex",
     )
     tex_path = report_dir / f"{DOCUMENT_STEM}.tex"

@@ -133,6 +133,11 @@ def test_build_catalogue_report_all_sar_units_and_per_db_tables(tmp_path):
     assert "Selection of Tiles" not in tex
     assert "Sequential quality-filter counts" not in tex
     assert "Position in the Dataflow" in tex
+    # Table 2 (Versioning of catalogue files) is dated with each file's own
+    # production date (3rd date in the basename), not the recipe production date.
+    assert "production date from filename" in tex
+    assert "2026-10-17" in tex  # S1D CMEMS
+    assert "2026-10-19" in tex  # S1A CCI (deduped re-run) + S1B CCI
     # No leftover tokens.
     import re
     assert re.findall(r"@@[A-Z_]+@@", tex) == []
@@ -140,6 +145,23 @@ def test_build_catalogue_report_all_sar_units_and_per_db_tables(tmp_path):
     assets = run / "report" / "images_S1_catalogue_WV_ALTI"
     assert (assets / "cov_CCI_S1A.png").is_file()
     assert (assets / "sar_coverage.png").is_file()
+
+
+def test_file_version_rows_use_filename_production_date():
+    from soba_reference_repo.catalogue_report import _file_version_rows
+    s1a = ("S1A_coaligned_catalogue_WV_20150319T134347_20251231T192542_"
+            "20261018T021205_SV_CCI-SEATSTATE_ALTI_L2P-V5_1.0.parquet")
+    s1d = ("S1D_coaligned_catalogue_WV_20260107T022525_20261014T000306_"
+            "20261017T232447_SV_CMEMS-ALTI-L3-VAVH_1.0.parquet")
+    sources = [
+        {"mission": "S1A", "path": s1a, "curated_path": s1a, "curated_rows": 10},
+        {"mission": "S1D", "path": s1d, "curated_path": s1d, "curated_rows": 5},
+    ]
+    rows = _file_version_rows(sources)
+    assert len(rows) == 2
+    assert "2026-10-18" in rows[0] and "2026-10-17" in rows[1]
+    # The recipe production date (e.g. today) must NOT be used for these rows.
+    assert "2026-11-01" not in "".join(rows)
 
 
 def test_read_catalogue_tags_mission_and_database(tmp_path):

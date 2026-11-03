@@ -174,7 +174,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
                          filter_removal_figures="", template="curated_template.tex",
                          scope_text=None, general_description=None,
                          column_caption="Columns of the Curated Parquet files",
-                         column_tables=None, dataflow_extra=""):
+                         column_tables=None, dataflow_extra="", file_version_rows=None):
     """Preserve the supplied PDF's cover, section order, tables, and SOBA style.
 
     ``version_extra`` adds a per-database source-version note (e.g. the distinct
@@ -559,10 +559,14 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             f"A curated set of Sentinel-1 Wave Mode observations matched to "
             f"{product} reference measurements for independent algorithm evaluation."
         ),
-        "FILE_VERSION_ROW": _rows([
-            (_path(Path(item["curated_path"]).name), recipe["production_date"],
-             f"Contains {item['curated_rows']:,} retained matches.") for item in sources
-        ]),
+        "FILE_VERSION_ROW": (
+            "\n".join(file_version_rows)
+            if file_version_rows is not None
+            else _rows([
+                (_path(Path(item["curated_path"]).name), recipe["production_date"],
+                 f"Contains {item['curated_rows']:,} retained matches.") for item in sources
+            ])
+        ),
         "GENERAL_DESCRIPTION": _tex(
             general_description or
             f"{sar_product} observations are first matched in space and time to {ref_product}, "
