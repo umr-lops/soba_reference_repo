@@ -6,8 +6,8 @@ document to the Curated dataset PDF (see :mod:`soba_reference_repo.alti_report`)
 
 A catalogue is produced by the colocation pipeline (one Parquet per SAR unit
 and reference database: CCI SeaState V5 or CMEMS ALTI-L3-VAVH) and is the
-*input* to the curation step. This module therefore shares almost everything
-with the ALTI curated report:
+*input* to the curation step. This module shares almost everything with the
+ALTI curated report:
 
 * the SOBA LaTeX engine (:func:`soba_reference_repo.curated_report.build_curated_report`),
   driven here by ``catalogue_template.tex`` (no curation "Production Steps");
@@ -15,9 +15,16 @@ with the ALTI curated report:
   per-database ``_coverage_extra_latex`` / ``_monthly_extra_latex`` blocks;
 * the shared ``pdf_support`` (assets staging + PDF compilation) and ``plotting``.
 
-The only catalogue-specific logic is :func:`_read_catalogue` (the raw Parquet
-has no ``_curation_mission`` column, so the mission is tagged from the source)
-and the document wording (scope / general description / column caption).
+Catalogue-specific content:
+
+* one file per (SAR unit, reference database) is documented (a re-run of the
+  same unit+database is deduplicated to the latest production date);
+* the column table is split per reference database, because the CCI and CMEMS
+  catalogues carry different column sets (described as a union over the SAR
+  units of that database);
+* a "How the Catalogue Is Produced" section documents the colocation input
+  path and every enrichment column the pipeline adds on top of the raw
+  colocation variables.
 """
 
 from __future__ import annotations
@@ -30,6 +37,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .alti_report import (
@@ -40,8 +48,9 @@ from .alti_report import (
     plot_alti_figures,
     plot_alti_split_figures,
 )
-from .curation import read_recipe
+from .curation import S1_WV_ALTI_NAME_RE, read_recipe
 from .curated_report import build_curated_report
+from .hscat_report import _tex
 from .pdf_support import ASSET_DIR, compile_pdf, purge_latex_byproducts, stage_latex_assets
 
 DOCUMENT_STEM = "S1_catalogue_WV_ALTI"
@@ -78,13 +87,39 @@ GENERAL_DESCRIPTION = (
     "CMEMS ALTI-L3-VAVH), producing a concatenated and enriched catalogue of "
     "co-located matchups."
 )
-COLUMN_CAPTION = "Columns of the co-aligned catalogue Parquet files"
+# Colocation input root (``catawvaltioneshot.common.inputd_dir``); one NetCDF per
+# day per altimeter, one sub-tree per SAR unit and reference database.
+DATAFLOW_INPUT_DIR = (
+    "/legacy/project/cersat/public/cache/project/mpc-sentinel1/"
+    "analysis/s1_data_analysis/hs_nn/unified_colocs_wv_alti_ocn_v2/"
+)
+DATAFLOW_INPUT_PATTERN = "{S1A-D}_{cci,cmems}_*/20*/coloc_20*25_min_30_km.nc"
+
+
+def _catalogue_name(item) -> str:
+    return Path(item["path"]).name
+
+
+def _prod_date(path) -> str:
+    """The catalogue production timestamp (3rd date in the filename); '' if absent."""
+    match = S1_WV_ALTI_NAME_RE.match(Path(path).name)
+    return match.group(5) if match else ""
+
+
+def _dedup_by_mission_db(catalogues) -> list[dict]:
+    """Keep one catalogue per (SAR unit, reference database) -- the latest re-run."""
+    best: dict[tuple[str, str], dict] = {}
+    for item in catalogues:
+        key = (item["mission"], _database_of(item["path"]))
+        current = best.get(key)
+        if current is None or _prod_date(item["path"]) > _prod_date(current["path"]):
+            best[key] = item
+    return sorted(best.values(), key=lambda it: (it["mission"], _database_of(it["path"])))
 
 
 def _read_catalogue(sources) -> pd.DataFrame:
     """Concatenate the report columns from every raw catalogue Parquet.
 
-    ``sources`` is a list of ``{"mission": "S1A", "path": <catalogue parquet>}``.
     The raw catalogue has no ``_curation_mission`` column, so the mission is
     tagged from each source; ``_source_db`` (CCI/CMEMS) is derived from the name.
     """
@@ -95,6 +130,17 @@ def _read_catalogue(sources) -> pd.DataFrame:
         frame["_source_db"] = _database_of(item["path"])
         frames.append(frame)
     return pd.concat(frames, ignore_index=True)
+
+
+def _union_schema(paths) -> pa.Schema:
+    """Column union over a list of catalogue files, in first-seen order."""
+    order, fields = [], {}
+    for path in paths:
+        for field in pq.read_schema(path):
+            if field.name not in fields:
+                fields[field.name] = field
+                order.append(field.name)
+    return pa.schema([fields[name] for name in order])
 
 
 def _sources_with_rowcounts(catalogues) -> list[dict]:
@@ -114,13 +160,79 @@ def _sources_with_rowcounts(catalogues) -> list[dict]:
     return sources
 
 
+def _column_tables(catalogues) -> list[tuple[str, str, pa.Schema]]:
+    """One (caption, label, union schema) per reference database present."""
+    tables = []
+    for db, label, caption in (
+        ("CCI", "tab:cols_cci", "CCI SeaState V5 catalogue columns (union over S1A/S1B/S1C)"),
+        ("CMEMS", "tab:cols_cmems", "CMEMS ALTI-L3-VAVH catalogue columns (union over S1A-D)"),
+    ):
+        paths = [item["path"] for item in catalogues if _database_of(item["path"]) == db]
+        if paths:
+            tables.append((caption, label, _union_schema(paths)))
+    return tables
+
+
+def _dataflow_latex() -> str:
+    """The 'How the Catalogue Is Produced' enrichment table (colocation -> catalogue)."""
+    slc_cols = ("sar_safe_slc, sar_safe_ocn, sar_path_slc, sar_pathsafe_slc, "
+                "imagette_number, sar_ocn_basename, sar_slc_basename")
+    rename_cols = ("oswLon->sar_lon, oswLat->sar_lat, oswIncidenceAngle->sar_incidence_angle, "
+                   "hs_alti_closest->ref_hs_alti_closest, time_ALT->ref_time, ...")
+    ww3_cols = ("ww3_swh, ww3_peak_wave_period, ww3_mean_wave_period, "
+                "ww3_mean_wave_direction, ww3_wave_skewness, ww3_wavenumber_peakdness, "
+                "ww3_emb, ww3_mean_wave_period_t0m1")
+    rows = [
+        ("Input colocation files",
+         "Unified WV-OCN / +altimeter colocation NetCDF (one per day per altimeter)",
+         "Raw colocation variables (SAR imagette geometry, OCN wave fields, closest altimeter)"),
+        ("SLC / SAFE resolution", "OCN -> SLC via CDSE daily Parquet + s1ifr", slc_cols),
+        ("SOBA rename", "VARIABLE_RENAME_MAP", rename_cols),
+        ("Distance to coast", "colocation distance_to_coast (m) -> km (CCI only)",
+         "sar_distance_to_coast"),
+        ("DL scene classification", "TenGeoP DL_Summary.xml per SAFE",
+         "class_1..class_10, prob_1..prob_10"),
+        ("IMERG rain rate", "GPM 3B-HHR L3 (mm/h) at the altimeter reference time",
+         "imerg_rainrate"),
+        ("WW3 wave fields",
+         "WW3 GLOB-30M association (CMEMS only; CCI carries them in the colocations)", ww3_cols),
+        ("Primary key + dedup", "sar_safe_slc + ref_lon + ref_lat (3 dp); drop duplicates",
+         "primary_key"),
+        ("Mandatory defaults", "SOBA mandatory columns absent from the colocations",
+         "ref_param_count, ref_flag, ref_id, ref_source, legacy_usage, imerg_rainrate (NaN)"),
+        ("Dropped", "too large / unused", "oswCartSpecRe, oswCartSpecIm, z (GRIB geopotential)"),
+    ]
+    body = "\n".join(
+        f"{_tex(step)} & {_tex(source)} & {_tex(cols)} \\\\" for step, source, cols in rows
+    )
+    return "\n".join([
+        r"\noindent\textbf{Input colocation files (NetCDF).} " + _tex(DATAFLOW_INPUT_DIR) + " , "
+        "one per day per altimeter, matched per SAR unit and reference database; file pattern "
+        r"\texttt{" + _tex(DATAFLOW_INPUT_PATTERN) + "}. The pipeline "
+        r"(\texttt{catawvaltioneshot}) loads, concatenates and enriches them into one Parquet "
+        "catalogue per SAR unit and reference database.",
+        r"\begin{table}[H]\centering",
+        r"\caption{Enrichment applied by the colocation-to-catalogue pipeline.}",
+        r"\label{tab:dataflow}",
+        r"{\small",
+        r"\begin{tabular}{"
+        r"@{}>{\raggedright\arraybackslash}p{3.9cm}"
+        r">{\raggedright\arraybackslash}p{5.1cm}"
+        r">{\raggedright\arraybackslash}p{6.0cm}@{}}",
+        r"\toprule",
+        r"\textbf{Step} & \textbf{Source} & \textbf{Columns added / renamed} " + chr(92) * 2,
+        r"\midrule", body, r"\bottomrule", r"\end{tabular}", "}", r"\end{table}",
+    ])
+
+
 def build_catalogue_report(catalogues, *, version, production_date, output_dir,
                            compile_report=True, miktex_bin=None) -> dict:
     """Build figures + LaTeX (+ optional PDF) describing raw co-aligned catalogues.
 
     ``catalogues`` is a list of ``{"mission": "S1A", "path": <catalogue parquet>}``.
-    ``output_dir`` receives ``report/S1_catalogue_WV_ALTI.tex`` + the versioned PDF
-    and ``manifest.json``.
+    Re-runs of the same (SAR unit, reference database) are deduplicated to the latest
+    production date. ``output_dir`` receives ``report/S1_catalogue_WV_ALTI.tex`` + the
+    versioned PDF and ``manifest.json``.
     """
     output_dir = Path(output_dir)
     report_dir = output_dir / "report"
@@ -128,7 +240,9 @@ def build_catalogue_report(catalogues, *, version, production_date, output_dir,
     assets_dir = report_dir / f"images_{DOCUMENT_STEM}"
     assets_dir.mkdir(parents=True, exist_ok=True)
 
+    catalogues = _dedup_by_mission_db(catalogues)
     sources = _sources_with_rowcounts(catalogues)
+    column_tables = _column_tables(catalogues)
     catalogue = _read_catalogue(sources)
     figures = plot_alti_figures(catalogue, assets_dir)
     split = plot_alti_split_figures(catalogue, assets_dir)
@@ -178,7 +292,9 @@ def build_catalogue_report(catalogues, *, version, production_date, output_dir,
         monthly_extra=_monthly_extra_latex(assets_dir, split).replace("—", "---"),
         scope_text=SCOPE_TEXT,
         general_description=GENERAL_DESCRIPTION,
-        column_caption=COLUMN_CAPTION,
+        column_caption="Columns of the co-aligned catalogue Parquet files",
+        column_tables=column_tables,
+        dataflow_extra=_dataflow_latex(),
         template="catalogue_template.tex",
     )
     tex_path = report_dir / f"{DOCUMENT_STEM}.tex"
@@ -201,7 +317,7 @@ def build_catalogue_report(catalogues, *, version, production_date, output_dir,
 
 
 def run_catalogue_recipe(recipe_path, *, compile_report=None, miktex_bin=None) -> int:
-    """Curate-free catalogue report from a recipe (``reference = "altimeter"``)."""
+    """Catalogue report from a recipe (``reference = "altimeter"``)."""
     recipe_path = Path(recipe_path).resolve()
     recipe = read_recipe(recipe_path)
     if recipe["reference"] != "altimeter":

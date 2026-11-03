@@ -104,13 +104,77 @@ def _doc_release_date(product, production_date):
     return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
 
 
+def render_column_table(schema, descriptions, *, caption, label, longtable_threshold=35):
+    """Render one Column/Type/Description table for a single (per-database) schema.
+
+    Shares the curated doc's grouping (Identification / SAR geometry / Reference /
+    Ancillary) and description fallback, and switches to a ``longtable`` for wide
+    schemas. Used by the catalogue report to describe the CCI and CMEMS catalogues
+    separately (their column sets differ).
+    """
+    groups = {g: [] for g in ("Identification", "SAR geometry", "Reference", "Ancillary")}
+    for field in schema:
+        name = field.name
+        if name == "primary_key" or name.startswith(
+            ("sar_safe_", "sar_path_", "_curation_", "__index_")
+        ):
+            group = "Identification"
+        elif name.startswith("sar_"):
+            group = "SAR geometry"
+        elif name.startswith(("ref_", "scat_", "swot_")):
+            group = "Reference"
+        else:
+            group = "Ancillary"
+        groups[group].append(field)
+    rows = []
+    for group, fields in groups.items():
+        if not fields:
+            continue
+        rows.append(r"\multicolumn{3}{l}{\textbf{" + group + "}} " + chr(92) * 2)
+        rows.append(r"\midrule")
+        for field in fields:
+            description = descriptions.get(
+                field.name, "Value associated with this matched observation.")
+            rows.append(" & ".join([
+                _tex(field.name), _tex(str(field.type)),
+                _tex(description.replace("co-aligned", "matched")),
+            ]) + r" \\")
+    spec = (r"@{}>{\raggedright\arraybackslash}p{4.1cm}"
+            r">{\raggedright\arraybackslash}p{2.6cm}"
+            r">{\raggedright\arraybackslash}p{8.1cm}@{}")
+    header = r"\textbf{Column} & \textbf{Type} & \textbf{Description} " + chr(92) * 2
+    if len(schema) <= longtable_threshold:
+        return "\n".join([
+            r"\begin{table}[H]\centering",
+            r"\caption{" + caption + "}",
+            r"\label{" + label + "}",
+            r"{\footnotesize",
+            r"\begin{tabular}{" + spec + "}",
+            r"\toprule", header, r"\midrule", *rows, r"\bottomrule",
+            r"\end{tabular}", "}", r"\end{table}",
+        ])
+    return "\n".join([
+        r"{\small\setlength{\tabcolsep}{4pt}",
+        r"\begin{longtable}{" + spec + "}",
+        r"\caption{" + caption + r"\label{" + label + "}}" + chr(92) * 2,
+        r"\toprule", header, r"\midrule", r"\endfirsthead",
+        r"\caption[]{" + caption + " (continued).}" + chr(92) * 2,
+        r"\toprule", header, r"\midrule", r"\endhead",
+        r"\midrule", r"\multicolumn{3}{r}{Continued on next page.}" + chr(92) * 2,
+        r"\endfoot", r"\bottomrule", r"\endlastfoot",
+        *[line.rstrip() + "*" if line.startswith(r"\multicolumn") else line for line in rows],
+        r"\end{longtable}", "}",
+    ])
+
+
 def build_curated_report(*, title, platform, instrument, reference, variable,
                          document_stem, recipe, manifest, figures, summary, observation_path,
                          field_descriptions, version_extra=None,
                          coverage_extra="", monthly_extra="", distribution_extra="",
                          filter_removal_figures="", template="curated_template.tex",
                          scope_text=None, general_description=None,
-                         column_caption="Columns of the Curated Parquet files"):
+                         column_caption="Columns of the Curated Parquet files",
+                         column_tables=None, dataflow_extra=""):
     """Preserve the supplied PDF's cover, section order, tables, and SOBA style.
 
     ``version_extra`` adds a per-database source-version note (e.g. the distinct
@@ -550,12 +614,19 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "INPUT_COUNT": f"{sum(item['input_rows'] for item in sources):,}",
         "REMOVED_COUNT": f"{sum(item['input_rows'] for item in sources)-row_count:,}",
         "PRODUCT_REFERENCES": references,
+        # Per-database column tables (catalogue report). ``column_tables`` is a list of
+        # (caption, label, schema); each is rendered with the shared description set.
+        "COLUMN_TABLES": "\n\n".join(
+            render_column_table(schema, descriptions, caption=caption, label=label)
+            for caption, label, schema in (column_tables or [])
+        ),
+        "DATAFLOW_EXTRA": dataflow_extra,
     }
     text = (ASSET_DIR / "latex" / template).read_text()
     # Optional placeholder lines that vanish entirely when empty, so the shared
     # SWOT/HSCAT documents (which leave them blank) stay byte-identical.
     optional_lines = {"COVERAGE_EXTRA", "MONTHLY_EXTRA", "DISTRIBUTION_EXTRA",
-                      "CATALOGUE_VERSIONS", "FILTER_REMOVAL_FIGURES"}
+                      "CATALOGUE_VERSIONS", "FILTER_REMOVAL_FIGURES", "DATAFLOW_EXTRA"}
     kept = []
     for line in text.split("\n"):
         match = re.fullmatch(r"@@([A-Z_]+)@@", line.strip())
@@ -569,7 +640,9 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     leftovers = re.findall(r"@@[A-Z_]+@@", text)
     if leftovers:
         raise ValueError(f"Unfilled Curated report fields: {leftovers}")
-    if len(catalogue_fields) > 35:
+    # The catalogue template replaces the single table with per-database tables
+    # (``column_tables``); the curated single-table longtable swap applies otherwise.
+    if column_tables is None and len(catalogue_fields) > 35:
         # Long native schemas need repeated headers, not a clipped unbreakable table.
         anchor = r"\label{tab:columns}"
         position = text.index(anchor)

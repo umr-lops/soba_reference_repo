@@ -139,22 +139,14 @@
 Table~\ref{tab:reference_stats} summarises the retained @@REFERENCE_LABEL@@.
 @@REFERENCE_STATS_TABLE@@
 
-\Needspace{0.98\textheight}
+\Needspace{0.65\textheight}
 \subsection{Catalogue Columns}
-Table~\ref{tab:columns} gives the columns and stored types of the co-aligned catalogue Parquet files, including the SAR observation, the matched reference measurement, and the co-alignment geometry. Descriptions marked inferred are field-name interpretations, not verified source definitions.
-\begin{table}[H]\centering
-\caption{Columns of the co-aligned catalogue Parquet files.}
-\label{tab:columns}
-{\footnotesize
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{4.1cm}>{\raggedright\arraybackslash}p{2.6cm}>{\raggedright\arraybackslash}p{8.1cm}@{}}
-\toprule
-\textbf{Column} & \textbf{Type} & \textbf{Description} \\
-\midrule
-@@TEST_COLUMNS@@
-\bottomrule
-\end{tabular}
-}
-\end{table}
+The co-aligned catalogue carries the SAR observation, the matched reference measurement, and the
+co-alignment geometry. The two reference databases (CCI SeaState V5 and CMEMS ALTI-L3-VAVH)
+carry \emph{different} column sets, so each is described in its own table (a union over the SAR
+units of that database). Descriptions marked inferred are field-name interpretations, not
+verified source definitions.
+@@COLUMN_TABLES@@
 @@CATALOGUE_VERSIONS@@
 
 @@SAMPLING_NOTE@@
@@ -199,6 +191,17 @@ with one or more altimeter observations. The primary key of the catalogue is
 \texttt{sar\_safe\_slc} + \texttt{ref\_lon} + \texttt{ref\_lat} (rounded to 3 decimals).
 Multiple reference matches can correspond to one SAR image, so row counts are not counts
 of distinct images.
+
+\Needspace{0.5\textheight}
+\subsection{How the Catalogue Is Produced}
+The co-aligned catalogue is built by the colocation-to-catalogue pipeline
+(\texttt{catawvaltioneshot}): it loads the unified WV--altimeter colocation NetCDF files,
+enriches them, and writes one SOBA-schema Parquet catalogue per SAR unit and reference
+database. The table below lists the columns the pipeline \emph{adds or renames} on top of
+the raw colocation variables; the remaining columns are carried over from the colocation
+files (renamed to the SOBA schema, e.g. \texttt{oswLon} $\to$ \texttt{sar\_lon},
+\texttt{hs\_alti\_closest} $\to$ \texttt{ref\_hs\_alti\_closest}).
+@@DATAFLOW_EXTRA@@
 
 \newpage
 \addcontentsline{toc}{section}{References}

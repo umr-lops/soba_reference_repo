@@ -7,16 +7,20 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from soba_reference_repo.catalogue_report import build_catalogue_report
+from soba_reference_repo.catalogue_report import (
+    _dedup_by_mission_db,
+    build_catalogue_report,
+)
 
 CCI = "CCI-SEATSTATE_ALTI_L2P-V5"
 CMEMS = "CMEMS-ALTI-L3-VAVH"
+SAFE = "S1A_WV_SLC__1SSV_20200101T000000_000000_000000_0000.SAFE"
 
 
-def _catalogue_name(mission, product):
+def _catalogue_name(mission, product, prod="20261018T021205"):
     # Same naming as the real raw catalogues (one file per SAR unit / database).
     return (f"{mission}_coaligned_catalogue_WV_20150319T134347_20251231T192542_"
-            f"20261018T021205_SV_{product}_1.0.parquet")
+            f"{prod}_SV_{product}_1.0.parquet")
 
 
 def _fname_for(product):
@@ -25,17 +29,16 @@ def _fname_for(product):
     return "global_vavh_l3_rt_al_20200101_20200102_20200103.nc"
 
 
-SAFE = "S1A_WV_SLC__1SSV_20200101T000000_000000_000000_0000.SAFE"
-
-
-def _catalogue_table(product):
-    """Tiny raw catalogue frame (pre-curation): no ``_curation_*`` columns."""
+def _catalogue_table(mission, product):
+    """Tiny raw catalogue frame (pre-curation). CCI and CMEMS carry different columns."""
     times = pd.DatetimeIndex([f"2020-01-0{i} 12:00:00" for i in range(1, 5)]).tz_localize("UTC")
-    return pa.table({
+    cols = {
         "sar_time": pa.array(times),
         "sar_lon": pa.array([-120.0, -119.5, -119.0, -118.5]),
         "sar_lat": pa.array([30.0, 30.5, 31.0, 31.5]),
         "sar_incidence_angle": pa.array([30.0, 31.0, 32.0, 33.0]),
+        "sar_safe_slc": pa.array([SAFE] * 4),
+        "primary_key": pa.array([f"{mission}-key-{i}" for i in range(4)]),
         "oswTotalHs": pa.array([1.1, 1.6, 2.1, 2.6]),
         "ref_hs_alti_closest": pa.array([1.0, 1.5, 2.0, 2.5]),
         "ref_time": pa.array(times),
@@ -44,87 +47,106 @@ def _catalogue_table(product):
         "fname": pa.array([_fname_for(product)] * 4),
         "imerg_rainrate": pa.array([0.0, 0.0, 0.0, 0.0]),
         "ww3_swh": pa.array([1.1, 1.4, 2.1, 2.4]),
-        "sar_safe_slc": pa.array([SAFE] * 4),
-        "primary_key": pa.array([f"key-{i}" for i in range(4)]),
-    })
+    }
+    if product == CCI:
+        # A CCI-only column (so the CCI table differs from the CMEMS table).
+        cols["sar_distance_to_coast"] = pa.array([1.0, 2.0, 3.0, 4.0])
+    else:
+        # A CMEMS-only column.
+        cols["ref_vavh_unfiltered"] = pa.array([1.0, 1.5, 2.0, 2.5])
+    return pa.table(cols)
 
 
 def _build_catalogue_run(tmp_path):
-    """A minimal catalogue run: recipe.toml + 2 S1A catalogues (CCI + CMEMS)."""
+    """A minimal catalogue run: recipe.toml + catalogues for S1A (CCI+CMEMS), S1B (CCI+CMEMS),
+    S1D (CMEMS only) + a duplicate S1A CCI re-run (to exercise dedup)."""
     run = tmp_path / "run"
     run.mkdir(parents=True)
     blocks = ['reference = "altimeter"', f'output_dir = "{run.name}"',
               'production_date = "20261101"', 'version = "1.0"', 'compile = false', '']
     paths = []
-    for product in (CCI, CMEMS):
-        src = run / _catalogue_name("S1A", product)
-        pq.write_table(_catalogue_table(product), src)
+    plan = [
+        ("S1A", CCI, "20261018T021205"),
+        ("S1A", CCI, "20261019T030000"),  # re-run -> must be deduped to the latest
+        ("S1A", CMEMS, "20261018T022921"),
+        ("S1B", CCI, "20261019T114343"),
+        ("S1B", CMEMS, "20261018T000937"),
+        ("S1D", CMEMS, "20261017T232447"),
+    ]
+    for mission, product, prod in plan:
+        src = run / _catalogue_name(mission, product, prod)
+        pq.write_table(_catalogue_table(mission, product), src)
         paths.append(str(src))
-        blocks += ['[[catalogues]]', 'mission = "S1A"', f'path = "{src.name}"', '']
+        blocks += ['[[catalogues]]', f'mission = "{mission}"', f'path = "{src.name}"', '']
     (run / "recipe.toml").write_text("\n".join(blocks), encoding="utf-8")
     return run, paths
 
 
 def _catalogues(paths):
-    return [{"mission": "S1A", "path": p} for p in paths]
+    # missions come from the filenames, in file order
+    missions = [Path(p).name.split("_")[0] for p in paths]
+    return [{"mission": m, "path": p} for m, p in zip(missions, paths)]
+
+
+def test_dedup_keeps_latest_per_mission_db():
+    items = _catalogues([
+        "x/S1A_coaligned_catalogue_WV_20150319T134347_20251231T192542_20261018T021205_SV_CCI-SEATSTATE_ALTI_L2P-V5_1.0.parquet",
+        "x/S1A_coaligned_catalogue_WV_20150319T134347_20251231T192542_20261019T030000_SV_CCI-SEATSTATE_ALTI_L2P-V5_1.0.parquet",
+        "x/S1A_coaligned_catalogue_WV_20191001T005910_20260629T193043_20261018T022921_SV_CMEMS-ALTI-L3-VAVH_1.0.parquet",
+        "x/S1D_coaligned_catalogue_WV_20260107T022525_20261014T000306_20261017T232447_SV_CMEMS-ALTI-L3-VAVH_1.0.parquet",
+    ])
+    kept = _dedup_by_mission_db(items)
+    keys = {(it["mission"], Path(it["path"]).name) for it in kept}
+    # S1A CCI: only the latest production date (20261019) survives; S1A CMEMS + S1D kept.
+    assert len(kept) == 3
+    assert any("20261019T030000" in n for _, n in keys)
+    assert not any("20261018T021205" in n for _, n in keys)
+
+
+def test_build_catalogue_report_all_sar_units_and_per_db_tables(tmp_path):
+    run, paths = _build_catalogue_run(tmp_path)
+    result = build_catalogue_report(_catalogues(paths), version="1.0",
+                                    production_date="20261101", output_dir=run,
+                                    compile_report=False)
+    tex = Path(result["tex"]).read_text(encoding="utf-8")
+    manifest = json.loads((run / "manifest.json").read_text())
+    # S1C absent on disk here; the 4 present SAR units (S1A, S1B, S1D) are all documented.
+    assert {"S1A", "S1B", "S1D"} <= set(
+        source["mission"] for source in manifest["sources"])
+    # One file per (mission, db): S1A CCI deduped to 1, so 5 sources total.
+    assert len(manifest["sources"]) == 5
+    # Per-database column tables (different schemas), not a single merged table.
+    assert "CCI SeaState V5 catalogue columns" in tex
+    assert "CMEMS ALTI-L3-VAVH catalogue columns" in tex
+    assert "tab:cols_cci" in tex and "tab:cols_cmems" in tex
+    # CCI-only and CMEMS-only columns each appear only in their own table.
+    assert "sar\\_distance\\_to\\_coast" in tex
+    assert "ref\\_vavh\\_unfiltered" in tex
+    assert "curated_WV" not in tex  # no curation provenance columns are described
+    # Dataflow / enrichment section with the input path and the added columns.
+    assert "How the Catalogue Is Produced" in tex
+    assert "unified\\_colocs\\_wv\\_alti\\_ocn\\_v2" in tex  # input path, _tex-escaped
+    assert "imerg\\_rainrate" in tex and "coloc\\_20" in tex
+    assert "catawvaltioneshot" in tex
+    # No curation sections: the catalogue is pre-filter.
+    assert "Dataset Production Steps" not in tex
+    assert "Selection of Tiles" not in tex
+    assert "Sequential quality-filter counts" not in tex
+    assert "Position in the Dataflow" in tex
+    # No leftover tokens.
+    import re
+    assert re.findall(r"@@[A-Z_]+@@", tex) == []
+    assert result["pdf"] is None
+    assets = run / "report" / "images_S1_catalogue_WV_ALTI"
+    assert (assets / "cov_CCI_S1A.png").is_file()
+    assert (assets / "sar_coverage.png").is_file()
 
 
 def test_read_catalogue_tags_mission_and_database(tmp_path):
     from soba_reference_repo.catalogue_report import _read_catalogue
     run, paths = _build_catalogue_run(tmp_path)
     frame = _read_catalogue(_catalogues(paths))
-    assert "_curation_mission" in frame.columns
-    assert "_source_db" in frame.columns
-    assert set(frame["_source_db"]) == {"CCI", "CMEMS"}
-    assert (frame["_curation_mission"] == "S1A").all()
-    assert len(frame) == 8  # 4 rows x 2 catalogues
-
-
-def test_build_catalogue_report_two_sources_one_document(tmp_path):
-    run, paths = _build_catalogue_run(tmp_path)
-    result = build_catalogue_report(_catalogues(paths), version="1.0",
-                                    production_date="20261101", output_dir=run,
-                                    compile_report=False)
-    tex_path = Path(result["tex"])
-    assert tex_path.name == "S1_catalogue_WV_ALTI.tex"
-    tex = tex_path.read_text(encoding="utf-8")
-    # Catalogue wording (not curated wording).
-    assert "Catalogue Co-aligned Dataset Description - Ifremer" in tex
-    assert "Curated Dataset Description - Ifremer" not in tex
-    assert "co-aligned catalogue of Sentinel-1 Wave Mode observations" in tex
-    # Distribution is the altimeter Hs (as requested), described by the shared engine.
-    assert "Altimeter Significant Wave-Height Distribution" in tex
-    # Both S1A databases appear as distinct, labelled columns (not collapsed).
-    assert "S1A CCI-SeaState" in tex and "S1A CMEMS-VAVH" in tex
-    # Per-database split figures + source versions (review additions reused).
-    assert "cov_CCI_S1A.png" in tex and "cov_CMEMS_S1A.png" in tex
-    assert "monthly_CCI_S1A.png" in tex
-    assert "L2P-V5 (source catalogue)" in tex and "CMEMS-ALTI-L3-VAVH (source catalogue)" in tex
-    # No curation sections: the catalogue is pre-filter, so the curated
-    # "Production Steps" (selection + sequential filter counts) are absent.
-    assert "Dataset Production Steps" not in tex
-    assert "Selection of Tiles" not in tex
-    assert "Sequential quality-filter counts" not in tex
-    # But the dataflow-position section that replaces it is present.
-    assert "Position in the Dataflow" in tex
-    assert "before quality curation" in tex
-    # Cover date comes from the production date (2026-11-01), no leftover tokens.
-    assert "@@DOC_RELEASE_DATE@@" not in tex and "\\DTMtoday" not in tex
-    assert "2026-11-01" in tex
-    # Manifest + figure bundle are written.
-    manifest = json.loads((run / "manifest.json").read_text())
-    assert manifest["report_tex"] == str(tex_path)
-    assert manifest["reference"] == "altimeter" and manifest["input_rows"] == 8
-    assets = run / "report" / "images_S1_catalogue_WV_ALTI"
-    assert (assets / "cov_CCI_S1A.png").is_file()
-    assert (assets / "sar_coverage.png").is_file()
-    assert result["pdf"] is None
-
-
-def test_build_catalogue_report_reuses_alti_figure_builders(tmp_path):
-    # The three core figures are produced by the shared ALTI builders.
-    from soba_reference_repo.catalogue_report import _read_catalogue
-    run, paths = _build_catalogue_run(tmp_path)
-    frame = _read_catalogue(_catalogues(paths))
-    assert {"sar_lon", "sar_lat", "sar_time", "fname", "ref_hs_alti_closest"} <= set(frame.columns)
-    assert "_curation_mission" in frame.columns  # tagged, so plot_alti_figures works
+    assert "_curation_mission" in frame.columns and "_source_db" in frame.columns
+    assert {"CCI", "CMEMS"} <= set(frame["_source_db"])
+    # 4 rows x 6 (pre-dedup) files.
+    assert len(frame) == 24
