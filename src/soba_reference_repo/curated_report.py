@@ -108,7 +108,9 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
                          document_stem, recipe, manifest, figures, summary, observation_path,
                          field_descriptions, version_extra=None,
                          coverage_extra="", monthly_extra="", distribution_extra="",
-                         filter_removal_figures=""):
+                         filter_removal_figures="", template="curated_template.tex",
+                         scope_text=None, general_description=None,
+                         column_caption="Columns of the Curated Parquet files"):
     """Preserve the supplied PDF's cover, section order, tables, and SOBA style.
 
     ``version_extra`` adds a per-database source-version note (e.g. the distinct
@@ -485,7 +487,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             else ("Altimeter Significant Wave-Height Distribution" if alti
                   else "SWOT Significant Wave-Height Distribution")
         ),
-        "SCOPE_TEXT": (
+        "SCOPE_TEXT": scope_text or (
             "A curated set of Sentinel-1 Wave Mode observations matched to altimeter "
             "significant-wave-height measurements (CCI SeaState V5 and CMEMS ALTI-L3-VAVH) "
             "for independent algorithm evaluation."
@@ -498,6 +500,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
              f"Contains {item['curated_rows']:,} retained matches.") for item in sources
         ]),
         "GENERAL_DESCRIPTION": _tex(
+            general_description or
             f"{sar_product} observations are first matched in space and time to {ref_product}, "
             "then additional filters select reliable, consistent matches for evaluation."
         ),
@@ -548,7 +551,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "REMOVED_COUNT": f"{sum(item['input_rows'] for item in sources)-row_count:,}",
         "PRODUCT_REFERENCES": references,
     }
-    text = (ASSET_DIR / "latex" / "curated_template.tex").read_text()
+    text = (ASSET_DIR / "latex" / template).read_text()
     # Optional placeholder lines that vanish entirely when empty, so the shared
     # SWOT/HSCAT documents (which leave them blank) stay byte-identical.
     optional_lines = {"COVERAGE_EXTRA", "MONTHLY_EXTRA", "DISTRIBUTION_EXTRA",
@@ -568,20 +571,20 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         raise ValueError(f"Unfilled Curated report fields: {leftovers}")
     if len(catalogue_fields) > 35:
         # Long native schemas need repeated headers, not a clipped unbreakable table.
-        caption = r"\caption{Columns of the Curated Parquet files.}"
-        position = text.index(caption)
+        anchor = r"\label{tab:columns}"
+        position = text.index(anchor)
         start = text.rfind(r"\begin{table}[H]\centering", 0, position)
         end = text.index(r"\end{table}", position) + len(r"\end{table}")
         block = text[start:end]
         spec = next(line for line in block.splitlines() if line.startswith(r"\begin{tabular}"))
         header = r"\textbf{Column} & \textbf{Type} & \textbf{Description} " + chr(92) * 2
         long_rows = [line.rstrip() + "*" if line.startswith(r"\multicolumn") else line
-                     for line in column_lines]
+                      for line in column_lines]
         long_table = "\n".join([
             r"{\small", spec.replace(r"\begin{tabular}", r"\begin{longtable}"),
-            r"\caption{Columns of the Curated Parquet files.\label{tab:columns}}" + chr(92) * 2,
+            r"\caption{" + column_caption + r".\label{tab:columns}}" + chr(92) * 2,
             r"\toprule", header, r"\midrule", r"\endfirsthead",
-            r"\caption[]{Columns of the Curated Parquet files (continued).}" + chr(92) * 2,
+            r"\caption[]{" + column_caption + " (continued).}" + chr(92) * 2,
             r"\toprule", header, r"\midrule", r"\endhead",
             r"\midrule", r"\multicolumn{3}{r}{Continued on next page.}" + chr(92) * 2,
             r"\endfoot", r"\bottomrule", r"\endlastfoot",
