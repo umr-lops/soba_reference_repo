@@ -1,0 +1,212 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[useregional]{datetime2}
+\usepackage{needspace}
+
+
+% Date Time
+\DTMsetdatestyle{iso}
+
+% Utilisation du style SOBA (défini dans soba.sty)
+\input{@@STYLE_FILE@@.sty}
+\graphicspath{{@@GRAPHICS_DIRECTORY@@/}}
+% soba.sty loads hyperref without options, which draws a red box around every
+% cross-reference, table-of-contents entry and URL.
+\hypersetup{hidelinks}
+\geometry{top=2.6cm,headheight=44pt,headsep=15pt}
+% This document describes a co-aligned catalogue (pre-curation), so it keeps
+% the style's catalogue footer.
+\lfoot{Catalogue Co-aligned Dataset Description - Ifremer}
+
+% ---------------------------
+% DÉBUT DU DOCUMENT
+% ---------------------------
+\begin{document}
+
+% Page de garde
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+
+    % Logo
+    \includegraphics[width=0.4\textwidth]{logo_soba.png}
+
+    \vspace{2cm}
+
+    {\Huge \textbf{SOBA Project} \par}
+    \vspace{1cm}
+    {\Large \textbf{Technical documentation for @@DATASET_NAME@@ catalogue dataset} \par}
+
+    \vspace{2cm}
+
+    \textbf{Work Package 3: Datasets Preparation} \\
+    \vspace{0.5cm}
+
+    \begin{minipage}{0.85\textwidth}
+        \textbf{Scope:} @@SCOPE_TEXT@@
+    \end{minipage}
+
+    \vfill
+
+    \begin{center}
+    \begin{tabular}{ll}
+        \textbf{Document Version} & 1.0.0 \\
+        \textbf{Date} & @@DOC_RELEASE_DATE@@ \\
+        \textbf{Authors} & SOBA consortium \\
+        \textbf{Intended Audience} & internal \\
+    \end{tabular}
+    \end{center}
+
+    \vspace{1cm}
+\end{titlepage}
+
+\tableofcontents
+
+\newpage
+
+% The supplied PNG contains its own Figure 1 caption; count it without a duplicate.
+\begin{figure}[H]
+    \centering
+    \refstepcounter{figure}\label{fig:dataflow}
+    \includegraphics[width=\textwidth,height=0.72\textheight,keepaspectratio]{@@DATAFLOW_FIGURE@@}
+\end{figure}
+
+\section*{Version History}
+\addcontentsline{toc}{section}{Version History}
+
+\begin{table}[H]
+    \centering
+    \caption{Versioning of the documentation}
+    \label{tab:versioning_documentation}
+    \begin{tabular}{@{}p{1.3cm}p{2cm}p{6.9cm}p{2.5cm}p{2.1cm}@{}}
+        \toprule
+        \textbf{Version} & \textbf{Date} & \textbf{Modification} & \textbf{Author} & \textbf{Checked by} \\
+        \midrule
+        1.0.0 & @@DOC_RELEASE_DATE@@ & Creation of the @@DOCUMENT_PRODUCT@@ co-aligned catalogue document & SOBA consortium & -- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{Versioning of catalogue files}
+    \label{tab:versioning_catalogue_files}
+    {\small
+    \begin{tabular}{@{}>{\raggedright\arraybackslash}p{7cm}p{2cm}>{\raggedright\arraybackslash}p{7cm}@{}}
+        \toprule
+        \textbf{File name} & \textbf{Date} & \textbf{Modifications} \\
+        \midrule
+        @@FILE_VERSION_ROW@@
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+
+% ---------------------------
+% SECTION 1 : Dataset Content Description
+% ---------------------------
+
+\section{Dataset Content Description}
+\textbf{Dataset general description:} @@GENERAL_DESCRIPTION@@
+
+\subsection{Global Coverage Map}
+\textbf{Description:} @@COVERAGE_DESCRIPTION@@
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{@@COVERAGE_FIGURE@@}
+    \caption{@@COVERAGE_CAPTION@@}
+    \label{fig:coverage_map}
+\end{figure}
+@@COVERAGE_EXTRA@@
+
+\Needspace{0.43\textheight}
+\subsection{Monthly Distribution of Matchups}
+\textbf{Description:} @@MONTHLY_DESCRIPTION@@
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{@@MONTHLY_FIGURE@@}
+    \caption{@@MONTHLY_CAPTION@@}
+    \label{fig:monthly_distribution}
+\end{figure}
+@@MONTHLY_EXTRA@@
+
+\Needspace{0.43\textheight}
+\subsection{@@DISTRIBUTION_TITLE@@}
+\textbf{Description:} @@REFERENCE_DESCRIPTION@@
+@@DISTRIBUTION_FIGURES@@
+@@DISTRIBUTION_EXTRA@@
+
+Table~\ref{tab:reference_stats} summarises the retained @@REFERENCE_LABEL@@.
+@@REFERENCE_STATS_TABLE@@
+
+\Needspace{0.65\textheight}
+\subsection{Catalogue Columns}
+The co-aligned catalogue carries the SAR observation, the matched reference measurement, and the
+co-alignment geometry. The two reference databases (CCI SeaState V5 and CMEMS ALTI-L3-VAVH)
+carry \emph{different} column sets, so each is described in its own table (a union over the SAR
+units of that database). Descriptions marked inferred are field-name interpretations, not
+verified source definitions.
+@@COLUMN_TABLES@@
+@@CATALOGUE_VERSIONS@@
+
+@@SAMPLING_NOTE@@
+
+\Needspace{0.65\textheight}
+\subsection{Global Metadata}
+Product metadata and provenance are listed below. Original source attributes remain in the Parquet files; run-specific provenance is recorded in the accompanying manifest.
+\begin{table}[H]\centering
+\caption{Global attributes of the parquet files.}
+\label{tab:metadata}
+{\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{5.4cm}>{\raggedright\arraybackslash}p{8.9cm}@{}}
+\toprule
+\textbf{Attribute} & \textbf{Value} \\
+\midrule
+@@METADATA_ROWS@@
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+% ---------------------------
+% SECTION 2 : Position in the dataflow
+% ---------------------------
+\section{Position in the Dataflow}
+This document describes the \textbf{co-aligned catalogue}: the raw, concatenated and enriched
+matchups produced by the colocation pipeline, before any quality curation. It is the input to the
+curation step that yields the \emph{curated} dataset (see the corresponding Curated dataset
+document for the applied quality filters and their per-step counts).
+
+\begin{itemize}
+    \item \textbf{SAR product and provider:} @@SAR_PRODUCT@@
+    \item \textbf{Reference product and provider:} @@REFERENCE_PRODUCT@@
+    \item \textbf{SAR acquisition mode:} Wave Mode (WV).
+    \item \textbf{Polarization:} single VV (SV).
+\end{itemize}
+
+\noindent
+A catalogue file is one per SAR unit and reference database (CCI SeaState V5 or
+CMEMS ALTI-L3-VAVH); each row is a Sentinel-1 WV imagette collocated in space and time
+with one or more altimeter observations. The primary key of the catalogue is
+\texttt{sar\_safe\_slc} + \texttt{ref\_lon} + \texttt{ref\_lat} (rounded to 3 decimals).
+Multiple reference matches can correspond to one SAR image, so row counts are not counts
+of distinct images.
+
+\Needspace{0.5\textheight}
+\subsection{How the Catalogue Is Produced}
+The co-aligned catalogue is built by the colocation-to-catalogue pipeline
+(\texttt{catawvaltioneshot}): it loads the unified WV--altimeter colocation NetCDF files,
+enriches them, and writes one SOBA-schema Parquet catalogue per SAR unit and reference
+database. The table below lists the columns the pipeline \emph{adds or renames} on top of
+the raw colocation variables; the remaining columns are carried over from the colocation
+files (renamed to the SOBA schema, e.g. \texttt{oswLon} $\to$ \texttt{sar\_lon},
+\texttt{hs\_alti\_closest} $\to$ \texttt{ref\_hs\_alti\_closest}).
+@@DATAFLOW_EXTRA@@
+
+\newpage
+\addcontentsline{toc}{section}{References}
+
+\begin{thebibliography}{9}
+@@PRODUCT_REFERENCES@@
+\end{thebibliography}
+\end{document}
