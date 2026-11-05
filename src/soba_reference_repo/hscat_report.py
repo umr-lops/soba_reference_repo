@@ -36,10 +36,15 @@ def _annual_tick_indices(months):
     return indices
 
 
-def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, curated=False):
+def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, curated=False,
+                       column_map=None):
     """Create coverage, monthly-count, and reference-value figures by Parquet batch."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _column(name):
+        return (column_map or {}).get(name, name)
+
     value_column = (
         {"windspeed": "ref_param_2", "winddirection": "ref_param_1"}
         if curated
@@ -49,12 +54,12 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
         raise ValueError(f"unsupported HSCAT variable: {variable}")
     if curated:
         # Plot both native variables, regardless of recipe selection.
-        value_column = "ref_param_2"
+        value_column = _column("ref_param_2")
     mission_column = "_curation_mission" if curated else "sar_safe_slc"
     parquet = pq.ParquetFile(test_path)
     required = ["sar_lon", "sar_lat", "sar_time", mission_column, value_column]
     if curated:
-        required.extend(["ref_param_1", "ref_id"])
+        required.extend([_column("ref_param_1"), "ref_id"])
     missing = set(required) - set(parquet.schema_arrow.names)
     if missing:
         raise ValueError(f"HSCAT TEST file lacks figure columns: {sorted(missing)}")
@@ -157,7 +162,7 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
         else np.linspace(min_value, max_value, 41)
         for name in variables
     }
-    columns = {name: ("ref_param_2" if name == "windspeed" else "ref_param_1")
+    columns = {name: _column("ref_param_2" if name == "windspeed" else "ref_param_1")
                if curated else value_column for name in variables}
     histograms = {
         name: {mission: np.zeros(len(edges_by_variable[name]) - 1, dtype=np.int64)
@@ -272,6 +277,11 @@ def _filter_expression(clauses):
             expressions.append(f"{_tex(column)} {symbols[operation]} {clause[2]}")
         elif operation == "present":
             expressions.append(f"{_tex(column)} is present")
+        elif operation == "qd_flagged":
+            expressions.append(
+                f"SLC or OCN SAFE ({_tex(' and '.join(clause[2]))}) "
+                f"not in the ESA quality-disclaimer list"
+            )
         else:
             expressions.append(_tex(str(clause)))
     return " and ".join(expressions)

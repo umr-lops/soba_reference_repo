@@ -14,6 +14,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .quality_disclaimers import flagged_safe_mask
+
 
 _DEFAULT_SPEC = (
     ("sea_proxy", "S1 land and coast proxy", [
@@ -108,12 +110,13 @@ def validate_filter_columns(columns, rules):
         if not rule.get("enabled", True):
             continue
         for clause in rule["clauses"]:
-            required = [clause[0]]
-            if clause[1] in {"abs_diff_le", "angle_diff_le", "rel_diff_le",
-                             "imagette_circstd_le"}:
-                required.append(clause[2][0])
-            if clause[1] == "not_in_window_for":
-                required.append(clause[2][0])
+            if clause[1] == "qd_flagged":
+                required = list(clause[2])
+            else:
+                required = [clause[0]]
+                if clause[1] in {"abs_diff_le", "angle_diff_le", "rel_diff_le",
+                                 "imagette_circstd_le", "not_in_window_for"}:
+                    required.append(clause[2][0])
             for name in required:
                 if name not in columns:
                     raise ValueError(f"missing filter column: {name}")
@@ -136,10 +139,16 @@ def _validate_clause(clause):
         raise ValueError("clause column must be a nonempty string")
     if operation == "present" and len(clause) == 2:
         return
-    if operation == "in" and len(clause) == 3 and isinstance(clause[2], list) and all(
-        isinstance(value, str) for value in clause[2]
+    if operation == "qd_flagged" and len(clause) == 3 and isinstance(clause[2], list) and all(
+        isinstance(value, str) and value for value in clause[2]
     ):
         return
+    if operation == "in" and len(clause) == 3 and isinstance(clause[2], list) and clause[2]:
+        values = clause[2]
+        if all(isinstance(value, str) for value in values):
+            return
+        if all(type(value) in (int, float) and math.isfinite(float(value)) for value in values):
+            return
     if operation in {"date_gt", "date_lt"} and len(clause) == 3 and isinstance(clause[2], str):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", clause[2]):
             raise ValueError(f"{operation} requires a YYYY-MM-DD date")
@@ -205,12 +214,23 @@ def read_recipe(path):
         recipe,
         {
             "reference", "reference_variable", "output_dir", "production_date",
-            "version", "compile", "report", "catalogues",
+            "version", "compile", "report", "catalogues", "quality_disclaimers",
+            "rename_columns",
         },
         {"reference", "output_dir", "production_date", "version", "catalogues"},
     )
     if "report" in recipe and not isinstance(recipe["report"], bool):
         raise ValueError("report must be boolean")
+    if "quality_disclaimers" in recipe and not isinstance(
+        recipe["quality_disclaimers"], (str, dict)
+    ):
+        raise ValueError("quality_disclaimers must be a path or a mapping")
+    if "rename_columns" in recipe:
+        rename = recipe["rename_columns"]
+        if (not isinstance(rename, dict)
+                or not all(isinstance(k, str) and isinstance(v, str)
+                           and k and v for k, v in rename.items())):
+            raise ValueError("rename_columns must map nonempty strings to nonempty strings")
     if recipe["reference"] not in {"swot", "scat", "altimeter"}:
         raise ValueError(
             f"unsupported reference: {recipe['reference']!r}; supported: swot, scat, altimeter"
@@ -300,17 +320,31 @@ def read_recipe(path):
                     raise ValueError("clauses must be nonempty")
                 for clause in rule["clauses"]:
                     _validate_clause(clause)
+    if isinstance(recipe.get("quality_disclaimers"), str):
+        qd_path = (path.parent / recipe["quality_disclaimers"]).resolve()
+        if any(char in str(qd_path) for char in ("|", "\n", "\r")):
+            raise ValueError("unsafe quality-disclaimer path for LaTeX report")
+        recipe["quality_disclaimers"] = qd_path
     return recipe
 
 
-def clause_mask(frame, clause):
+def clause_mask(frame, clause, context=None):
     """Evaluate one validated numeric, membership or numeric-presence clause."""
     _validate_clause(clause)
     column, operation = clause[:2]
+    if operation == "qd_flagged":
+        flagged = (context or {}).get("qd_flagged")
+        if flagged is None:
+            raise ValueError("qd_flagged rule requires the quality_disclaimers config")
+        return ~flagged_safe_mask(frame, clause[2], flagged)
     if column not in frame:
         raise ValueError(f"missing filter column: {column}")
     if operation == "in":
-        return frame[column].astype("string").isin(clause[2]).fillna(False)
+        values = clause[2]
+        if all(type(value) in (int, float) and not isinstance(value, bool) for value in values):
+            numeric = pd.to_numeric(frame[column], errors="coerce")
+            return numeric.isin([float(value) for value in values]).fillna(False)
+        return frame[column].astype("string").isin(values).fillna(False)
     if operation in {"date_gt", "date_lt"}:
         timestamp = pd.to_datetime(frame[column], utc=True, errors="coerce")
         boundary = pd.Timestamp(clause[2], tz="UTC")
@@ -397,7 +431,7 @@ def _imagette_circstd_mask(frame, clause):
     }
 
 
-def curate_frame(frame, rules):
+def curate_frame(frame, rules, context=None):
     """Filter raw source columns cumulatively and retain original row indices."""
     validate_rule_order(rules)
     validate_filter_columns(frame.columns, rules)
@@ -412,7 +446,7 @@ def curate_frame(frame, rules):
                 if clause[1] == "imagette_circstd_le":
                     mask, diagnostics = _imagette_circstd_mask(selected, clause)
                 else:
-                    mask &= clause_mask(selected, clause)
+                    mask &= clause_mask(selected, clause, context)
             selected = selected.loc[mask].copy()
             status = "applied"
         else:
@@ -465,7 +499,7 @@ def curated_filename(source_path, production_date, version):
     )
 
 
-def write_curated(source_path, target_path, rules, mission):
+def write_curated(source_path, target_path, rules, mission, context=None):
     """Save selected original Arrow rows, fields, metadata and row provenance."""
     source_path, target_path = Path(source_path), Path(target_path)
     if not isinstance(mission, str) or not re.fullmatch(r"S1[A-D]", mission):
@@ -473,9 +507,14 @@ def write_curated(source_path, target_path, rules, mission):
     source = pq.read_table(source_path)
     if {"_curation_mission", "_curation_row"} & set(source.column_names):
         raise ValueError("source contains reserved curation fields")
-    kept, steps = curate_frame(source.to_pandas().reset_index(drop=True), rules)
+    kept, steps = curate_frame(source.to_pandas().reset_index(drop=True), rules, context)
     ordinals = kept.index.to_numpy(dtype="int64")
     table = source.take(pa.array(ordinals, type=pa.int64()))
+    rename = (context or {}).get("rename_columns")
+    if rename:
+        table = table.rename_columns(
+            [rename.get(name, name) for name in table.column_names]
+        )
     table = table.append_column(
         "_curation_mission", pa.array([mission] * len(kept), type=pa.string())
     )
