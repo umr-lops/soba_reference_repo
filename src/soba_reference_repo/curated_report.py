@@ -78,9 +78,11 @@ INFERRED_COLUMN_DESCRIPTIONS = {
 # Human-readable rationale for each curation filter: the scientific goal
 # ("why this filter exists") and the mechanism ("how it is applied").
 # Kept independent of the recipe so the same documentation applies to every
-# release that enables the corresponding rule. ``sar_start``/``sar_end`` are
-# rendered by the generic date-selection text because their window is
-# mission-specific.
+# release that enables the corresponding rule. Keys are shared across the
+# HSCAT, altimeter and SWOT curated documents (all use build_curated_report),
+# so a given filter is described identically wherever it appears.
+# ``sar_start``/``sar_end`` are rendered by the generic date-selection text
+# because their window is mission-specific.
 FILTER_DETAILS = {
     "ecmwf_scat_speed_difference": (
         "retain only matches for which the independent scatterometer and the "
@@ -130,6 +132,102 @@ FILTER_DETAILS = {
         "configured threshold (10 degrees), all of the imagette's matches are removed. "
         "The aim is reference consistency; the threshold is a chosen setting whose "
         "scientific validation is not documented here.",
+    ),
+    # -- altimeter reference filters (WV x ALTI) --
+    "no_rain": (
+        "exclude rain-contaminated observations, because rain degrades both the "
+        "SAR wave measurement and the altimeter retrieval.",
+        "keep a match when the IMERG rain rate at the reference time is "
+        "exactly zero.",
+    ),
+    "imerg_rain": (
+        "exclude rain-contaminated observations, because rain degrades the "
+        "reference retrieval.",
+        "keep a match when the maximum IMERG rain rate associated with the "
+        "match is at most the configured threshold.",
+    ),
+    "alti_ww3_30pct": (
+        "remove altimeter wave heights that are physically inconsistent with the "
+        "WW3 model, which catches isolated altimeter outliers without discarding the "
+        "independent SAR product.",
+        "keep a match when the altimeter significant wave height deviates "
+        "from the WW3 model Hs by at most the configured relative tolerance (30 %); "
+        "larger deviations are removed.",
+    ),
+    "cfosat_pre2024": (
+        "exclude CFOSAT observations from the mission commissioning period, when "
+        "the data quality is not representative of normal operations.",
+        "remove rows whose reference file is a CFOSAT product (CCI or "
+        "CMEMS) and whose acquisition time falls in the configured pre-2024 window.",
+    ),
+    "hy2b_frozen_20230219": (
+        "exclude a known altimeter data anomaly so a frozen feed does not bias "
+        "the curated set.",
+        "remove rows whose reference file is a HY2B product and whose "
+        "acquisition time falls in the configured anomaly window (2023-02-19, when the "
+        "CMEMS L3 VAVH feed was frozen).",
+    ),
+    # -- SWOT reference filters (WV x SWOT) --
+    "sea_proxy": (
+        "keep open-water observations away from the coast, where the wave "
+        "retrieval is valid.",
+        "keep a match when the OCN land coverage is zero and the distance "
+        "from the coast is strictly positive.",
+    ),
+    "no_dynamic_ice": (
+        "exclude ice-contaminated observations.",
+        "keep a match when the SWOT dynamic-ice flag is zero.",
+    ),
+    "time_present": (
+        "ensure a time difference between the SAR and reference acquisitions "
+        "exists, so the colocation can be evaluated.",
+        "keep a match when the reference time difference is present (not "
+        "missing).",
+    ),
+    "karin_positive": (
+        "keep only physically meaningful SWOT wave heights.",
+        "keep a match when the SWOT KaRIn significant wave height is "
+        "strictly positive.",
+    ),
+    "ocn_positive": (
+        "keep only physically meaningful Sentinel-1 wave heights.",
+        "keep a match when the Sentinel-1 OCN significant wave height is "
+        "strictly positive.",
+    ),
+    "altimeter_positive": (
+        "keep only physically meaningful altimeter wave heights.",
+        "keep a match when the nearest altimeter significant wave height is "
+        "strictly positive.",
+    ),
+    "ww3_positive": (
+        "keep only physically meaningful model wave heights.",
+        "keep a match when the WW3 model significant wave height is "
+        "strictly positive.",
+    ),
+    "classification_present": (
+        "ensure a scene classification is available for the match.",
+        "keep a match when at least one scene-class probability is present "
+        "(not missing).",
+    ),
+    "time_under_two_hours": (
+        "keep only contemporaneous SAR and reference observations.",
+        "keep a match when the absolute time difference between the "
+        "acquisitions is less than the configured maximum (two hours).",
+    ),
+    "full_overlap": (
+        "keep only matches with complete spatial overlap between the SAR "
+        "imagette and the reference footprint.",
+        "keep a match when the overlap percentage is at least 100 %.",
+    ),
+    "no_swot_rain_flag": (
+        "exclude SWOT observations flagged as affected by rain.",
+        "keep a match when the SWOT rain flag is zero.",
+    ),
+    "accepted_classes": (
+        "keep only ocean scene classes for which the wave retrieval is "
+        "reliable.",
+        "keep a match when the S1 scene-class label is one of the accepted "
+        "classes (AF, BS, MCC, OF, POS, RC, WS).",
     ),
 }
 
