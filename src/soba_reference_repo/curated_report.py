@@ -72,7 +72,65 @@ INFERRED_COLUMN_DESCRIPTIONS = {
     "ecmwf_source": "Source identifier or path for ECMWF ancillary data (inferred).",
     **{f"class_{i}": f"Scene-class label {i} (inferred)." for i in (1, 2, 3)},
     **{f"prob_{i}": f"Probability associated with class_{i} (inferred; scale unverified)."
-       for i in (1, 2, 3)},
+        for i in (1, 2, 3)},
+}
+
+# Human-readable rationale for each curation filter: the scientific goal
+# ("why this filter exists") and the mechanism ("how it is applied").
+# Kept independent of the recipe so the same documentation applies to every
+# release that enables the corresponding rule. ``sar_start``/``sar_end`` are
+# rendered by the generic date-selection text because their window is
+# mission-specific.
+FILTER_DETAILS = {
+    "ecmwf_scat_speed_difference": (
+        "retain only matches for which the independent scatterometer and the "
+        "meteorological (ECMWF) analysis agree on wind strength, so the reference used "
+        "for evaluation is not an outlier relative to the large-scale wind field.",
+        "keep a match when the absolute difference between the ECMWF wind "
+        "speed and the HSCAT wind speed is at most the configured threshold (2 m/s); "
+        "matches with a larger disagreement are removed.",
+    ),
+    "ecmwf_scat_direction_difference": (
+        "retain only matches for which the independent scatterometer and the "
+        "ECMWF analysis agree on wind direction, avoiding directions that a single "
+        "measurement could not determine reliably.",
+        "compute the circular (360-degree-wrapped) difference between the "
+        "ECMWF wind direction and the HSCAT wind direction; keep a match when it is at "
+        "most the configured threshold (30 degrees).",
+    ),
+    "zero_ice_probability": (
+        "keep open-water observations only, because the wind retrieval is not "
+        "valid over ice.",
+        "keep a match when the HSCAT ice-probability field for the "
+        "collocated pixel is exactly zero.",
+    ),
+    "zero_ref_flag": (
+        "drop HSCAT pixels that the KNMI processor has flagged as doubtful, while "
+        "keeping the reliable low-wind cases.",
+        "keep a match when the HSCAT quality flag is one of the accepted "
+        "values (0 or 2048; the 2048 bit marks small winds at most 3 m/s that are still "
+        "valid). Any other combination of doubt bits is removed.",
+    ),
+    "quality_disclaimer_filter": (
+        "exclude Sentinel-1 observations that ESA has formally documented as "
+        "impacted by a degradation, so that known-bad acquisitions never enter the "
+        "curated set.",
+        "load the ESA Sentinel-1 quality-disclaimer impacted-product "
+        "database (collected at Ifremer from the ESA SAR-MPC disclaimers). A match is "
+        "removed when the bare name of its SLC SAFE or of its OCN SAFE is listed in that "
+        "database. Only explicit product names are used; glob patterns and period-only "
+        "disclaimers are ignored.",
+    ),
+    "imagette_direction_consistency": (
+        "ensure the reference wind direction is unambiguous for each SAR imagette, "
+        "so the evaluation target is not an artefact of mixing several HSCAT "
+        "observations.",
+        "for every WV imagette, compute the circular standard deviation of "
+        "the HSCAT wind directions of its eligible references; when it exceeds the "
+        "configured threshold (10 degrees), all of the imagette's matches are removed. "
+        "The aim is reference consistency; the threshold is a chosen setting whose "
+        "scientific validation is not documented here.",
+    ),
 }
 
 
@@ -525,6 +583,61 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         r"\toprule", count_header, r"\midrule", _rows(count_rows),
         r"\bottomrule", r"\end{tabular}", "}", r"\end{table}",
     ])
+    # One descriptive sub-section per active filter: its goal and mechanism.
+    # The sequential counts table above already carries the per-mission
+    # remaining/removed figures, so the details below stay qualitative.
+    detail_blocks = []
+    date_block_added = False
+    for steps in step_groups:
+        present = [step for step in steps if step]
+        if not present:
+            continue
+        rule_id = present[0]["id"]
+        name = present[0]["name"]
+        if rule_id in {"sar_start", "sar_end"}:
+            # sar_start and sar_end are both date windows: one merged sub-section.
+            if date_block_added:
+                continue
+            date_block_added = True
+            windows = "; ".join(
+                f"{label}: {window}"
+                for label, window in dates
+                if window != "no additional date restriction"
+            )
+            detail_blocks.append((
+                _tex("Acquisition-date selection (mission-specific)"),
+                "restrict each mission to the acquisition window supplied for this "
+                "release, so the curated set reflects the intended evaluation period "
+                "rather than the full satellite lifetimes.",
+                "keep a match when its SAR acquisition time falls inside the "
+                "mission's window. Windows: " + windows + ".",
+            ))
+            continue
+        detail = FILTER_DETAILS.get(rule_id)
+        if not detail:
+            # Rules without a curated-documentation entry: describe generically.
+            detail = (
+                "select reliable reference observations for evaluation.",
+                _tex(name) + ".",
+            )
+        detail_blocks.append((_tex(name), detail[0], detail[1]))
+    filter_details = "\n\n".join(
+        "\n".join([
+            r"\subsubsection{" + title + "}",
+            r"\noindent\textbf{Goal.} " + _tex(goal) + "\n",
+            r"\noindent\textbf{Mechanism.} " + _tex(mechanism),
+        ])
+        for title, goal, mechanism in detail_blocks
+    )
+    if detail_blocks:
+        filter_details = (
+            r"\subsection{Details of the applied filters}"
+            + "\nEach filter below lists its goal (the quality property it protects) and "
+              "its mechanism (the rule applied to the matched observations). "
+              "Per-mission remaining/removed counts are given in "
+              r"Table~\ref{tab:quality_filters}."
+            + "\n\n" + filter_details
+        )
     # Owner-supplied image is vendored verbatim; reports use their local asset bundle.
     dataflow_dir = Path(paths[0]).parent
     shutil.copyfile(ASSET_DIR / "latex" / "sobadataflow.png", dataflow_dir / "sobadataflow.png")
@@ -617,6 +730,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
                          " values describe observations matched in space and time.",
         "METADATA_ROWS": _rows(metadata_rows), "SAR_PRODUCT": _tex(sar_product),
         "REFERENCE_PRODUCT": _tex(ref_product), "SELECTION_SUMMARY": _tex(selection),
+        "FILTER_DETAILS": filter_details,
         "DATE_SELECTION": "\n".join(r"\item " + _tex(f"{mission}: {window}.")
                                       for mission, window in dates),
         "BEFORE_AFTER_ROWS": _rows(source_rows), "ROW_COUNT": f"{row_count:,}",
@@ -635,7 +749,8 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     # Optional placeholder lines that vanish entirely when empty, so the shared
     # SWOT/HSCAT documents (which leave them blank) stay byte-identical.
     optional_lines = {"COVERAGE_EXTRA", "MONTHLY_EXTRA", "DISTRIBUTION_EXTRA",
-                      "CATALOGUE_VERSIONS", "FILTER_REMOVAL_FIGURES", "DATAFLOW_EXTRA"}
+                      "CATALOGUE_VERSIONS", "FILTER_REMOVAL_FIGURES", "DATAFLOW_EXTRA",
+                      "FILTER_DETAILS"}
     kept = []
     for line in text.split("\n"):
         match = re.fullmatch(r"@@([A-Z_]+)@@", line.strip())
