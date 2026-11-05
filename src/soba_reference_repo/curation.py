@@ -469,8 +469,24 @@ def _parse_catalogue_date(value):
     return parsed.date().strftime("%Y%m%d")
 
 
-def curated_filename(source_path, production_date, version):
-    """Retain source catalogue coverage/product identity; use the Curated run version/date."""
+def curated_sar_bounds(frame):
+    """Return the (start, stop) YYYYMMDD SAR dates actually present in a curated frame.
+
+    Per the SOBA naming convention, the curated ``startdate``/``stopdate`` are the
+    first and last SAR starting dates *within the curated dataset*, so these are
+    derived from the real (post-filter) ``sar_time`` values rather than the source
+    catalogue's filename coverage.
+    """
+    if "sar_time" not in frame.columns:
+        raise ValueError("cannot derive curated filename dates: missing sar_time column")
+    times = pd.to_datetime(frame["sar_time"], utc=True, errors="coerce").dropna()
+    if times.empty:
+        raise ValueError("cannot derive curated filename dates: no valid sar_time")
+    return times.min().strftime("%Y%m%d"), times.max().strftime("%Y%m%d")
+
+
+def _curated_filename_parts(source_path):
+    """Validate the source catalogue filename and return its identity groups."""
     name = Path(source_path).name
     match = S1_WV_ALTI_NAME_RE.match(name) or re.fullmatch(
         r"(S1[A-D])_coaligned_catalogue_(WV)_(\d{8})_(\d{8})_(\d{8})_"
@@ -479,6 +495,10 @@ def curated_filename(source_path, production_date, version):
     )
     if match is None:
         raise ValueError(f"invalid WV catalogue filename: {name}")
+    return match.groups()
+
+
+def _validate_curated_run(production_date, version):
     if not isinstance(production_date, str) or not re.fullmatch(r"[0-9]{8}", production_date):
         raise ValueError("production_date must use YYYYMMDD")
     try:
@@ -487,9 +507,25 @@ def curated_filename(source_path, production_date, version):
         raise ValueError("invalid production_date") from error
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+", version):
         raise ValueError("version must use X.Y")
-    mission, mode, start, stop, source_date, polarization, product, _ = match.groups()
-    start_d = _parse_catalogue_date(start)
-    stop_d = _parse_catalogue_date(stop)
+
+
+def curated_filename(source_path, production_date, version, override_dates=None):
+    """Build the Curated filename, retaining the source product identity.
+
+    ``override_dates`` (a ``(start, stop)`` YYYYMMDD pair) overrides the source
+    catalogue's filename coverage; when omitted the source coverage is used.
+    """
+    mission, mode, start, stop, source_date, polarization, product, _ = (
+        _curated_filename_parts(source_path)
+    )
+    _validate_curated_run(production_date, version)
+    if override_dates is None:
+        start_d = _parse_catalogue_date(start)
+        stop_d = _parse_catalogue_date(stop)
+    else:
+        start_d, stop_d = _parse_catalogue_date(override_dates[0]), _parse_catalogue_date(
+            override_dates[1]
+        )
     _parse_catalogue_date(source_date)
     if start_d > stop_d:
         raise ValueError("catalogue startdate must not exceed stopdate")
@@ -521,9 +557,10 @@ def write_curated(source_path, target_path, rules, mission, context=None):
     table = table.append_column("_curation_row", pa.array(ordinals, type=pa.int64()))
     target_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(table, target_path)
+    sar_bounds = curated_sar_bounds(kept) if "sar_time" in kept.columns else None
     return {
         "path": target_path, "input_rows": len(source),
-        "curated_rows": len(kept), "steps": steps,
+        "curated_rows": len(kept), "steps": steps, "sar_bounds": sar_bounds,
     }
 
 

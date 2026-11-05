@@ -540,6 +540,17 @@ def run_hscat_recipe(recipe_path):
             info = write_curated(
                 item["path"], destination, item["resolved_rules"], mission, context
             )
+            # Per the SOBA naming convention the curated startdate/stopdate are the
+            # first/last SAR dates actually present in the curated dataset, not the
+            # source catalogue's filename coverage. Rename to match the real range.
+            final_name = curated_filename(
+                item["path"], recipe["production_date"], recipe["version"],
+                override_dates=info["sar_bounds"],
+            )
+            if final_name != destination.name:
+                destination.rename(destination.with_name(final_name))
+                destination = destination.with_name(final_name)
+            item["curated_name"] = destination.name
             for rule, step in zip(item["resolved_rules"], info["steps"], strict=True):
                 missing = step.get("missing_identity_rows", 0)
                 if missing:

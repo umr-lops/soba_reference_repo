@@ -441,7 +441,9 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert _filter_expression([["sar_time", "date_lt", "2025-12-31"]]) == (
         r"sar\_time is strictly earlier than 00:00 UTC on 2025-12-31"
     )
-    assert "S1A_curated_WV_20160101_20160102_20260103_" in report
+    # curated startdate/stopdate reflect the real SAR dates in the curated rows
+    # (all 2026-01-01 here), not the source catalogue's filename coverage (20160101).
+    assert "S1A_curated_WV_20260101_20260101_20260103_" in report
     assert "KNMI for EUMETSAT OSI SAF" in report
     assert report.count(r"\includegraphics[") == 6
     assert_report_layout(manifest)
