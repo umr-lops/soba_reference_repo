@@ -192,6 +192,34 @@ def test_curated_filename_retains_catalogue_identity_with_run_date_and_version()
     )
 
 
+def test_curated_filename_overrides_dates_with_real_sar_bounds():
+    source = (
+        "S1A_coaligned_catalogue_WV_20190116_20260629_20260908_"
+        "SV_KNMI-HSCAT-HY2-25km_0.2.parquet"
+    )
+    name = curation.curated_filename(
+        source, "20261105", "2.0", override_dates=("20200512", "20260629")
+    )
+    assert name == (
+        "S1A_curated_WV_20200512_20260629_20261105_"
+        "SV_KNMI-HSCAT-HY2-25km_2.0.parquet"
+    )
+
+
+def test_curated_sar_bounds_uses_first_and_last_real_sar_time():
+    frame = pd.DataFrame({"sar_time": [
+        pd.Timestamp("2020-05-12 00:00:00", tz="UTC"),
+        pd.Timestamp("2026-06-29 23:59:59", tz="UTC"),
+        pd.Timestamp("2021-01-01", tz="UTC"),
+    ]})
+    assert curation.curated_sar_bounds(frame) == ("20200512", "20260629")
+
+
+def test_curated_sar_bounds_requires_sar_time():
+    with pytest.raises(ValueError, match="missing sar_time"):
+        curation.curated_sar_bounds(pd.DataFrame({"x": [1]}))
+
+
 @pytest.mark.parametrize("source,date,version", [
     ("S1A_coaligned_catalogue_WV_sample.parquet", "20261014", "1.0"),
     ("S1A_coaligned_catalogue_WV_20260230_20260301_20260302_SV_PRODUCT_0.1.parquet",

@@ -207,10 +207,14 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     product = "HSCAT" if hscat else ("ALTI" if alti else "SWOT")
     doc_release_date = _doc_release_date(product, recipe["production_date"])
     selected_variable = recipe.get("reference_variable", "swh")
-    value_column = (
-        ("ref_param_1" if selected_variable == "winddirection" else "ref_param_2")
-        if hscat else ("ref_hs_alti_closest" if alti else "ref_mean_hs_karin")
-    )
+    rename = recipe.get("rename_columns") or {}
+    if hscat:
+        native = "ref_param_1" if selected_variable == "winddirection" else "ref_param_2"
+        value_column = rename.get(native, native)
+    elif alti:
+        value_column = "ref_hs_alti_closest"
+    else:
+        value_column = "ref_mean_hs_karin"
     units = ("degrees" if selected_variable == "winddirection" else "m/s") if hscat else "m"
     if hscat:
         reference_label = ("HSCAT wind directions" if selected_variable == "winddirection"
@@ -335,6 +339,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         "ecmwf_scat_direction_difference": "wind-direction agreement with meteorological estimates",
         "zero_ice_probability": "ice-free reference observations",
         "zero_ref_flag": "reference quality checks",
+        "quality_disclaimer_filter": "excluded products with a documented quality disclaimer",
         "imagette_direction_consistency": "consistent reference directions within each SAR image",
         "sea_proxy": "open-water observations away from the coast",
         "no_rain": "rain screening using IMERG",

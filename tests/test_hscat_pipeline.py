@@ -19,6 +19,10 @@ from soba_reference_repo.hscat_test import (
     build_scat_frames,
     write_scat_pair_chunked,
 )
+from soba_reference_repo.quality_disclaimers import (
+    apply_flagged_mask,
+    load_flagged_safe_basenames,
+)
 from soba_reference_repo.validator import main as validate_main, validate_file
 from report_checks import assert_report_layout
 
@@ -155,6 +159,185 @@ def test_mission_specific_start_dates_are_rendered_per_mission():
         assert f"UTC on {cutoff}" in report_tables
 
 
+def test_load_flagged_safe_basenames_from_qd_database(tmp_path):
+    database = tmp_path / "database"
+    database.mkdir()
+    pd.DataFrame(
+        {
+            "product_name": [
+                "/data/S1A_WV_SLC__1SSV_20200101T000000.FAFE",
+                "S1B_WV_OCN__2SSV_20200102.FAFE",
+            ]
+        }
+    ).to_parquet(database / "impacted_products.parquet", index=False)
+    pd.DataFrame(
+        {"product_name": ["S1C_WV_SLC__1SSV_20200103T000000.FAFE:WV_001", None]}
+    ).to_parquet(database / "product_mentions.parquet", index=False)
+
+    flagged = load_flagged_safe_basenames(database)
+
+    assert flagged == {
+        "S1A_WV_SLC__1SSV_20200101T000000.FAFE",
+        "S1B_WV_OCN__2SSV_20200102.FAFE",
+        "S1C_WV_SLC__1SSV_20200103T000000.FAFE",
+    }
+    frame = pd.DataFrame(
+        {
+            "sar_safe_slc": [
+                "/x/A.FAFE",
+                "/x/S1B_WV_OCN__2SSV_20200102.FAFE:WV_001",
+                "/x/C.FAFE",
+            ],
+            "sar_safe_ocn": ["/x/D.FAFE", "/x/E.FAFE", "/x/F.FAFE"],
+        }
+    )
+    kept, diagnostics = apply_flagged_mask(frame, ("sar_safe_slc", "sar_safe_ocn"), flagged)
+    # Row 1's SLC SAFE basename is flagged -> dropped; rows 0 and 2 are kept.
+    assert kept["sar_safe_slc"].tolist() == ["/x/A.FAFE", "/x/C.FAFE"]
+    assert diagnostics["flagged_rows"] == 1
+
+
+def test_qd_flagged_rule_drops_listed_slc_or_ocn_products():
+    flagged = frozenset({"BAD_SLC.FAFE", "BAD_OCN.FAFE"})
+    context = {"qd_flagged": flagged}
+    frame = pd.DataFrame(
+        {
+            "sar_safe_slc": ["/x/GOOD.SAFE", "/x/BAD_SLC.FAFE", "/x/GOOD2.SAFE"],
+            "sar_safe_ocn": ["/x/GOOD3.SAFE", "/x/GOOD4.SAFE", "/x/BAD_OCN.FAFE"],
+            "ref_param_1": [1.0, 1.0, 1.0],
+            "sar_time": [pd.Timestamp("2026-01-01")] * 3,
+        }
+    )
+    rules = [
+        {
+            "id": "quality_disclaimer_filter",
+            "name": "SLC or OCN SAFE not in the quality-disclaimer list",
+            "clauses": [
+                ["quality_disclaimer_filter", "qd_flagged", ["sar_safe_slc", "sar_safe_ocn"]]
+            ],
+        }
+    ]
+
+    kept, steps = curate_frame(frame, rules, context)
+
+    assert kept.index.tolist() == [0]
+    assert steps[0]["removed"] == 2
+
+
+def test_qd_flagged_rule_requires_config():
+    frame = pd.DataFrame(
+        {
+            "sar_safe_slc": ["/x/A.FAFE"],
+            "sar_safe_ocn": ["/x/B.FAFE"],
+        }
+    )
+    rules = [
+        {
+            "id": "quality_disclaimer_filter",
+            "name": "q",
+            "clauses": [
+                ["quality_disclaimer_filter", "qd_flagged", ["sar_safe_slc", "sar_safe_ocn"]]
+            ],
+        }
+    ]
+
+    with pytest.raises(ValueError, match="quality_disclaimers config"):
+        curate_frame(frame, rules)
+
+
+def test_relaxed_ref_flag_keeps_only_small_wind_bit():
+    frame = pd.DataFrame(
+        {
+            "ref_flag": [0.0, 2048.0, 32768.0, 2080.0, 4096.0],
+            "ref_param_2": [5.0, 2.5, 5.0, 2.5, 31.0],
+        }
+    )
+    rules = [
+        {
+            "id": "zero_ref_flag",
+            "name": "no doubtful KNMI quality bits (small wind allowed)",
+            "clauses": [["ref_flag", "in", [0, 2048]]],
+        }
+    ]
+
+    kept, _ = curate_frame(frame, rules)
+
+    # keep flag 0 (clean) and 2048 (small wind <=3 m/s only); reject over_land,
+    # small-wind+over_land, and large_wind.
+    assert kept.index.tolist() == [0, 1]
+
+
+def test_hscat_run_with_quality_disclaimer_and_rename(tmp_path, capsys):
+    source = hscat_source(tmp_path)
+    # Row 1 is dropped by the built-in ECMWF speed rule; row 2 is QD-flagged; row 0 keeps the
+    # small-wind bit (2048). Expect only row 0 curated.
+    frame = pd.read_parquet(source)
+    frame.loc[0, "ref_flag"] = 2048
+    frame["sar_safe_slc"] = [
+        "/x/GOOD1:WV_001",
+        "/x/GOOD2:WV_001",
+        "/x/FLAGGED:WV_001",
+    ]
+    frame.to_parquet(source, index=False)
+    database = tmp_path / "qd"
+    database.mkdir()
+    pd.DataFrame({"product_name": ["FLAGGED"]}).to_parquet(
+        database / "impacted_products.parquet", index=False
+    )
+    recipe = tmp_path / "recipe.toml"
+    # quality_disclaimers / rename_columns sit at the TOML root, before [[catalogues]].
+    recipe.write_text(
+        recipe_text(source)
+        .replace(
+            'compile = false\n\n[[catalogues]]',
+            'compile = false\n'
+            'quality_disclaimers = "qd"\n'
+            'rename_columns = { ref_param_1 = "scat_wind_direction", '
+            'ref_param_2 = "scat_wind_speed" }\n\n[[catalogues]]',
+        )
+        .replace(
+            'id = "zero_ref_flag"\nname = "ref_flag == 0"\n'
+            'clauses = [["ref_flag", "eq", 0]]\n',
+            'id = "zero_ref_flag"\nname = "no doubtful KNMI quality bits (small wind allowed)"\n'
+            'clauses = [["ref_flag", "in", [0, 2048]]]\n',
+        )
+        .replace(
+            '[[catalogues.rules]]\nid = "sar_start"\n',
+            '[[catalogues.rules]]\n'
+            'id = "quality_disclaimer_filter"\n'
+            'name = "SLC or OCN SAFE not in the quality-disclaimer list"\n'
+            'clauses = [["quality_disclaimer_filter", "qd_flagged", '
+            '["sar_safe_slc", "sar_safe_ocn"]]]\n\n'
+            '[[catalogues.rules]]\nid = "sar_start"\n',
+        )
+    )
+
+    assert cli_main(["--recipe", str(recipe)]) == 0
+
+    manifest = json.loads((tmp_path / "output/manifest.json").read_text())
+    curated = pq.read_table(manifest["sources"][0]["curated_path"])
+    # speed rule drops row 1, QD rule drops row 2 -> only the small-wind row 0 remains.
+    assert manifest["sources"][0]["curated_rows"] == 1
+    assert "scat_wind_speed" in curated.column_names
+    assert "scat_wind_direction" in curated.column_names
+    assert "ref_param_1" not in curated.column_names
+    assert "ref_param_2" not in curated.column_names
+    # TEST/TARGET outputs use the native HSCAT output columns.
+    test = pq.read_table(manifest["test_parquet"])
+    assert "scat_windspeed" in test.column_names
+    assert [step["id"] for step in manifest["sources"][0]["quality_filter_steps"]] == [
+        "ecmwf_scat_speed_difference",
+        "ecmwf_scat_direction_difference",
+        "zero_ice_probability",
+        "zero_ref_flag",
+        "quality_disclaimer_filter",
+        "sar_start",
+    ]
+    qd_step = manifest["sources"][0]["quality_filter_steps"][4]
+    assert qd_step["id"] == "quality_disclaimer_filter"
+    assert qd_step["removed"] == 1
+
+
 def test_hscat_recipe_filters_direction_circularity_ice_and_ref_flag():
     rules = resolve_rules(
         [
@@ -258,7 +441,9 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert _filter_expression([["sar_time", "date_lt", "2025-12-31"]]) == (
         r"sar\_time is strictly earlier than 00:00 UTC on 2025-12-31"
     )
-    assert "S1A_curated_WV_20160101_20160102_20260103_" in report
+    # curated startdate/stopdate reflect the real SAR dates in the curated rows
+    # (all 2026-01-01 here), not the source catalogue's filename coverage (20160101).
+    assert "S1A_curated_WV_20260101_20260101_20260103_" in report
     assert "KNMI for EUMETSAT OSI SAF" in report
     assert report.count(r"\includegraphics[") == 6
     assert_report_layout(manifest)

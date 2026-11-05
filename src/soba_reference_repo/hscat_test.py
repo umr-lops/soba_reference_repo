@@ -170,12 +170,15 @@ def validate_scat_input(path, expected_product):
     return info, attrs
 
 
-def build_scat_frames(frame, variable, duplicate_keys=None):
+def build_scat_frames(frame, variable, duplicate_keys=None, column_map=None):
     """Map curated source fields to aligned SCAT TEST/TARGET tables."""
     if variable not in VARIABLE_COLUMNS:
         raise ValueError(f"unsupported SCAT reference variable: {variable}")
+    colmap = column_map or {}
     source_variable, output_variable, _ = VARIABLE_COLUMNS[variable]
-    missing = set(SOURCE_COLUMNS) - set(frame.columns)
+    source_variable = colmap.get(source_variable, source_variable)
+    required = {colmap.get(column, column) for column in SOURCE_COLUMNS}
+    missing = required - set(frame.columns)
     if missing:
         raise ValueError(f"Curated SCAT rows lack required fields: {sorted(missing)}")
     data = frame.copy()
@@ -260,7 +263,8 @@ def build_scat_frames(frame, variable, duplicate_keys=None):
 
 
 def write_scat_pair_chunked(
-    source, test_path, target_path, variable, batch_size=65_536, metadata=None
+    source, test_path, target_path, variable, batch_size=65_536, metadata=None,
+    column_map=None,
 ):
     """Write aligned SCAT files in bounded-memory batches with global key checks."""
     if batch_size < 1:
@@ -315,7 +319,9 @@ def write_scat_pair_chunked(
                         }
                     else:
                         duplicates = set()
-                    test, target, part = build_scat_frames(frame, variable, duplicates)
+                    test, target, part = build_scat_frames(
+                        frame, variable, duplicates, column_map=column_map
+                    )
                     excluded_incomplete += part["excluded_incomplete_rows"]
                     accepted += len(test)
                     duplicate_rows += part["excluded_duplicate_key_rows"]
@@ -481,6 +487,12 @@ def _report(test_path, target_path, manifest, summary, figures, report_dir, comp
 def run_hscat_recipe(recipe_path):
     recipe = read_recipe(recipe_path)
     product = "HSCAT"
+    rename = dict(recipe.get("rename_columns") or {})
+    context = {"rename_columns": rename or None}
+    if recipe.get("quality_disclaimers"):
+        from .quality_disclaimers import load_flagged_safe_basenames
+
+        context["qd_flagged"] = load_flagged_safe_basenames(recipe["quality_disclaimers"])
     catalogues = sorted(recipe["catalogues"], key=lambda item: item["mission"])
     for item in catalogues:
         item["curated_name"] = curated_filename(
@@ -525,7 +537,20 @@ def run_hscat_recipe(recipe_path):
                 / mission
                 / item["curated_name"]
             )
-            info = write_curated(item["path"], destination, item["resolved_rules"], mission)
+            info = write_curated(
+                item["path"], destination, item["resolved_rules"], mission, context
+            )
+            # Per the SOBA naming convention the curated startdate/stopdate are the
+            # first/last SAR dates actually present in the curated dataset, not the
+            # source catalogue's filename coverage. Rename to match the real range.
+            final_name = curated_filename(
+                item["path"], recipe["production_date"], recipe["version"],
+                override_dates=info["sar_bounds"],
+            )
+            if final_name != destination.name:
+                destination.rename(destination.with_name(final_name))
+                destination = destination.with_name(final_name)
+            item["curated_name"] = destination.name
             for rule, step in zip(item["resolved_rules"], info["steps"], strict=True):
                 missing = step.get("missing_identity_rows", 0)
                 if missing:
@@ -580,7 +605,12 @@ def run_hscat_recipe(recipe_path):
             b"creation date": recipe["production_date"].encode(),
         }
         summary = write_scat_pair_chunked(
-            merged_path, test_path, target_path, recipe["reference_variable"], metadata=metadata
+            merged_path,
+            test_path,
+            target_path,
+            recipe["reference_variable"],
+            metadata=metadata,
+            column_map={k: v for k, v in rename.items()},
         )
         manifest.update({key: value for key, value in summary.items() if key != "reference_values"})
         manifest["input_rows"] = sum(item["input_rows"] for item in manifest["sources"])
@@ -592,16 +622,21 @@ def run_hscat_recipe(recipe_path):
         document_stem = "S1_curated_WV_SV_KNMI-HSCAT-HY2-25km"
         assets_dir = report_dir / f"images_{document_stem}"
         figures = plot_hscat_figures(
-            merged_path, recipe["reference_variable"], assets_dir, curated=True
+            merged_path,
+            recipe["reference_variable"],
+            assets_dir,
+            curated=True,
+            column_map={"ref_param_1": rename.get("ref_param_1", "ref_param_1"),
+                        "ref_param_2": rename.get("ref_param_2", "ref_param_2")},
         )
         if sum(figures["mission_counts"].values()) != sum(
             item["curated_rows"] for item in manifest["sources"]
         ):
             raise ValueError("report mission counts do not equal Curated row counts")
-        value_column = {
-            "windspeed": "ref_param_2",
-            "winddirection": "ref_param_1",
-        }[recipe["reference_variable"]]
+        native_value = {"windspeed": "ref_param_2", "winddirection": "ref_param_1"}[
+            recipe["reference_variable"]
+        ]
+        value_column = rename.get(native_value, native_value)
         values = pq.read_table(merged_path, columns=[value_column]).column(0).to_numpy(
             zero_copy_only=False
         ).astype(float)
@@ -646,8 +681,10 @@ def run_hscat_recipe(recipe_path):
                 "sar_lon": "Longitude of the co-aligned Sentinel-1 WV matchup, in degrees.",
                 "sar_lat": "Latitude of the co-aligned Sentinel-1 WV matchup, in degrees.",
                 "sar_time": "Sentinel-1 SAR acquisition time.",
-                "ref_param_1": "HSCAT reference wind direction, in degrees.",
-                "ref_param_2": "HSCAT reference wind speed, in metres per second.",
+                rename.get("ref_param_1", "ref_param_1"):
+                    "HSCAT reference wind direction, in degrees.",
+                rename.get("ref_param_2", "ref_param_2"):
+                    "HSCAT reference wind speed, in metres per second.",
                 "_curation_mission": "Sentinel-1 mission identifier recorded during curation.",
                 "_curation_row": "Zero-based row number in the original source Parquet.",
                 "primary_key": "Source matchup primary key retained in the Curated catalogue.",
