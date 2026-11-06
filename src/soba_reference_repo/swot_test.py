@@ -1059,11 +1059,24 @@ def run_recipe(recipe_path):
         missing = {col for col in SOURCE_COLUMNS[:13] if col not in schema.names}
         for rule in item["resolved_rules"]:
             if rule.get("enabled", True):
-                missing.update(
-                    clause[0] for clause in rule["clauses"] if clause[0] not in schema.names
-                )
+                for clause in rule["clauses"]:
+                    if clause[1] == "qd_flagged":
+                        required = list(clause[2])
+                    else:
+                        required = [clause[0]]
+                    missing.update(name for name in required if name not in schema.names)
         if missing:
             raise ValueError(f"{item['mission']}: missing source columns: {sorted(missing)}")
+    context = {
+        "recipe_path": str(recipe_path),
+        "dataset_version": recipe["version"],
+        "production_date": recipe["production_date"],
+    }
+    if recipe.get("quality_disclaimers"):
+        from .quality_disclaimers import load_flagged_safe_basenames
+
+        context["qd_flagged"] = load_flagged_safe_basenames(recipe["quality_disclaimers"])
+
     root.mkdir(parents=True)
     shutil.copyfile(recipe_path, root / "recipe.toml")
     manifest = {"status": "running", "reference": "swot", "sources": []}
@@ -1080,7 +1093,7 @@ def run_recipe(recipe_path):
                 / item["curated_name"]
             )
             target.parent.mkdir(parents=True, exist_ok=True)
-            info = write_curated(item["path"], target, item["resolved_rules"], mission)
+            info = write_curated(item["path"], target, item["resolved_rules"], mission, context)
             curated[mission] = target
             provenance[mission] = {
                 "path": str(item["path"]),

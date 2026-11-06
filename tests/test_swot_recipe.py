@@ -364,3 +364,61 @@ def test_recipe_refuses_existing_output_directory(tmp_path):
     with pytest.raises(FileExistsError):
         cli_main(["--recipe", str(recipe)])
     assert sorted(p.name for p in output.iterdir()) == ["keep.txt"]
+
+
+def test_run_swot_recipe_applies_quality_disclaimer(tmp_path):
+    flagged_slc = "S1A_WV_SLC_FLAGGED.SAFE"
+    clean_slc = "S1A_WV_SLC_CLEAN.SAFE"
+    source = tmp_path / "S1A_coaligned_catalogue_WV_20260101_20260131_20260201_" \
+        "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet"
+    rows = [
+        source_row(sar_safe_slc=f"/archive/{flagged_slc}:WV_001",
+                   sar_safe_ocn="/archive/S1A_WV_OCN__2SSV_20260107.SAFE:WV_001"),
+        source_row(sar_safe_slc=f"/archive/{clean_slc}:WV_001",
+                   sar_safe_ocn="/archive/S1A_WV_OCN__2SSV_20260108.SAFE:WV_001"),
+    ]
+    pd.DataFrame(rows).to_parquet(source, index=False)
+
+    qd_dir = tmp_path / "qd"
+    qd_dir.mkdir()
+    pd.DataFrame({"product_name": [flagged_slc]}).to_parquet(
+        qd_dir / "impacted_products.parquet", index=False)
+
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(
+        'reference = "swot"\noutput_dir = "output"\n'
+        'production_date = "20260930"\nversion = "0.2"\ncompile = false\n'
+        'quality_disclaimers = "qd"\n'
+        f'[[catalogues]]\nmission = "S1A"\npath = "{source.name}"\n'
+        '[[catalogues.rules]]\nid = "quality_disclaimer_filter"\n'
+        'name = "not in the quality-disclaimer list"\n'
+        'clauses = [["quality_disclaimer_filter", "qd_flagged", '
+        '["sar_safe_slc", "sar_safe_ocn"]]]\n',
+        encoding="utf-8",
+    )
+    assert cli_main(["--recipe", str(recipe)]) == 0
+
+    (curated,) = (tmp_path / "output/curated/S1A").glob("*.parquet")
+    safes = pq.read_table(curated, columns=["sar_safe_slc"]).column(
+        "sar_safe_slc").to_pylist()
+    assert len(safes) == 1
+    assert clean_slc in safes[0]
+    assert flagged_slc not in safes[0]
+
+
+def test_run_swot_recipe_records_recipe_attribute(tmp_path):
+    source = source_file(tmp_path, "S1A")
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(
+        'reference = "swot"\noutput_dir = "output"\n'
+        'production_date = "20260930"\nversion = "0.1"\ncompile = false\n'
+        f'[[catalogues]]\nmission = "S1A"\npath = "{source.name}"\n',
+        encoding="utf-8",
+    )
+    assert cli_main(["--recipe", str(recipe)]) == 0
+
+    (curated,) = (tmp_path / "output/curated/S1A").glob("*.parquet")
+    meta = pq.read_schema(curated).metadata or {}
+    assert meta[b"recipe_path"] == str(Path(recipe).resolve()).encode()
+    assert meta[b"dataset_version"] == b"0.1"
+    assert meta[b"production_date"] == b"20260930"
