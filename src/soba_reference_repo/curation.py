@@ -555,6 +555,15 @@ def write_curated(source_path, target_path, rules, mission, context=None):
         "_curation_mission", pa.array([mission] * len(kept), type=pa.string())
     )
     table = table.append_column("_curation_row", pa.array(ordinals, type=pa.int64()))
+    context = context or {}
+    meta = dict(table.schema.metadata or {})
+    if context.get("recipe_path"):
+        meta[b"recipe_path"] = str(Path(context["recipe_path"]).resolve()).encode()
+    if context.get("dataset_version"):
+        meta[b"dataset_version"] = str(context["dataset_version"]).encode()
+    if context.get("production_date"):
+        meta[b"production_date"] = str(context["production_date"]).encode()
+    table = table.replace_schema_metadata(meta)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(table, target_path)
     sar_bounds = curated_sar_bounds(kept) if "sar_time" in kept.columns else None

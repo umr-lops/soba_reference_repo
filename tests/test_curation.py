@@ -256,6 +256,30 @@ def test_curated_parquet_keeps_source_schema_and_original_row_ordinals(tmp_path)
     assert ledger["steps"][10]["removed"] == 1
 
 
+def test_curated_parquet_records_recipe_attribute(tmp_path):
+    source = tmp_path / Path(catalogue_path("S1A")).name
+    target = tmp_path / "curated.parquet"
+    original = pa.Table.from_pandas(
+        pd.DataFrame([source_row(max_rainrate_IMERG=0)]), preserve_index=False
+    )
+    pq.write_table(original, source)
+    recipe_file = tmp_path / "recipe.toml"
+    recipe_file.write_text("reference = \"scat\"\n")
+    context = {
+        "recipe_path": str(recipe_file),
+        "dataset_version": "2.0",
+        "production_date": "20261105",
+    }
+    curation.write_curated(
+        source, target, curation.resolve_rules([]), "S1A", context=context
+    )
+    saved = pq.read_table(target)
+    meta = saved.schema.metadata or {}
+    assert meta[b"recipe_path"] == str(Path(recipe_file).resolve()).encode()
+    assert meta[b"dataset_version"] == b"2.0"
+    assert meta[b"production_date"] == b"20261105"
+
+
 def test_curated_rejects_reserved_fields_without_writing(tmp_path):
     source, target = tmp_path / "source.parquet", tmp_path / "target.parquet"
     pq.write_table(pa.table({"x": [1], "_curation_row": [0]}), source)

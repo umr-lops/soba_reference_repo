@@ -181,7 +181,13 @@ def test_cli_group_rule_native_curated_and_duplicate_policy(tmp_path, variable):
     assert curated["primary_key"].to_pylist() == ["duplicate", "duplicate", "unique", "singleton"]
     assert curated["sar_safe_slc"].to_pylist() == frame.loc[[2, 3, 4, 8], "sar_safe_slc"].tolist()
     assert curated["_curation_row"].to_pylist() == [2, 3, 4, 8]
-    assert curated.schema.metadata == original.schema.metadata
+    meta = curated.schema.metadata or {}
+    assert dict(meta) == {
+        **(original.schema.metadata or {}),
+        b"recipe_path": str(recipe).encode(),
+        b"dataset_version": b"0.1",
+        b"production_date": b"20260103",
+    }
     for field in table.schema:
         assert curated.schema.field(field.name) == field
     for role in ["test", "target"]:
