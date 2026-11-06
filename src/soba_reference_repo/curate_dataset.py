@@ -28,6 +28,16 @@ def run_curate_recipe(recipe_path) -> int:
     if root.exists():
         raise FileExistsError(f"refusing existing run directory: {root}")
 
+    context = {
+        "recipe_path": str(recipe_path),
+        "dataset_version": recipe["version"],
+        "production_date": recipe["production_date"],
+    }
+    if recipe.get("quality_disclaimers"):
+        from .quality_disclaimers import load_flagged_safe_basenames
+
+        context["qd_flagged"] = load_flagged_safe_basenames(recipe["quality_disclaimers"])
+
     catalogues = sorted(recipe["catalogues"], key=lambda item: (item["mission"], item["path"].name))
     for item in catalogues:
         name = curated_filename(item["path"], recipe["production_date"], recipe["version"])
@@ -41,7 +51,9 @@ def run_curate_recipe(recipe_path) -> int:
         for item in catalogues:
             target = root / "curated" / item["mission"] / item["curated_name"]
             target.parent.mkdir(parents=True, exist_ok=True)
-            info = write_curated(item["path"], target, item["resolved_rules"], item["mission"])
+            info = write_curated(
+                item["path"], target, item["resolved_rules"], item["mission"], context
+            )
             manifest["sources"].append({
                 "mission": item["mission"],
                 "path": str(item["path"]),

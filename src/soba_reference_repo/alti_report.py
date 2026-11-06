@@ -301,15 +301,18 @@ def _rule_columns(rules) -> set[str]:
             continue
         for clause in rule["clauses"]:
             cols.add(clause[0])
-            if clause[1] in {"abs_diff_le", "angle_diff_le", "rel_diff_le",
-                             "imagette_circstd_le", "not_in_window_for"} and len(clause) > 2:
+            if clause[1] == "qd_flagged" and len(clause) > 2:
+                for safe_column in clause[2]:
+                    cols.add(safe_column)
+            elif clause[1] in {"abs_diff_le", "angle_diff_le", "rel_diff_le",
+                               "imagette_circstd_le", "not_in_window_for"} and len(clause) > 2:
                 operand = clause[2]
                 if isinstance(operand, list):
                     cols.add(operand[0])
     return cols
 
 
-def _replay_removed(frame: pd.DataFrame, rules) -> dict[str, pd.Index]:
+def _replay_removed(frame: pd.DataFrame, rules, context=None) -> dict[str, pd.Index]:
     """Replay the curation rules and return the original indices removed per rule."""
     validate_rule_order(rules)
     selected = frame
@@ -319,7 +322,7 @@ def _replay_removed(frame: pd.DataFrame, rules) -> dict[str, pd.Index]:
             continue
         mask = pd.Series(True, index=selected.index)
         for clause in rule["clauses"]:
-            mask &= clause_mask(selected, clause)
+            mask &= clause_mask(selected, clause, context)
         removed[rule["id"]] = selected.index[~mask.to_numpy(dtype=bool)]
         selected = selected.loc[mask]
     return removed
@@ -340,7 +343,8 @@ def _load_source_frames(sources, recipe_by_name) -> list[tuple[dict, pd.DataFram
     return frames
 
 
-def plot_filter_removal_maps(source_frames, recipe_by_name, sources, figures_dir) -> dict:
+def plot_filter_removal_maps(source_frames, recipe_by_name, sources, figures_dir,
+                             context=None) -> dict:
     """One map per filter showing the points removed at that step (all catalogues)."""
     figures_dir = Path(figures_dir)
     figures_dir.mkdir(parents=True, exist_ok=True)
@@ -349,7 +353,7 @@ def plot_filter_removal_maps(source_frames, recipe_by_name, sources, figures_dir
     for item, frame in source_frames:
         catalogue = recipe_by_name.get(Path(item["path"]).name, {})
         rules = catalogue.get("rules", [])
-        for rule_id, idx in _replay_removed(frame, rules).items():
+        for rule_id, idx in _replay_removed(frame, rules, context).items():
             if rule_id not in by_rule:
                 by_rule[rule_id] = ([], [])
                 order.append(rule_id)
@@ -464,6 +468,14 @@ def build_alti_run_report(run_dir, *, compile_report=True, miktex_bin=None) -> d
     assets_dir = report_dir / f"images_{DOCUMENT_STEM}"
     assets_dir.mkdir(parents=True, exist_ok=True)
 
+    context = None
+    if recipe.get("quality_disclaimers"):
+        from .quality_disclaimers import load_flagged_safe_basenames
+
+        qd = recipe["quality_disclaimers"]
+        context = {"qd_flagged": load_flagged_safe_basenames(
+            Path(qd) if Path(qd).is_absolute() else run_dir / qd)}
+
     curated = _read_curated(manifest["sources"])
     figures = plot_alti_figures(curated, assets_dir)
     split = plot_alti_split_figures(curated, assets_dir)
@@ -479,7 +491,7 @@ def build_alti_run_report(run_dir, *, compile_report=True, miktex_bin=None) -> d
     initial_vs_final = None
     source_frames = _load_source_frames(manifest["sources"], recipe_by_name)
     removals = plot_filter_removal_maps(source_frames, recipe_by_name,
-                                        manifest["sources"], assets_dir)
+                                        manifest["sources"], assets_dir, context)
     initial_values = np.concatenate(
         [frame[VALUE_COLUMN].to_numpy(dtype=float) for _, frame in source_frames]
         if source_frames else [np.array([])])
