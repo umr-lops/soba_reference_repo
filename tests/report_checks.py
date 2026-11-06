@@ -20,6 +20,7 @@ def assert_report_layout(manifest):
         "Monthly Distribution of Matchups", distribution,
         "Catalogue Columns", "Global Metadata", "Dataset Production Steps",
         "Selected Products", "Selection of Tiles / Filtered Co-locations",
+        "Details of the applied filters",
     ]
     assert tex.count(r"\begin{titlepage}") == 1
     assert tex.count(r"\tableofcontents") == 1
