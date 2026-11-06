@@ -1,6 +1,7 @@
 """Curation-only recipe: catalogue -> curated, with no TEST/TARGET pair or report."""
 
 import json
+from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -119,6 +120,59 @@ def test_run_curate_recipe_applies_no_default_swot_rules(tmp_path):
     assert curate_dataset.run_curate_recipe(recipe) == 0
     kept = pq.read_table(sorted((tmp_path / "run" / "curated" / "S1C").glob("*.parquet"))[0])
     assert kept.num_rows == 1
+
+
+def test_run_alti_recipe_records_recipe_attribute(tmp_path):
+    p1 = write_alti_source(tmp_path, "S1A", CCI_PRODUCT)
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(recipe_text([("S1A", str(p1))], output_dir="run"))
+
+    assert curate_dataset.run_curate_recipe(recipe) == 0
+
+    curated = sorted((tmp_path / "run" / "curated" / "S1A").glob("*.parquet"))[0]
+    meta = pq.read_table(curated).schema.metadata or {}
+    assert meta[b"recipe_path"] == str(Path(recipe).resolve()).encode()
+    assert meta[b"dataset_version"] == b"1.0"
+    assert meta[b"production_date"] == b"20261019"
+
+
+def test_run_alti_recipe_applies_quality_disclaimer(tmp_path):
+    # QD needs both SAFE columns, so build a dedicated source (the shared fixture
+    # only has sar_safe_slc).
+    path = tmp_path / alti_name("S1A", CCI_PRODUCT)
+    pq.write_table(pa.table({
+        "imerg_rainrate": pa.array([0.0, 0.5, 0.0, 0.0]),
+        "sar_safe_slc": pa.array(["a", "b", "c", "d"]),
+        "sar_safe_ocn": pa.array(["o", "p", "q", "r"]),
+        "ref_lon": pa.array([1.0, 2.0, 3.0, 4.0]),
+        "ref_lat": pa.array([10.0, 20.0, 30.0, 40.0]),
+    }), path)
+    qd = tmp_path / "qd"
+    qd.mkdir()
+    # flag the first SLC (sar_safe_slc == "a"); its two dry rows should be dropped.
+    pq.write_table(pa.table({"product_name": pa.array(["a"])}),
+                   qd / "impacted_products.parquet")
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(
+        recipe_text([("S1A", str(path))], output_dir="run").replace(
+            'id = "no_rain"',
+            'id = "quality_disclaimer_filter"\n'
+            'name = "not in the quality-disclaimer list"\n'
+            'clauses = [["quality_disclaimer_filter", "qd_flagged", '
+            '["sar_safe_slc", "sar_safe_ocn"]]]\n\n[[catalogues.rules]]\nid = "no_rain"',
+        ).replace(
+            'output_dir = "run"',
+            'output_dir = "run"\n'
+            'quality_disclaimers = "qd"',
+        )
+    )
+
+    assert curate_dataset.run_curate_recipe(recipe) == 0
+
+    kept = pq.read_table(sorted((tmp_path / "run" / "curated" / "S1A").glob("*.parquet"))[0])
+    # QD drops row 0 (slc "a"); no_rain then drops row 1 (rain 0.5).
+    # rows 2,3 (slc "c","d", rain 0) survive.
+    assert kept.column("sar_safe_slc").to_pylist() == ["c", "d"]
 
 
 def test_run_curate_recipe_rejects_existing_output_dir(tmp_path):
