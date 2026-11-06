@@ -488,7 +488,12 @@ def run_hscat_recipe(recipe_path):
     recipe = read_recipe(recipe_path)
     product = "HSCAT"
     rename = dict(recipe.get("rename_columns") or {})
-    context = {"rename_columns": rename or None}
+    context = {
+        "rename_columns": rename or None,
+        "recipe_path": str(Path(recipe_path)),
+        "dataset_version": recipe["version"],
+        "production_date": recipe["production_date"],
+    }
     if recipe.get("quality_disclaimers"):
         from .quality_disclaimers import load_flagged_safe_basenames
 
