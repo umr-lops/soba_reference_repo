@@ -362,7 +362,8 @@ def build_catalogue_report(catalogues, *, version, production_date, output_dir,
             "figures": {name: str(path) for name, path in figures.items()}}
 
 
-def run_catalogue_recipe(recipe_path, *, compile_report=None, miktex_bin=None) -> int:
+def run_catalogue_recipe(recipe_path, *, compile_report=None, miktex_bin=None,
+                         html=False) -> int:
     """Catalogue report from a recipe (``reference = "altimeter"``)."""
     recipe_path = Path(recipe_path).resolve()
     recipe = read_recipe(recipe_path)
@@ -384,10 +385,15 @@ def run_catalogue_recipe(recipe_path, *, compile_report=None, miktex_bin=None) -
     print(f"REPORT: {result['tex']}")
     if result["pdf"]:
         print(f"PDF:    {result['pdf']}")
+    if html:
+        from .html_report import build_html_report
+
+        print(f"HTML:   {build_html_report(root)}")
     return 0
 
 
-def run_catalogue_run_dir(run_dir, *, compile_report=True, miktex_bin=None) -> int:
+def run_catalogue_run_dir(run_dir, *, compile_report=True, miktex_bin=None,
+                          html=False) -> int:
     """Rebuild the catalogue report from an existing run dir (recipe.toml + catalogues)."""
     run_dir = Path(run_dir)
     with (run_dir / "recipe.toml").open("rb") as stream:
@@ -403,6 +409,10 @@ def run_catalogue_run_dir(run_dir, *, compile_report=True, miktex_bin=None) -> i
     print(f"REPORT: {result['tex']}")
     if result["pdf"]:
         print(f"PDF:    {result['pdf']}")
+    if html:
+        from .html_report import build_html_report
+
+        print(f"HTML:   {build_html_report(run_dir)}")
     return 0
 
 
@@ -414,15 +424,18 @@ def main(argv=None) -> int:
                        help="catalogue run dir (recipe.toml + catalogues) to rebuild")
     parser.add_argument("--no-compile", action="store_true", help="skip the PDF step")
     parser.add_argument("--miktex-bin", type=Path, default=None)
+    parser.add_argument("--html", action="store_true",
+                        help="also write the interactive HTML producer report")
     args = parser.parse_args(argv)
     if args.recipe is not None:
         return run_catalogue_recipe(
             args.recipe,
             compile_report=None if not args.no_compile else False,
             miktex_bin=args.miktex_bin,
+            html=args.html,
         )
     return run_catalogue_run_dir(args.run_dir, compile_report=not args.no_compile,
-                                 miktex_bin=args.miktex_bin)
+                                 miktex_bin=args.miktex_bin, html=args.html)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<script src="__PLOTLY__"></script>
+<style>
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb; --surface-2: #f3f3f1; --line: #e2e1dd;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77766f;
+  --kept: #2a78d6; --removed: #eb6834; --input: #1baf7a;
+  --warn: #b25e00; --warn-bg: #fff4e5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 20px clamp(16px, 3vw, 40px) 48px; background: var(--surface-1);
+       color: var(--text-primary); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+h1 { font-size: 1.45em; margin: 0 0 2px; }
+h2 { font-size: 1.15em; margin: 32px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.sub { color: var(--text-secondary); margin-bottom: 14px; }
+.tiles { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0 4px; }
+.tile { background: var(--surface-2); border-radius: 8px; padding: 10px 14px; min-width: 150px; }
+.tile .v { font-size: 1.5em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile .k { color: var(--text-secondary); font-size: .85em; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: end; position: sticky; top: 0;
+            background: var(--surface-1); padding: 10px 0; z-index: 5; border-bottom: 1px solid var(--line); }
+.controls label { display: flex; flex-direction: column; font-size: .8em; color: var(--text-secondary); gap: 3px; }
+select, input[type=checkbox] { font: inherit; }
+select { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; max-width: 340px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
+.card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-width: 0; }
+.card h3 { margin: 4px 6px 0; font-size: .95em; font-weight: 600; }
+.card .note { margin: 0 6px; color: var(--text-muted); font-size: .8em; }
+.chart { width: 100%; height: 360px; }
+.map { height: 440px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: .88em; margin: 6px 0; }
+th, td { border-bottom: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { color: var(--text-secondary); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.click { cursor: pointer; } tr.click:hover td { background: var(--surface-2); }
+tr.sel td { background: #fdeee6; }
+.warn { color: var(--warn); background: var(--warn-bg); border-radius: 4px; padding: 0 4px; white-space: nowrap; }
+.status-added { color: #0a7a3b; } .status-removed { color: #b3261e; } .status-changed { color: var(--warn); }
+code { font-size: .85em; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.muted { color: var(--text-muted); }
+</style>
+</head>
+<body>
+<h1 id="title"></h1>
+<div class="sub" id="subtitle"></div>
+<div class="tiles" id="tiles"></div>
+
+<div class="controls">
+  <label>Population <select id="sel-group"></select></label>
+  <label>Compare with <select id="sel-compare"></select></label>
+  <label>Sub-dataset <select id="sel-subset"></select></label>
+  <label>Variable <select id="sel-var"></select></label>
+  <label><span>&nbsp;</span><span><input type="checkbox" id="chk-density" checked> normalise histograms</span></label>
+</div>
+
+<h2>Distributions</h2>
+<div class="grid">
+  <div class="card"><h3 id="h-hist"></h3><p class="note" id="n-hist"></p><div id="c-hist" class="chart"></div></div>
+  <div class="card"><h3 id="h-month"></h3><p class="note">Rows per month of the SAR acquisition.</p><div id="c-month" class="chart"></div></div>
+</div>
+<div class="card" style="margin-top:14px"><h3 id="h-map"></h3><p class="note" id="n-map"></p><div id="c-map" class="chart map"></div></div>
+
+<section id="sec-cascade" hidden>
+<h2>Filter cascade</h2>
+<p class="muted">Rules are applied in order; a row is kept when all the clauses of a rule are true. Click a rule to show the rows it removes.</p>
+<div class="scroll" id="t-cascade"></div>
+</section>
+
+<section id="sec-previous" hidden>
+<h2>Comparison with the previous version</h2>
+<div id="t-previous"></div>
+</section>
+
+<h2>Sub-datasets</h2>
+<div class="scroll" id="t-subsets"></div>
+
+<h2>Column conformity</h2>
+<p class="muted"><label><input type="checkbox" id="chk-warn"> show only the columns with a warning</label></p>
+<div class="scroll" id="t-columns"></div>
+
+<h2>Files</h2>
+<div class="scroll" id="t-files"></div>
+
+<script>
+const P = __PAYLOAD__;
+const COLORS = {kept: "#2a78d6", input: "#1baf7a", rule: "#eb6834"};
+const SEQ = [[0, "#cde2fb"], [0.25, "#86b6ef"], [0.5, "#3987e5"], [0.75, "#1c5cab"], [1, "#0d366b"]];
+const FONT = {family: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif", size: 12, color: "#52514e"};
+const AXIS = {gridcolor: "#ecebe7", zerolinecolor: "#d6d5d0", linecolor: "#d6d5d0"};
+const CFG = {displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d"]};
+const fmt = n => (n === null || n === undefined) ? "–" : Number(n).toLocaleString("en-US");
+const pct = (a, b) => b ? (100 * a / b).toFixed(1) + " %" : "–";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const $ = id => document.getElementById(id);
+const groupColor = g => g.startsWith("rule:") ? COLORS.rule : (COLORS[g] || COLORS.kept);
+const groupLabel = g => (P.groups.find(x => x.id === g) || {label: g}).label;
+const subsetLabel = s => s === "ALL" ? "All sub-datasets" : s;
+
+function table(header, rows, numeric = []) {
+  const h = header.map((c, i) => `<th class="${numeric.includes(i) ? "num" : ""}">${esc(c)}</th>`).join("");
+  return `<table><thead><tr>${h}</tr></thead><tbody>${rows.join("")}</tbody></table>`;
+}
+
+function init() {
+  $("title").textContent = P.title;
+  $("subtitle").textContent = `version ${P.version} · production date ${P.production_date} · ` +
+    (P.curated ? "curated dataset" : "coaligned catalogue") + ` · ${P.files.length} files`;
+  const kept = P.data.kept.ALL.n, input = P.curated ? P.data.input.ALL.n : null;
+  const tiles = [["rows" + (P.curated ? " kept" : ""), fmt(kept)]];
+  if (P.curated) tiles.push(["rows before curation", fmt(input)], ["removed", `${fmt(input - kept)} (${pct(input - kept, input)})`]);
+  tiles.push(["sub-datasets", P.subsets.filter(s => s.level > 0).length], ["columns with a warning", P.columns.filter(c => c.warnings.length).length]);
+  $("tiles").innerHTML = tiles.map(([k, v]) => `<div class="tile"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`).join("");
+
+  for (const g of P.groups) { $("sel-group").add(new Option(g.label, g.id)); }
+  $("sel-compare").add(new Option("— none —", ""));
+  for (const g of P.groups) { $("sel-compare").add(new Option(g.label, g.id)); }
+  if (P.curated) $("sel-compare").value = "kept";
+  for (const s of P.subsets) {
+    $("sel-subset").add(new Option((s.level === 2 ? " " : "") + subsetLabel(s.id), s.id));
+  }
+  for (const v of P.variables) { $("sel-var").add(new Option(v.label, v.id)); }
+  for (const id of ["sel-group", "sel-compare", "sel-subset", "sel-var", "chk-density"]) {
+    $(id).addEventListener("change", draw);
+  }
+  $("chk-warn").addEventListener("change", drawColumns);
+  drawCascade(); drawPrevious(); drawSubsets(); drawColumns(); drawFiles(); draw();
+}
+
+function agg(group, subset) { return (P.data[group] || {})[subset]; }
+
+function draw() {
+  const g = $("sel-group").value, c = $("sel-compare").value, s = $("sel-subset").value, v = $("sel-var").value;
+  document.querySelectorAll("#t-cascade tr.click").forEach(tr => tr.classList.toggle("sel", "rule:" + tr.dataset.rule === g));
+  const series = [[g, agg(g, s)]];
+  if (c && c !== g) series.push([c, agg(c, s)]);
+  drawHist(series, v, s); drawMonthly(series, s); drawMap(g, s);
+}
+
+function drawHist(series, v, s) {
+  const variable = P.variables.find(x => x.id === v);
+  const density = $("chk-density").checked;
+  $("h-hist").textContent = `${variable ? variable.label : "no reference variable"} — ${subsetLabel(s)}`;
+  const traces = [], notes = [];
+  for (const [g, a] of series) {
+    if (!a || !variable) continue;
+    const [start, stop, step] = variable.bins;
+    const counts = a.hist[v] || [];
+    const total = counts.reduce((x, y) => x + y, 0);
+    const x = counts.map((_, i) => +(start + (i + 0.5) * step).toFixed(6));
+    const y = density ? counts.map(n => total ? n / total / step : 0) : counts;
+    traces.push({type: "bar", x, y, name: groupLabel(g), marker: {color: groupColor(g)},
+                 opacity: series.length > 1 ? 0.6 : 1, width: step * 0.92,
+                 customdata: counts, hovertemplate: `%{x:.2f}: %{customdata:,} rows<extra>${esc(groupLabel(g))}</extra>`});
+    notes.push(`${groupLabel(g)}: ${fmt(a.n)} rows, ${fmt(a.hist_missing[v])} without a value`);
+  }
+  $("n-hist").textContent = notes.join(" · ");
+  Plotly.react("c-hist", traces, {barmode: "overlay", margin: {l: 52, r: 10, t: 10, b: 44}, font: FONT,
+    paper_bgcolor: "#fff", plot_bgcolor: "#fff", legend: {orientation: "h", y: 1.12},
+    xaxis: {...AXIS, title: variable ? variable.label : ""},
+    yaxis: {...AXIS, title: density ? "density (1 / unit)" : "rows"}, hovermode: "closest"}, CFG);
+}
+
+function drawMonthly(series, s) {
+  $("h-month").textContent = `Rows per month — ${subsetLabel(s)}`;
+  const traces = series.filter(([, a]) => a).map(([g, a]) => ({
+    type: "bar", x: P.months, y: P.months.map(m => a.monthly[m] || 0), name: groupLabel(g),
+    marker: {color: groupColor(g)}, hovertemplate: `%{x}: %{y:,} rows<extra>${esc(groupLabel(g))}</extra>`}));
+  Plotly.react("c-month", traces, {barmode: "group", bargap: 0.15, bargroupgap: 0.05,
+    margin: {l: 52, r: 10, t: 10, b: 44}, font: FONT, paper_bgcolor: "#fff", plot_bgcolor: "#fff",
+    legend: {orientation: "h", y: 1.12}, xaxis: {...AXIS, type: "category", nticks: 12},
+    yaxis: {...AXIS, title: "rows"}, hovermode: "x unified"}, CFG);
+}
+
+function drawMap(g, s) {
+  let a = agg(g, s), shown = s;
+  if (a && !a.map) { const parent = (P.subsets.find(x => x.id === s) || {}).parent; shown = parent || "ALL"; a = agg(g, shown); }
+  $("h-map").textContent = `Density of ${groupLabel(g).toLowerCase()} — ${subsetLabel(shown)}`;
+  $("n-map").textContent = (shown !== s ? `Maps are drawn per catalogue: showing ${subsetLabel(shown)}. ` : "") +
+    "2° cells, colour = log10 of the row count; hover a cell for its count.";
+  const cells = (a && a.map) || [];
+  const trace = {type: "scattergeo", mode: "markers", lon: cells.map(c => c[0]), lat: cells.map(c => c[1]),
+    customdata: cells.map(c => c[2]),
+    marker: {symbol: "square", size: 5, color: cells.map(c => Math.log10(c[2])), colorscale: SEQ,
+             cmin: 0, line: {width: 0},
+             colorbar: {title: {text: "rows", side: "right"}, tickvals: [0, 1, 2, 3, 4], ticktext: ["1", "10", "100", "1k", "10k"], thickness: 12}},
+    hovertemplate: "%{lat:.0f}°, %{lon:.0f}°: %{customdata:,} rows<extra></extra>"};
+  Plotly.react("c-map", [trace], {margin: {l: 0, r: 0, t: 0, b: 0}, font: FONT, paper_bgcolor: "#fff",
+    geo: {projection: {type: "natural earth"}, showland: true, landcolor: "#f0efec", coastlinecolor: "#b9b8b2",
+          showocean: true, oceancolor: "#ffffff", showframe: false, lataxis: {range: [-80, 85]}}}, CFG);
+}
+
+function drawCascade() {
+  if (!P.curated) return;
+  $("sec-cascade").hidden = false;
+  const ids = [...new Set(P.cascade.flatMap(c => c.rules.map(r => r.id)))];
+  const header = ["Rule", "Name", "Clauses", ...P.cascade.map(c => c.catalogue), "Total"];
+  const rows = [`<tr><td colspan="3"><b>source catalogue rows</b></td>${P.cascade.map(c => `<td class="num">${fmt(c.input)}</td>`).join("")}<td class="num">${fmt(P.cascade.reduce((x, c) => x + c.input, 0))}</td></tr>`];
+  for (const id of ids) {
+    const first = P.cascade.flatMap(c => c.rules).find(r => r.id === id);
+    let total = 0;
+    const cells = P.cascade.map(c => {
+      const r = c.rules.find(x => x.id === id);
+      if (!r) return `<td class="num muted">–</td>`;
+      total += r.removed;
+      return `<td class="num" title="${pct(r.removed, c.input)} of the source rows">−${fmt(r.removed)}</td>`;
+    }).join("");
+    rows.push(`<tr class="click" data-rule="${esc(id)}"><td><span class="swatch" style="background:${COLORS.rule}"></span><b>${esc(id)}</b></td><td>${esc(first.name)}</td><td><code>${esc(first.clauses)}</code></td>${cells}<td class="num">−${fmt(total)}</td></tr>`);
+  }
+  rows.push(`<tr><td colspan="3"><span class="swatch" style="background:${COLORS.kept}"></span><b>curated rows (kept)</b></td>${P.cascade.map(c => `<td class="num"><b>${fmt(c.kept)}</b>${c.kept !== c.manifest_kept ? ` <span class="warn" title="manifest: ${fmt(c.manifest_kept)}">≠ manifest</span>` : ""}</td>`).join("")}<td class="num"><b>${fmt(P.cascade.reduce((x, c) => x + c.kept, 0))}</b></td></tr>`);
+  $("t-cascade").innerHTML = table(header, rows, P.cascade.map((_, i) => i + 3).concat([P.cascade.length + 3]));
+  document.querySelectorAll("#t-cascade tr.click").forEach(tr => tr.addEventListener("click", () => {
+    $("sel-group").value = "rule:" + tr.dataset.rule; $("sel-compare").value = "kept"; draw();
+    $("sel-group").scrollIntoView({behavior: "smooth", block: "center"});
+  }));
+}
+
+function drawPrevious() {
+  if (!P.previous) return;
+  $("sec-previous").hidden = false;
+  const p = P.previous;
+  const rules = p.rules.map(r => `<tr><td><b>${esc(r.id)}</b></td><td class="status-${r.status}">${r.status}</td><td><code>${esc(r.old)}</code></td><td><code>${esc(r.new)}</code></td></tr>`);
+  const counts = p.counts.map(r => {
+    const d = (r.new_kept ?? 0) - (r.old_kept ?? 0);
+    return `<tr><td>${esc(r.catalogue)}</td><td class="num">${fmt(r.old_input)}</td><td class="num">${fmt(r.old_kept)}</td><td class="num">${fmt(r.new_input)}</td><td class="num">${fmt(r.new_kept)}</td><td class="num">${r.old_kept === null || r.new_kept === null ? "–" : (d >= 0 ? "+" : "−") + fmt(Math.abs(d))}</td></tr>`;
+  });
+  $("t-previous").innerHTML = `<p class="muted">Previous version ${esc(p.previous_version)} (<code>${esc(p.previous_dir)}</code>) → this version ${esc(P.version)}.</p>` +
+    `<div class="scroll">${table(["Rule", "Status", `Clauses ${p.previous_version}`, `Clauses ${P.version}`], rules)}</div>` +
+    `<div class="scroll">${table(["Catalogue", `Source rows ${p.previous_version}`, `Kept ${p.previous_version}`, `Source rows ${P.version}`, `Kept ${P.version}`, "Δ kept"], counts, [1, 2, 3, 4, 5])}</div>`;
+}
+
+function drawSubsets() {
+  const rows = P.subsets.map(s => {
+    const k = agg("kept", s.id), i = P.curated ? agg("input", s.id) : null;
+    const months = Object.keys((k && k.monthly) || {}).sort();
+    return `<tr><td>${s.level === 2 ? " " : ""}${esc(subsetLabel(s.id))}</td>` +
+      (P.curated ? `<td class="num">${fmt(i ? i.n : 0)}</td>` : "") +
+      `<td class="num">${fmt(k ? k.n : 0)}</td>` + (P.curated ? `<td class="num">${pct(k ? k.n : 0, i ? i.n : 0)}</td>` : "") +
+      `<td>${months.length ? months[0] + " → " + months[months.length - 1] : "–"}</td></tr>`;
+  });
+  const header = P.curated ? ["Sub-dataset", "Source rows", "Kept rows", "Kept / source", "Months"] : ["Sub-dataset", "Rows", "Months"];
+  $("t-subsets").innerHTML = table(header, rows, P.curated ? [1, 2, 3] : [1]);
+}
+
+function drawColumns() {
+  const only = $("chk-warn").checked;
+  const rows = P.columns.filter(c => !only || c.warnings.length).map(c =>
+    `<tr><td><code>${esc(c.column)}</code></td><td>${esc(c.type)}</td><td class="num">${c.missing_pct.toFixed(2)} %</td><td>${esc(c.content)}</td><td class="num">${c.files}/${P.files.length}</td><td>${c.warnings.map(w => `<span class="warn">⚠ ${esc(w)}</span>`).join(" ")}</td></tr>`);
+  $("t-columns").innerHTML = table(["Column", "Type", "Missing", "Range / values", "Files", "Warnings"], rows, [2, 4]);
+}
+
+function drawFiles() {
+  const rows = P.files.map(f => `<tr><td>${esc(f.catalogue)}</td><td><code>${esc(f.file)}</code></td>` +
+    (P.curated ? `<td class="num">${fmt(f.input)}</td>` : "") + `<td class="num">${fmt(f.rows)}</td></tr>`);
+  $("t-files").innerHTML = table(P.curated ? ["Catalogue", "File", "Source rows", "Rows"] : ["Catalogue", "File", "Rows"], rows, P.curated ? [2, 3] : [2]);
+}
+
+init();
+</script>
+</body>
+</html>

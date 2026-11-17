@@ -103,6 +103,28 @@ Copy `examples/hscat-curation.toml` to `runs/`, update the paths, and choose `wi
  is compiled with `pdflatex`, falling back to `tectonic` when `pdflatex` is absent or
  incomplete. The same shared template drives the SWOT and HSCAT Curated documents.
 
+ **Interactive HTML producer report.** The PDF is the dataset's business card; the
+ HTML page is for the producers, to check that the curation choices are relevant and
+ that the columns hold what is expected. Add `--html` to `soba_curate_dataset` or
+ `soba_catalogue_report` (or run `soba_html_report --run-dir path/to/run`) to write
+ `report/<document>_<version>.html`, rendered with Plotly.js (pinned CDN build, so the
+ page needs internet; no new Python dependency, only aggregates are embedded):
+
+ * sub-datasets (SAR unit x reference database x altimeter for WV-alti) with their
+   row counts and time span;
+ * histogram, monthly counts and 2-degree density map of the reference variable
+   (WV-alti `hs_alti_mean` then `ref_hs_alti_closest`, WV-SWOT KaRIn Hs, WV-HSCAT
+   wind speed / direction), per sub-dataset;
+ * curated runs: the filter cascade replayed on the source catalogues (rows removed
+   per rule and catalogue) and the same figures for the rows removed by any rule,
+   compared with the kept rows;
+ * `--previous-run <run of version N-1>`: rules added / removed / changed and the row
+   counts N-1 vs N;
+ * column conformity: type, missing fraction, range / distinct values and warnings
+   (all missing, constant, latitude / longitude out of range, `UNKNOWN` strings).
+
+ `--no-compile` now also applies with `--recipe`.
+
 For a fuller reference-quality screen (altimeter vs WW3 agreement, mission/date
 blackouts such as CFOSAT pre-2024 or the HY2B 2023-02-19 frozen-value event),
 copy [examples/wv-alti-curation-v2.0.toml](examples/wv-alti-curation-v2.0.toml).

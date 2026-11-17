@@ -15,8 +15,12 @@ from pathlib import Path
 from .curation import curated_filename, read_recipe, resolve_rules, write_curated
 
 
-def run_curate_recipe(recipe_path) -> int:
-    """Curate every catalogue in a curation recipe and save one Parquet each."""
+def run_curate_recipe(recipe_path, compile_report=None, html=False, previous_run=None) -> int:
+    """Curate every catalogue in a curation recipe and save one Parquet each.
+
+    ``compile_report`` overrides the recipe ``compile`` flag when not None;
+    ``html`` also writes the HTML companion of the report (``html_report``).
+    """
     recipe_path = Path(recipe_path).resolve()
     recipe = read_recipe(recipe_path)
     if recipe["reference"] != "altimeter":
@@ -77,10 +81,16 @@ def run_curate_recipe(recipe_path) -> int:
     if recipe.get("report", False):
         from .alti_report import build_alti_run_report
 
-        report = build_alti_run_report(root, compile_report=recipe.get("compile", False))
+        if compile_report is None:
+            compile_report = recipe.get("compile", False)
+        report = build_alti_run_report(root, compile_report=compile_report)
         print(f"REPORT: {report['tex']}")
         if report["pdf"]:
             print(f"PDF:    {report['pdf']}")
+        if html:
+            from .html_report import build_html_report
+
+            print(f"HTML:   {build_html_report(root, previous_run=previous_run)}")
     return 0
 
 
@@ -91,15 +101,25 @@ def main(argv=None) -> int:
     group.add_argument("--run-dir", type=Path,
                        help="build the report from an existing curated run directory")
     parser.add_argument("--no-compile", action="store_true", help="skip the PDF step")
+    parser.add_argument("--html", action="store_true",
+                        help="also write the interactive HTML producer report")
+    parser.add_argument("--previous-run", type=Path, default=None,
+                        help="curated run directory of the previous version (N-1), "
+                             "compared in the HTML report")
     args = parser.parse_args(argv)
     if args.recipe is not None:
-        return run_curate_recipe(args.recipe)
+        return run_curate_recipe(args.recipe, compile_report=False if args.no_compile else None,
+                                 html=args.html, previous_run=args.previous_run)
     from .alti_report import build_alti_run_report
 
     result = build_alti_run_report(args.run_dir, compile_report=not args.no_compile)
     print(f"REPORT: {result['tex']}")
     if result["pdf"]:
         print(f"PDF:    {result['pdf']}")
+    if args.html:
+        from .html_report import build_html_report
+
+        print(f"HTML:   {build_html_report(args.run_dir, previous_run=args.previous_run)}")
     return 0
 
 
