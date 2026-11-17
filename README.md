@@ -103,6 +103,15 @@ Copy `examples/hscat-curation.toml` to `runs/`, update the paths, and choose `wi
  is compiled with `pdflatex`, falling back to `tectonic` when `pdflatex` is absent or
  incomplete. The same shared template drives the SWOT and HSCAT Curated documents.
 
+ **HTML companion.** Add `--html` to `soba_curate_dataset` or `soba_catalogue_report`
+ (or run `soba_html_report --run-dir path/to/run` on any curated / catalogue run) to
+ also write `report/<document>_<version>.html`: a single self-contained page (figures
+ embedded, no JavaScript, no extra dependency) with the files and row counts, the
+ filter cascade (rows removed by each rule, per catalogue), the report figures with
+ their captions and the Parquet columns. It is built from `manifest.json`,
+ `recipe.toml`, the generated `.tex` and the Parquet schemas; it complements, but does
+ not reproduce, the PDF text. `--no-compile` now also applies with `--recipe`.
+
 For a fuller reference-quality screen (altimeter vs WW3 agreement, mission/date
 blackouts such as CFOSAT pre-2024 or the HY2B 2023-02-19 frozen-value event),
 copy [examples/wv-alti-curation-v2.0.toml](examples/wv-alti-curation-v2.0.toml).

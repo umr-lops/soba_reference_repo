@@ -32,6 +32,7 @@ soba_create_test_dataset = "soba_reference_repo.create_test_dataset:main"
 soba_reference_repo = "soba_reference_repo.create_test_dataset:main"
 soba_curate_dataset = "soba_reference_repo.curate_dataset:main"
 soba_catalogue_report = "soba_reference_repo.catalogue_report:main"
+soba_html_report = "soba_reference_repo.html_report:main"
 soba_validate_parquets = "soba_reference_repo.validator:main"
 soba_produce_challenger = "soba_reference_repo.challenger:main"
 
