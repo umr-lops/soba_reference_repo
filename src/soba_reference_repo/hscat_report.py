@@ -277,6 +277,10 @@ def _filter_expression(clauses):
             expressions.append(f"{_tex(column)} {symbols[operation]} {clause[2]}")
         elif operation == "present":
             expressions.append(f"{_tex(column)} is present")
+        elif operation in {"in", "not_in"}:
+            values = ", ".join(repr(value) for value in clause[2])
+            verb = "in" if operation == "in" else "present and not in"
+            expressions.append(f"{_tex(column)} {verb} {{{_tex(values)}}}")
         elif operation == "qd_flagged":
             expressions.append(
                 f"SLC or OCN SAFE ({_tex(' and '.join(clause[2]))}) "

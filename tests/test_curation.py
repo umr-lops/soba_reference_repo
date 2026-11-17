@@ -444,3 +444,23 @@ def test_not_in_window_for_raises_on_missing_time_column():
     with pytest.raises(ValueError, match="missing filter column"):
         curation.clause_mask(frame, ["fname", "not_in_window_for",
                                      ["sar_time", ["cfo"], "2019-01-01", "2024-01-01"]])
+
+
+def test_not_in_rejects_listed_and_missing_strings():
+    frame = pd.DataFrame({"sar_safe_slc": ["S1A_WV_SLC__1SSV_X.SAFE", "UNKNOWN", "", None]})
+    clause = ["sar_safe_slc", "not_in", ["UNKNOWN", ""]]
+    curation._validate_clause(clause)
+    assert curation.clause_mask(frame, clause).tolist() == [True, False, False, False]
+
+
+def test_not_in_numeric():
+    frame = pd.DataFrame({"flag": [0, 1, 2, None]})
+    mask = curation.clause_mask(frame, ["flag", "not_in", [1, 2]])
+    assert mask.tolist() == [True, False, False, False]
+
+
+@pytest.mark.parametrize("bad", [["c", "not_in", []], ["c", "not_in", "UNKNOWN"],
+                                 ["c", "not_in", ["a", 1]]])
+def test_not_in_rejects_invalid_operands(bad):
+    with pytest.raises(ValueError):
+        curation._validate_clause(bad)

@@ -143,7 +143,8 @@ def _validate_clause(clause):
         isinstance(value, str) and value for value in clause[2]
     ):
         return
-    if operation == "in" and len(clause) == 3 and isinstance(clause[2], list) and clause[2]:
+    if (operation in ("in", "not_in") and len(clause) == 3 and isinstance(clause[2], list)
+            and clause[2]):
         values = clause[2]
         if all(isinstance(value, str) for value in values):
             return
@@ -345,6 +346,16 @@ def clause_mask(frame, clause, context=None):
             numeric = pd.to_numeric(frame[column], errors="coerce")
             return numeric.isin([float(value) for value in values]).fillna(False)
         return frame[column].astype("string").isin(values).fillna(False)
+    if operation == "not_in":
+        # keep the rows whose value is present and not in the list (missing -> rejected),
+        # e.g. ["sar_safe_slc", "not_in", ["UNKNOWN", ""]]
+        values = clause[2]
+        if all(type(value) in (int, float) and not isinstance(value, bool) for value in values):
+            numeric = pd.to_numeric(frame[column], errors="coerce")
+            listed = numeric.isin([float(value) for value in values])
+            return (numeric.notna() & ~listed).astype(bool)
+        text = frame[column].astype("string")
+        return (text.notna() & ~text.isin(values).fillna(False)).astype(bool)
     if operation in {"date_gt", "date_lt"}:
         timestamp = pd.to_datetime(frame[column], utc=True, errors="coerce")
         boundary = pd.Timestamp(clause[2], tz="UTC")
