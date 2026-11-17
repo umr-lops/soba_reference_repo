@@ -75,6 +75,15 @@ CATALOGUE_FIELD_DESCRIPTIONS = {
     "primary_key": "Source matchup identifier retained in the catalogue.",
     "ref_time_delta": "Time difference SAR - altimeter (seconds).",
     "ref_distance_delta": "Great-circle distance from SAR centroid to altimeter (km).",
+    "ref_param_count": ("Number of valid altimeter Hs within 30 km / 25 min of the WV imagette "
+                        "(colocation hs_alti_count); rows with 0 are removed."),
+    "hs_alti_mean": "Mean of the altimeter Hs within 30 km / 25 min of the WV imagette (m).",
+    "hs_alti_median": "Median of the altimeter Hs within 30 km / 25 min of the WV imagette (m).",
+    "hs_alti_std": "Standard deviation of the altimeter Hs within 30 km / 25 min (m).",
+    "sea_ice_concentration": ("Bremen ASI v5.4 sea ice concentration (%) at the altimeter "
+                              "point and day; 0 outside the polar grids, NaN on land."),
+    "alti_rain_contaminated": ("1 when IMERG rain > 0 (or NaN) at the altimeter point and the "
+                               "1 Hz altimeter track shows a raw-Hs spike or gaps within 3 s."),
 }
 
 SCOPE_TEXT = (
@@ -92,7 +101,7 @@ GENERAL_DESCRIPTION = (
 # day per altimeter, one sub-tree per SAR unit and reference database.
 DATAFLOW_INPUT_DIR = (
     "/legacy/project/cersat/public/cache/project/mpc-sentinel1/"
-    "analysis/s1_data_analysis/hs_nn/unified_colocs_wv_alti_ocn_v2/"
+    "analysis/s1_data_analysis/hs_nn/unified_colocs_wv_alti_ocn_v3/"
 )
 DATAFLOW_INPUT_PATTERN = "{S1A-D}_{cci,cmems}_*/20*/coloc_20*25_min_30_km.nc"
 
@@ -208,6 +217,11 @@ def _dataflow_latex() -> str:
         ("Input colocation files",
          "Unified WV-OCN / +altimeter colocation NetCDF (one per day per altimeter)",
          "Raw colocation variables (SAR imagette geometry, OCN wave fields, closest altimeter)"),
+        ("Altimeter window statistics",
+         "all the altimeter Hs within 30 km / 25 min of the imagette (colocations v3)",
+         "ref_param_count (hs_alti_count), hs_alti_mean, hs_alti_median, hs_alti_std"),
+        ("Empty altimeter window", "rows with ref_param_count == 0 removed (no valid Hs)",
+         "--"),
         ("SLC / SAFE resolution", "OCN -> SLC via CDSE daily Parquet + s1ifr", slc_cols),
         ("SOBA rename", "VARIABLE_RENAME_MAP", rename_cols),
         ("Distance to coast", "colocation distance_to_coast (m) -> km (CCI only)",
@@ -216,12 +230,21 @@ def _dataflow_latex() -> str:
          "class_1..class_10, prob_1..prob_10"),
         ("IMERG rain rate", "GPM 3B-HHR L3 (mm/h) at the altimeter reference time",
          "imerg_rainrate"),
+        ("Along-track rain flag",
+         "IMERG rain > 0 (or NaN) AND raw-Hs spike (>= 0.25 m, >= 4 sigma) or >= 3 missing "
+         "points within 3 s on the 1 Hz altimeter track",
+         "alti_rain_contaminated, alti_track_raw_dev, alti_track_raw_z, alti_track_n_core, "
+         "alti_track_n_core_good, alti_track_spike, alti_track_gap"),
+        ("Sea ice concentration",
+         "Bremen ASI v5.4 daily 6.25 km (AMSR2), nearest cell at the altimeter point",
+         "sea_ice_concentration"),
         ("WW3 wave fields",
          "WW3 GLOB-30M association (CMEMS only; CCI carries them in the colocations)", ww3_cols),
         ("Primary key + dedup", "sar_safe_slc + ref_lon + ref_lat (3 dp); drop duplicates",
          "primary_key"),
         ("Mandatory defaults", "SOBA mandatory columns absent from the colocations",
-         "ref_param_count, ref_flag, ref_id, ref_source, legacy_usage, imerg_rainrate (NaN)"),
+         "ref_flag, ref_id, ref_source, legacy_usage, imerg_rainrate (NaN), "
+         "sea_ice_concentration (NaN), alti_rain_contaminated (0)"),
         ("Dropped", "too large / unused", "oswCartSpecRe, oswCartSpecIm, z (GRIB geopotential)"),
     ]
     body = "\n".join(

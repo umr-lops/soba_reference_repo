@@ -125,7 +125,10 @@ def test_build_catalogue_report_all_sar_units_and_per_db_tables(tmp_path):
     assert "curated_WV" not in tex  # no curation provenance columns are described
     # Dataflow / enrichment section with the input path and the added columns.
     assert "How the Catalogue Is Produced" in tex
-    assert "unified\\_colocs\\_wv\\_alti\\_ocn\\_v2" in tex  # input path, _tex-escaped
+    assert "unified\\_colocs\\_wv\\_alti\\_ocn\\_v3" in tex  # input path, _tex-escaped
+    # catalogue 2.0 enrichments: altimeter window, sea ice, along-track rain flag
+    assert "hs\\_alti\\_median" in tex and "sea\\_ice\\_concentration" in tex
+    assert "alti\\_rain\\_contaminated" in tex
     assert "imerg\\_rainrate" in tex and "coloc\\_20" in tex
     assert "catawvaltioneshot" in tex
     # No curation sections: the catalogue is pre-filter.
