@@ -425,7 +425,7 @@ def main(argv=None) -> int:
     parser.add_argument("--no-compile", action="store_true", help="skip the PDF step")
     parser.add_argument("--miktex-bin", type=Path, default=None)
     parser.add_argument("--html", action="store_true",
-                        help="also write the self-contained HTML companion of the report")
+                        help="also write the interactive HTML producer report")
     args = parser.parse_args(argv)
     if args.recipe is not None:
         return run_catalogue_recipe(
