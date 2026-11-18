@@ -1094,6 +1094,17 @@ def run_recipe(recipe_path):
             )
             target.parent.mkdir(parents=True, exist_ok=True)
             info = write_curated(item["path"], target, item["resolved_rules"], mission, context)
+            # SOBA naming convention: the curated startdate/stopdate are the first/last
+            # SAR dates actually kept (e.g. S1A from 2024-11-25 after `sar_start`),
+            # not the source catalogue's coverage. Rename to the real range.
+            if info["sar_bounds"] is not None:
+                final_name = curated_filename(
+                    item["path"], recipe["production_date"], recipe["version"],
+                    override_dates=info["sar_bounds"],
+                )
+                if final_name != target.name:
+                    target = target.rename(target.with_name(final_name))
+                item["curated_name"] = target.name
             curated[mission] = target
             provenance[mission] = {
                 "path": str(item["path"]),
