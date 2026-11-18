@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -204,3 +205,23 @@ def test_create_test_dataset_routes_altimeter_to_curate_command(tmp_path):
     recipe.write_text(recipe_text([("S1A", str(p1))], output_dir="run"))
     with pytest.raises(SystemExit, match="soba_curate_dataset"):
         create_test_dataset.main(["--recipe", str(recipe)])
+
+
+def test_run_alti_recipe_names_curated_file_after_kept_sar_dates(tmp_path):
+    path = tmp_path / alti_name("S1A", CMEMS_PRODUCT)
+    pq.write_table(pa.table({
+        "imerg_rainrate": pa.array([0.5, 0.0, 0.0, 0.5]),
+        "sar_time": pa.array(pd.to_datetime(
+            ["2015-03-19 13:43", "2024-11-26 01:00", "2025-06-30 23:00", "2025-12-31 19:25"]
+        )),
+    }), path)
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(recipe_text([("S1A", str(path))], output_dir="run"))
+
+    assert curate_dataset.run_curate_recipe(recipe) == 0
+
+    expected = f"S1A_curated_WV_20241126_20250630_20261019_SV_{CMEMS_PRODUCT}_1.0.parquet"
+    curated = list((tmp_path / "run" / "curated" / "S1A").glob("*.parquet"))
+    assert [p.name for p in curated] == [expected]
+    manifest = json.loads((tmp_path / "run" / "manifest.json").read_text())
+    assert Path(manifest["sources"][0]["curated_path"]).name == expected

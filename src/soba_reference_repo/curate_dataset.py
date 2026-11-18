@@ -58,6 +58,17 @@ def run_curate_recipe(recipe_path, compile_report=None, html=False, previous_run
             info = write_curated(
                 item["path"], target, item["resolved_rules"], item["mission"], context
             )
+            # SOBA naming convention: the curated startdate/stopdate are the first/last
+            # SAR dates actually kept (e.g. S1A starts 2024-11-25 after `sar_start`),
+            # not the source catalogue's coverage. Rename to the real range.
+            if info["sar_bounds"] is not None:
+                final_name = curated_filename(
+                    item["path"], recipe["production_date"], recipe["version"],
+                    override_dates=info["sar_bounds"],
+                )
+                if final_name != target.name:
+                    target = target.rename(target.with_name(final_name))
+                item["curated_name"] = target.name
             manifest["sources"].append({
                 "mission": item["mission"],
                 "path": str(item["path"]),
