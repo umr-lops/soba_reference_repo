@@ -127,12 +127,13 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
     )
     assert cli_main(["--recipe", str(recipe)]) == 0
     root = tmp_path / "output"
+    # Curated file dates are the first/last SAR dates kept (all rows on 2026-01-07).
     assert (
-        root / "curated/S1A" / ("S1A_curated_WV_20260101_20260131_20260930_"
+        root / "curated/S1A" / ("S1A_curated_WV_20260107_20260107_20260930_"
          "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
     ).is_file()
     assert (
-        root / "curated/S1C" / ("S1C_curated_WV_20260101_20260131_20260930_"
+        root / "curated/S1C" / ("S1C_curated_WV_20260107_20260107_20260930_"
          "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
     ).is_file()
     assert not (root / "merged").exists()
@@ -146,7 +147,7 @@ def test_recipe_cli_keeps_separate_curated_files_and_pair_and_reports_real_rules
     assert len(manifest["sources"][1]["quality_filter_steps"]) == 13
     assert manifest["sources"][0]["path"] == str(a)
     assert manifest["sources"][0]["curated_path"].endswith(
-        ("S1A_curated_WV_20260101_20260131_20260930_"
+        ("S1A_curated_WV_20260107_20260107_20260930_"
          "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
     )
     (tex_path,) = list((root / "report").glob("*.tex"))
@@ -422,3 +423,30 @@ def test_run_swot_recipe_records_recipe_attribute(tmp_path):
     assert meta[b"recipe_path"] == str(Path(recipe).resolve()).encode()
     assert meta[b"dataset_version"] == b"0.1"
     assert meta[b"production_date"] == b"20260930"
+
+
+def test_run_swot_recipe_names_curated_file_after_kept_sar_dates(tmp_path):
+    source = tmp_path / ("S1A_coaligned_catalogue_WV_20260101_20260131_20260201_"
+                         "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
+    rows = [
+        source_row(sar_time=pd.Timestamp(day, tz="UTC"),
+                   sar_safe_slc=f"/archive/S1A_WV_SLC__1SSV_{tag}.SAFE:WV_001",
+                   sar_safe_ocn=f"/archive/S1A_WV_OCN__2SSV_{tag}.SAFE:WV_001")
+        for day, tag in (("2026-01-03 10:00", "A"), ("2026-01-12 10:00", "B"),
+                         ("2026-01-20 10:00", "C"))
+    ]
+    pd.DataFrame(rows).to_parquet(source, index=False)
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(
+        'reference = "swot"\noutput_dir = "output"\n'
+        'production_date = "20260930"\nversion = "0.1"\ncompile = false\n'
+        f'[[catalogues]]\nmission = "S1A"\npath = "{source.name}"\n'
+        '[[catalogues.rules]]\nid = "sar_start"\nname = "after 2026-01-10"\n'
+        'clauses = [["sar_time", "date_gt", "2026-01-10"]]\n',
+        encoding="utf-8",
+    )
+    assert cli_main(["--recipe", str(recipe)]) == 0
+
+    (curated,) = (tmp_path / "output/curated/S1A").glob("*.parquet")
+    assert curated.name == ("S1A_curated_WV_20260112_20260120_20260930_"
+                            "SV_PODAAC-SWOT-KARIN-L2-WINDWAVE-PID0_0.1.parquet")
