@@ -39,6 +39,9 @@ COMMON_COLUMNS = (
 )
 CURATION_COLUMNS = ("_curation_mission", "_curation_row")
 MISSING_SAFE = ("", "UNKNOWN")
+# primary_key ends with the reference coordinates: ..._<lon>_<lat>
+KEY_COORDS_RE = r"_(-?\d+(?:\.(\d*))?)_(-?\d+(?:\.(\d*))?)$"
+MIN_KEY_DECIMALS = 2
 
 
 @dataclass
@@ -191,6 +194,33 @@ def _check_keys(report: Report, table: pa.Table) -> None:
         report.add("PASS", "Primary keys", "non-null and unique")
 
 
+def _check_key_precision(report: Report, table: pa.Table, name: dict | None) -> None:
+    """Reference lon/lat in primary_key need >= 2 decimals to stay unique.
+
+    One WV imagette can match several reference points (several SCAT cells,
+    two SCAT passes, products at 7.5/12.5/25 km): with 1 decimal (~11 km)
+    distinct points collide on the same key. SWOT keys use 0.1 degree by
+    contract (swot_test), so they are only warned about.
+    """
+    coords = _strings(table, "primary_key").str.extract(KEY_COORDS_RE)
+    found = coords[0].notna()
+    if not found.any():
+        report.add("WARN", "Primary key coordinate precision",
+                   "no trailing _<lon>_<lat> in primary_key")
+        return
+    decimals = pd.concat([coords[1].fillna("").str.len(), coords[3].fillna("").str.len()],
+                         axis=1).min(axis=1)[found]
+    coarse = int((decimals < MIN_KEY_DECIMALS).sum())
+    if not coarse:
+        report.add("PASS", "Primary key coordinate precision",
+                   f">= {MIN_KEY_DECIMALS} decimals on lon/lat")
+        return
+    swot = name is not None and "SWOT" in name["product"]
+    report.add("WARN" if swot else "FAIL", "Primary key coordinate precision",
+               f"{coarse:,} keys with < {MIN_KEY_DECIMALS} decimals on lon/lat"
+               + (" (SWOT 0.1 degree key contract)" if swot else ""))
+
+
 def _check_provenance(report: Report, table: pa.Table, name: dict | None) -> None:
     missions = _strings(table, "_curation_mission")
     rows = pd.to_numeric(table.column("_curation_row").to_pandas(), errors="coerce")
@@ -249,6 +279,7 @@ def validate_dataset(path: Path, file_type: str) -> Report:
     _check_positions(report, table)
     _check_safes(report, table, name)
     _check_keys(report, table)
+    _check_key_precision(report, table, name)
     if file_type == "curated":
         _check_provenance(report, table, name)
     _check_metadata(report, table.schema, name)

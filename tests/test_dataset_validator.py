@@ -17,7 +17,8 @@ def frame(n=3, unit="S1A"):
     times = pd.to_datetime(["2024-11-26 01:00", "2025-03-01 12:00", "2025-06-30 23:00"][:n],
                            utc=True)
     return pd.DataFrame({
-        "primary_key": [f"k{i}" for i in range(n)],
+        "primary_key": [f"{unit}_WV_SLC__1SSV_2025010{i}.SAFE:WV_00{i}_1.25_-10.50"
+                        for i in range(n)],
         "sar_time": times,
         "sar_lat": [10.0, -20.0, 45.0][:n],
         "sar_lon": [1.0, 200.0, -30.0][:n],
@@ -103,7 +104,7 @@ def test_unknown_safe_warns_and_foreign_unit_fails(tmp_path):
 
 def test_duplicated_keys_and_missing_columns_fail(tmp_path):
     df = frame()
-    df.loc[1, "primary_key"] = "k0"
+    df.loc[1, "primary_key"] = df.loc[0, "primary_key"]
     assert statuses(validate_dataset(save(tmp_path, df, CATALOGUE), "catalogue"))[
         "Primary keys"] == "FAIL"
     report = validate_dataset(save(tmp_path, frame().drop(columns="ref_flag"), CATALOGUE),
@@ -147,3 +148,14 @@ def test_cli_validates_several_files_and_exits_1_on_failure(tmp_path, capsys):
     assert "1/2 CURATED file(s) passed" in captured.out
     assert "[FAIL] Filename dates match the data" in captured.out
     assert "validation failed: 1 file(s)" in captured.err
+
+
+def test_primary_key_coordinates_need_two_decimals(tmp_path):
+    df = frame()
+    df["primary_key"] = [f"S1A_X.SAFE:WV_00{i}_-150.7_-73.6" for i in range(3)]
+    report = validate_dataset(save(tmp_path, df, CATALOGUE), "catalogue")
+    assert statuses(report)["Primary key coordinate precision"] == "FAIL"
+    swot = CATALOGUE.replace("CMEMS-ALTI-L3-VAVH", "PODAAC-SWOT-KARIN-L2-WINDWAVE-D0")
+    report = validate_dataset(save(tmp_path, df, swot), "catalogue")
+    assert report.ok
+    assert statuses(report)["Primary key coordinate precision"] == "WARN"
