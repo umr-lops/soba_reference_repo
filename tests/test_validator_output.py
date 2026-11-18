@@ -6,7 +6,7 @@ from soba_reference_repo import validator
 from test_validator import challenger_table, product_table, save
 
 
-@pytest.mark.parametrize("role", validator.FILE_TYPES)
+@pytest.mark.parametrize("role", validator.PRODUCT_TYPES)
 def test_single_report_names_file_size_and_actual_checks(tmp_path, capsys, role):
     table = product_table(role) if role in ("test", "target") else challenger_table()
     path = save(tmp_path, table)
@@ -44,8 +44,6 @@ def test_cli_rejects_removed_pair_mode(tmp_path, capsys):
     help_text = capsys.readouterr().out
     assert "--test " not in help_text
     assert "--target " not in help_text
-    assert "catalogue" not in help_text
-    assert "curated" not in help_text
 
 
 def test_failed_validation_never_prints_a_pass_report(tmp_path, capsys):

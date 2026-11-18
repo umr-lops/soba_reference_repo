@@ -167,7 +167,7 @@ soba_produce_challenger --recipe path/to/challenger.toml
 
 ## Validate existing Parquets
 
-Validate supported TEST, TARGET, and CHALLENGER files individually:
+Validate supported TEST, TARGET, and CHALLENGER files individually (catalogue and curated datasets: see below):
 
 ```bash
 soba_validate_parquets --type test --file path/to/SWOT_TEST.parquet
@@ -181,7 +181,32 @@ soba_validate_parquets --type challenger --file path/to/CHALLENGER.parquet
 
 The default report shows the filename, row and column counts, and a `[PASS]` checklist of completed checks. It also identifies skipped checks and single-file limitations. Failed validation reports the error without printing a success checklist.
 
-The validator accepts one file at a time through `--type` and `--file`. Each report includes a `Schema checked:` line with the checked column names and accepted types. Single-file validation does not verify alignment with another file.
+The validator accepts one TEST, TARGET or CHALLENGER file at a time through `--type` and `--file`. Each report includes a `Schema checked:` line with the checked column names and accepted types. Single-file validation does not verify alignment with another file.
+
+### Coaligned catalogues and curated datasets
+
+`--type catalogue` and `--type curated` check any reference (altimeter, SWOT, HSCAT/ASCAT) and accept several files:
+
+```bash
+soba_validate_parquets --type catalogue --file /path/to/catalogue/s1-wv/*_2.0.parquet
+soba_validate_parquets --type curated --file /path/to/curated/S1?/*_5.0.parquet
+```
+
+Each check is reported `[PASS]`, `[WARN]` or `[FAIL]`; the command exits 1 when any file has a `[FAIL]`.
+
+| Check | catalogue | curated |
+|---|---|---|
+| Filename convention (`S1X_<kind>_<mode>_<start>_<stop>_<production>_<pol>_<product>_<X.Y>`) | FAIL | FAIL |
+| Parquet readable, at least one row | FAIL | FAIL |
+| Common columns (`primary_key`, `sar_*`, `ref_*`; curated: `_curation_mission`, `_curation_row`) | FAIL | FAIL |
+| `sar_time` non-null | FAIL | FAIL |
+| Filename dates vs data | FAIL if data outside, WARN if name wider | FAIL unless first/last kept SAR dates |
+| SAR positions (`|sar_lat| <= 90`, `-180 <= sar_lon <= 360`) | WARN | FAIL |
+| SAFE identities (missing / `UNKNOWN`) | WARN | WARN |
+| SLC SAFE unit matches the filename unit | FAIL | FAIL |
+| Primary keys non-null and unique | FAIL | FAIL |
+| Curation provenance (`_curation_mission` = unit, `_curation_row` >= 0, unique) | – | FAIL |
+| `dataset_version` / `production_date` metadata match the filename | – | FAIL (WARN if absent) |
 
 ## Development
 
