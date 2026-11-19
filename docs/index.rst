@@ -10,7 +10,7 @@ Parquets, and validates exported pairs.
 
    soba_create_test_dataset --recipe path/to/recipe.toml
 
-Use ``soba_validate_parquets`` to validate individual files by type. The exporter checks TEST/TARGET alignment before saving the pair.
+Use ``soba_validate_parquets`` to validate individual files by type (``test``, ``target``, ``challenger``, ``catalogue``, ``curated``). The exporter checks TEST/TARGET alignment before saving the pair.
 
 Test suite: 205 collected tests.
 

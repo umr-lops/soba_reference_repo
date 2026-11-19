@@ -43,12 +43,18 @@ def test_validate_single_product_and_cli_read_only(tmp_path, capsys, role):
 
 
 @pytest.mark.parametrize("file_type", ["catalogue", "curated"])
-def test_catalogue_and_curated_validation_types_are_removed(tmp_path, file_type):
+def test_validate_file_keeps_product_contracts_only(tmp_path, file_type):
+    # Catalogue/curated files go through dataset_validator (see test_dataset_validator).
     path = save(tmp_path, product_table("test"))
     with pytest.raises(ValueError, match="unsupported file type"):
         validator.validate_file(path, file_type)
+
+
+@pytest.mark.parametrize("role", ["test", "target", "challenger"])
+def test_product_types_validate_one_file_at_a_time(tmp_path, role):
+    path = save(tmp_path, product_table("test"))
     with pytest.raises(SystemExit) as error:
-        validator.main(["--type", file_type, "--file", str(path)])
+        validator.main(["--type", role, "--file", str(path), str(path)])
     assert error.value.code == 2
 
 
@@ -134,7 +140,6 @@ def test_challenger_requires_actual_producer_schema(tmp_path, mutation):
     ["--type", "test", "--test", "y", "--target", "z"],
     ["--file", "x", "--test", "y", "--target", "z"],
     ["--type", "scat", "--file", "x"],
-    ["--type", "catalogue", "--file", "x"], ["--type", "curated", "--file", "x"],
     ["--kind", "test", "--file", "x"],
 ])
 def test_cli_rejects_invalid_modes_with_usage_exit(args, capsys):

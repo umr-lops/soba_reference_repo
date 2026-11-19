@@ -1,4 +1,8 @@
-"""Read-only validation of individual SWOT and SCAT product Parquets."""
+"""Read-only validation of individual SOBA Parquets.
+
+TEST, TARGET and CHALLENGER product files (SWOT, SCAT), and coaligned
+CATALOGUE / CURATED datasets (any reference, see ``dataset_validator``).
+"""
 
 from __future__ import annotations
 
@@ -9,17 +13,19 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .dataset_validator import DATASET_TYPES, print_report, validate_dataset
 from .swot_test import TARGET_COLUMNS, TEST_COLUMNS, validate_swot_file
 from .hscat_test import output_columns, validate_scat_file
 
-FILE_TYPES = ("test", "target", "challenger")
+PRODUCT_TYPES = ("test", "target", "challenger")
+FILE_TYPES = (*DATASET_TYPES, *PRODUCT_TYPES)
 
 
 def validate_file(path: Path, file_type: str, reference: str = "swot") -> bool:
     """Validate one supported product file, not its alignment with another file."""
     if reference not in {"swot", "scat"}:
         raise ValueError(f"unsupported reference: {reference}; supported: swot, scat")
-    if file_type not in FILE_TYPES:
+    if file_type not in PRODUCT_TYPES:
         raise ValueError(f"unsupported file type: {file_type}")
     if reference == "scat" and file_type not in ("test", "target"):
         raise ValueError("SCAT validation supports TEST and TARGET files only")
@@ -117,13 +123,19 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--type", choices=FILE_TYPES, dest="file_type", required=True,
                         help="role of the Parquet supplied with --file")
-    parser.add_argument("--file", type=Path, required=True,
-                        help="single Parquet to validate (read-only)")
+    parser.add_argument("--file", type=Path, required=True, nargs="+",
+                        help="Parquet(s) to validate (read-only); several files are "
+                             "accepted for --type catalogue/curated")
     parser.add_argument(
         "--reference", default="swot", choices=("swot", "scat"),
         help="reference contract (default: swot; SCAT supports TEST/TARGET only)",
     )
     args = parser.parse_args(argv)
+    if args.file_type in DATASET_TYPES:
+        return _validate_datasets(parser, args.file, args.file_type)
+    if len(args.file) != 1:
+        parser.error(f"--type {args.file_type} validates one file at a time")
+    args.file = args.file[0]
     try:
         validate_file(args.file, args.file_type, args.reference)
         _print_file_report(args.file, args.file_type, args.reference)
@@ -131,6 +143,25 @@ def main(argv=None) -> int:
     except (ValueError, OSError) as error:
         parser.exit(1, f"validation failed: {error}\n")
     print(f"{args.file_type.upper()} validation passed")
+    return 0
+
+
+def _validate_datasets(parser, paths, file_type) -> int:
+    """Validate catalogue/curated Parquets; exit 1 when any check fails."""
+    failed = []
+    for path in paths:
+        try:
+            report = validate_dataset(path, file_type)
+        except (ValueError, OSError) as error:
+            print(f"\n{file_type.upper()}: {path}\n  [FAIL] {error}")
+            failed.append(path)
+            continue
+        print_report(report)
+        if not report.ok:
+            failed.append(path)
+    print(f"\n{len(paths) - len(failed)}/{len(paths)} {file_type.upper()} file(s) passed")
+    if failed:
+        parser.exit(1, f"validation failed: {len(failed)} file(s)\n")
     return 0
 
 
