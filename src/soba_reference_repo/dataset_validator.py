@@ -33,10 +33,12 @@ KIND = {"catalogue": "coaligned_catalogue", "curated": "curated"}
 
 # Columns shared by every published SOBA catalogue and curated dataset.
 COMMON_COLUMNS = (
-    "primary_key", "sar_time", "sar_lat", "sar_lon", "sar_incidence_angle",
+    "primary_key", "sar_time", "sar_incidence_angle",
     "sar_elevation_angle", "sar_safe_slc", "sar_safe_ocn", "sar_path_slc",
     "sar_path_ocn", "ref_time", "ref_lat", "ref_lon", "ref_flag",
 )
+# Optional: checked only when present.
+POSITION_COLUMNS = ("sar_lat", "sar_lon")
 CURATION_COLUMNS = ("_curation_mission", "_curation_row")
 MISSING_SAFE = ("", "UNKNOWN")
 # primary_key ends with the reference coordinates: ..._<lon>_<lat>
@@ -150,6 +152,10 @@ def _check_sar_dates(report: Report, table: pa.Table, name: dict | None) -> None
 
 
 def _check_positions(report: Report, table: pa.Table) -> None:
+    absent = [name for name in POSITION_COLUMNS if name not in table.column_names]
+    if absent:
+        report.add("PASS", "SAR positions", f"not checked: optional {absent} absent")
+        return
     lat = pd.to_numeric(table.column("sar_lat").to_pandas(), errors="coerce")
     lon = pd.to_numeric(table.column("sar_lon").to_pandas(), errors="coerce")
     bad = int((~(lat.abs().le(90) & lon.ge(-180) & lon.le(360))).sum())

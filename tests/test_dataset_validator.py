@@ -159,3 +159,12 @@ def test_primary_key_coordinates_need_two_decimals(tmp_path):
     report = validate_dataset(save(tmp_path, df, swot), "catalogue")
     assert report.ok
     assert statuses(report)["Primary key coordinate precision"] == "WARN"
+
+
+def test_sar_lat_lon_are_optional(tmp_path):
+    df = frame().drop(columns=["sar_lat", "sar_lon"])
+    report = validate_dataset(save(tmp_path, df, CURATED, curated=True, metadata=GOOD_META),
+                              "curated")
+    assert report.ok
+    assert statuses(report)["Required columns"] == "PASS"
+    assert "not checked" in dict((n, d) for _, n, d in report.checks)["SAR positions"]
