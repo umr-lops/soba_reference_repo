@@ -35,6 +35,7 @@ soba_catalogue_report = "soba_reference_repo.catalogue_report:main"
 soba_html_report = "soba_reference_repo.html_report:main"
 soba_validate_parquets = "soba_reference_repo.validator:main"
 soba_produce_challenger = "soba_reference_repo.challenger:main"
+soba_create_target_dataset = "soba_reference_repo.create_target_dataset:main"
 
 [project.urls]
 Repository = "https://github.com/umr-lops/soba_reference_repo"
