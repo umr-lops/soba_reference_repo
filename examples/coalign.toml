@@ -1,0 +1,21 @@
+# WV co-aligned catalogues from soba_matchups STAC days.
+# Relative paths are resolved against this file. Run: soba_build_coalign --recipe coalign.toml
+stac_root = "/scale/project/lops-siam-sentinel1-workbench/data/ifremer/soba_matchups"
+output_dir = "../runs/coalign-0.1"      # must not hold the output files yet
+production_date = "20261126"            # YYYYMMDD
+version = "0.1"                         # X.Y, in the file names
+start = "2026-11-24"                    # first matched day, inclusive
+end = "2026-11-24"                      # last matched day, inclusive
+# Folders under stac_root; the reference product is read from each day's manifest.
+products = [
+  "scat/hscat_hy-2b_25km",
+  "scat/hscat_hy-2c_25km",
+  "alti/cmems",
+  "swot",
+]
+# satellites = ["S1C", "S1D"]           # default: every satellite found
+
+# Every ancillary data path used by the catalogues. A listed path must exist.
+# Not implemented yet (rejected if listed): imerg, ecmwf, era5, ww3, gebco.
+[ancillary]
+tengeop = "/legacy/project/cersat/public/cache/public/ftp/project/deeplearning"
