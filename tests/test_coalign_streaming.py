@@ -1,5 +1,7 @@
 """coalign streaming writer: bounded memory, one file per group, atomic and strict."""
 
+import json
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -95,19 +97,78 @@ def test_ref_flag_with_some_nulls_stays_an_integer(tmp_path):
     assert sorted(table.column("ref_flag").to_pylist(), key=str) == [2048, None]
 
 
-def test_duplicate_keys_across_chunks_fail_and_leave_no_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(catalogue, "FLUSH_ROWS", 2)
+def _stac_with_a_repeated_point(tmp_path):
+    """Day 10 and day 13 each hold the same SAR imagette and the same reference position."""
     root = stac(tmp_path, points_per_day=3)
-    # the same SAR imagette and reference point again, in another day folder
     again = tmp_path / "stac" / "scat" / "hscat_hy-2b_25km_again"
     ocn_dir = make_archive(tmp_path / "arch2")
-    item = make_item(ocn_dir, 1, [point(-72.0, -66.2, wind_speed=1.0, quality_flag=0.0)])
-    write_day(again, DAYS[0], [item])
-    write_day(again, DAYS[3], [item])
-    with pytest.raises(ValueError, match="duplicated primary_key"):
-        build_catalogues([root, again], DAYS[0], DAYS[-1], tmp_path / "out",
-                         production="20261126")
-    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == []
+    first = make_item(ocn_dir, 1, [point(-72.0, -66.2, wind_speed=1.0, quality_flag=0.0)])
+    second = make_item(ocn_dir, 1, [point(-72.0, -66.2, wind_speed=9.0, quality_flag=0.0)])
+    write_day(again, DAYS[0], [first])
+    write_day(again, DAYS[3], [second])
+    return root, again
+
+
+def add_repeated_point(root, wind=9.0):
+    """A second Item in day 0 with the same SAR imagette and the same reference position."""
+    items = root / DAYS[0] / "items"
+    item = json.loads((items / "item_000.json").read_text())
+    item["properties"]["sarmatchup:matchups"][0]["points"] = [
+        point(-72.0, -66.2, wind_speed=wind, quality_flag=0.0)]
+    (items / "item_001.json").write_text(json.dumps(item))
+
+
+@pytest.mark.parametrize("flush", [2, 100000])
+def test_a_repeated_key_is_dropped_counted_and_the_first_row_is_kept(tmp_path, monkeypatch, flush):
+    monkeypatch.setattr(catalogue, "FLUSH_ROWS", flush)
+    root = stac(tmp_path)
+    add_repeated_point(root)
+    with pytest.warns(UserWarning, match="duplicated primary_key dropped"):
+        (path,), counts = run(tmp_path, root)
+    assert counts["dropped_duplicate_key"] == 1 and counts["rows"] == 30
+    table = pq.read_table(path)
+    keys = table.column("primary_key").to_pylist()
+    assert len(keys) == len(set(keys)) == 30
+    wind = dict(zip(keys, table.column("windspeed_scat").to_pylist()))
+    assert wind[next(k for k in keys if k.endswith(":WV_001_-72.0000_-66.2000")
+                     and "20261110" in k)] == 0.0           # the first row read wins, not 9.0
+    meta = {k.decode(): v.decode() for k, v in table.schema.metadata.items()}
+    assert meta["rows_dropped_duplicate_key"] == "1"
+    assert validate_dataset(path, "catalogue").ok
+
+
+def test_no_repeated_key_means_no_dropped_attribute(tmp_path):
+    (path,), counts = run(tmp_path, stac(tmp_path))
+    assert "dropped_duplicate_key" not in counts
+    assert b"rows_dropped_duplicate_key" not in pq.read_schema(path).metadata
+
+
+def test_a_failure_while_finishing_a_later_file_removes_the_finished_ones(tmp_path, monkeypatch):
+    """HY-2C June 2026: the S1C file was finished, then the S1D file failed and S1C stayed."""
+    root = stac(tmp_path)
+    real_rows = catalogue.item_rows
+
+    def split_satellites(item, reference, slc_lookup):          # even days S1C, odd days S1D
+        rows, skipped = real_rows(item, reference, slc_lookup)
+        for row in rows:
+            if int(row["sar_time"].day) % 2:
+                row["_satellite"] = "S1D"
+        return rows, skipped
+
+    real_finish, calls = catalogue._Sink.finish, []
+
+    def second_file_fails(self, *args, **kwargs):
+        calls.append(self.key)
+        if len(calls) == 2:
+            raise RuntimeError("boom")
+        return real_finish(self, *args, **kwargs)
+
+    monkeypatch.setattr(catalogue, "item_rows", split_satellites)
+    monkeypatch.setattr(catalogue._Sink, "finish", second_file_fails)
+    with pytest.raises(RuntimeError, match="boom"):
+        run(tmp_path, root)
+    assert len(calls) == 2
+    assert list((tmp_path / "out").iterdir()) == []
 
 
 def test_a_failure_in_the_middle_leaves_nothing_behind(tmp_path):
