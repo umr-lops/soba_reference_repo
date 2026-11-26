@@ -14,6 +14,7 @@ the one thing kept for the whole run is an 8-byte digest per ``primary_key``.
 from __future__ import annotations
 
 import hashlib
+import warnings
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -141,12 +142,18 @@ class _Sink:
         self.schema = catalogue_schema(param_names)
         self.buffer, self.digests, self.sources = [], set(), set()
         self.rows = self.null_angles = self.null_distance = 0
+        self.dropped = []                 # keys of repeated rows, first one seen is kept
         self.first = self.last = None
         satellite, polarization, product = key
         self.partial = self.out_dir / f".{satellite}_{polarization}_{product}.rows.partial"
         self.writer = None
 
     def add(self, row):
+        digest = _digest(row["primary_key"])
+        if digest in self.digests:
+            self.dropped.append(row["primary_key"])
+            return
+        self.digests.add(digest)
         self.buffer.append(row)
         if len(self.buffer) >= FLUSH_ROWS:
             self.flush()
@@ -157,12 +164,7 @@ class _Sink:
         rows = sorted(self.buffer, key=lambda r: (r["sar_time"], r["primary_key"]))
         self.buffer = []
         summary = check_catalogue(pd.DataFrame(rows), self.param_names)
-        for row in rows:
-            digest = _digest(row["primary_key"])
-            if digest in self.digests:
-                raise ValueError(f"duplicated primary_key, first: {[row['primary_key']]}")
-            self.digests.add(digest)
-            self.sources.add(row["ref_source"])
+        self.sources.update(row["ref_source"] for row in rows)
         self.null_angles += summary["null_angles"]
         self.null_distance += summary["null_distance_to_coast"]
         self.rows += len(rows)
@@ -188,6 +190,8 @@ class _Sink:
             "ref_product": product, "version": version, "start_date": start, "end_date": stop,
             "creation_date": production, "rows": str(self.rows), **meta_for(self),
         }
+        if self.dropped:
+            meta["rows_dropped_duplicate_key"] = str(len(self.dropped))
         final = path.with_name(f".{path.name}.partial")
         source = pq.ParquetFile(self.partial)
         with pq.ParquetWriter(final, self.schema.with_metadata(meta)) as writer:
@@ -236,19 +240,26 @@ def build_catalogues(product_dirs, start, end, out_dir, version="0.1", slc_looku
             meta[f"ancillary path {name}"] = str(folder)
         return meta
 
+    paths = []
     try:
         for key, names, row in iter_rows(product_dirs, start, end, counts, slc_lookup,
                                          satellites, tengeop):
             if key not in sinks:
                 sinks[key] = _Sink(key, names, out_dir)
             sinks[key].add(row)
-        paths = []
         for key in sorted(sinks):
             paths.append(sinks[key].finish(production, version, meta_for))
             counts["rows"] += sinks[key].rows
+            if sinks[key].dropped:
+                counts["dropped_duplicate_key"] += len(sinks[key].dropped)
+                warnings.warn(
+                    f"{len(sinks[key].dropped)} duplicated primary_key dropped (first row kept) "
+                    f"in {paths[-1].name}, first: {sinks[key].dropped[:3]}", stacklevel=2)
     except BaseException:
         for sink in sinks.values():
             sink.abort()
+        for finished in paths:
+            finished.unlink(missing_ok=True)
         for leftover in out_dir.glob(".*.partial"):
             leftover.unlink(missing_ok=True)
         raise
