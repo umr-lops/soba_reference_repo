@@ -153,7 +153,7 @@ def test_build_catalogues_one_file_per_satellite_and_passes_the_validator(tmp_pa
         "S1C_coaligned_catalogue_WV_20261119_20261119_20261126_SV_KNMI-HSCAT-HY2-25km_0.1.parquet",
         "S1D_coaligned_catalogue_WV_20261119_20261119_20261126_SV_KNMI-HSCAT-HY2-25km_0.1.parquet",
     ]
-    assert counts == {"items": 4, "skipped_no_slc": 1}
+    assert counts == {"items": 4, "skipped_no_slc": 1, "rows": 4}
     s1c = pq.read_table(paths[0])
     assert s1c.num_rows == 3
     assert s1c.column_names == columns(["windspeed_scat", "winddirection_scat"])
