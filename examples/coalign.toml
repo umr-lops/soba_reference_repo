@@ -16,6 +16,7 @@ products = [
 # satellites = ["S1C", "S1D"]           # default: every satellite found
 
 # Every ancillary data path used by the catalogues. A listed path must exist.
-# Not implemented yet (rejected if listed): imerg, ecmwf, era5, ww3, gebco.
+# Not implemented yet (rejected if listed): imerg, era5, ww3, gebco.
 [ancillary]
 tengeop = "/legacy/project/cersat/public/cache/public/ftp/project/deeplearning"
+ecmwf = "/legacy/project/cersat/public/provider/ecmwf/forecast/hourly/0100deg/netcdf_light"

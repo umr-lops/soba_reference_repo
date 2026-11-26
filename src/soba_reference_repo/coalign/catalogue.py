@@ -28,7 +28,7 @@ from .products import reference_for
 from .rows import columns, item_rows
 from .sar import slc_safe_dir
 from .stac import find_days, iter_items, read_manifest
-from .tengeop import TenGeoP
+from .ancillary import make as make_source
 
 SAR_MODE = "WV"
 FLUSH_ROWS = 100_000  # rows buffered per output file before a row group is written
@@ -43,7 +43,7 @@ STRINGS = {"primary_key", "sar_path_ocn", "sar_path_slc", "sar_safe_slc", "sar_s
 TIMES = {"sar_time", "ref_time"}
 
 
-def catalogue_schema(param_names) -> pa.Schema:
+def catalogue_schema(param_names, ancillary=()) -> pa.Schema:
     """The Arrow schema of a catalogue: explicit, so no column depends on the data it holds."""
     def kind(name):
         if name in STRINGS:
@@ -52,7 +52,7 @@ def catalogue_schema(param_names) -> pa.Schema:
             return pa.timestamp("us")
         return pa.int64() if name == "ref_flag" else pa.float64()
 
-    return pa.schema([(name, kind(name)) for name in columns(param_names)])
+    return pa.schema([(name, kind(name)) for name in columns(param_names, ancillary)])
 
 
 def catalogue_name(satellite, polarization, product, start, stop, production, version) -> str:
@@ -62,15 +62,15 @@ def catalogue_name(satellite, polarization, product, start, stop, production, ve
             f"{polarization}_{product}_{version}.parquet")
 
 
-def check_catalogue(frame: pd.DataFrame, param_names) -> dict:
+def check_catalogue(frame: pd.DataFrame, param_names, ancillary=()) -> dict:
     """Fail on duplicate keys or nulls in mandatory columns; return counts for the summary."""
     duplicated = frame["primary_key"][frame["primary_key"].duplicated(keep=False)]
     if len(duplicated):
         raise ValueError(f"{duplicated.nunique()} duplicated primary_key, first: "
                          f"{sorted(duplicated.unique())[:3]}")
     nulls = {}
-    for name in columns(param_names):
-        if name in NULLABLE or name in param_names:
+    for name in columns(param_names, ancillary):
+        if name in NULLABLE or name in param_names or name in ancillary:
             continue
         count = int(frame[name].isna().sum())
         if count:
@@ -86,13 +86,11 @@ def check_catalogue(frame: pd.DataFrame, param_names) -> dict:
     }
 
 
-def iter_rows(product_dirs, start, end, counts, slc_lookup=slc_safe_dir, satellites=None,
-              tengeop=None):
+def iter_rows(product_dirs, start, end, counts, slc_lookup=slc_safe_dir, satellites=None):
     """Yield ``(file key, parameter column names, row)`` for every catalogue row, day by day.
 
-    ``counts`` (a Counter) tallies Items read and the reasons Items produced no row. With
-    ``tengeop`` (a ``TenGeoP`` reader) ``class_1`` and ``pos_1`` are filled and the rows left
-    without a class are counted as ``no_class``.
+    ``counts`` (a Counter) tallies Items read and the reasons Items produced no row. Ancillary
+    columns are not filled here: the writer fills them a buffer at a time.
     """
     for product_dir in product_dirs:
         for day in find_days(product_dir, start, end):
@@ -108,25 +106,25 @@ def iter_rows(product_dirs, start, end, counts, slc_lookup=slc_safe_dir, satelli
                     key = (row["_satellite"], row["_polarization"], row["_product"])
                     if satellites and key[0] not in satellites:
                         continue
-                    if tengeop is not None:
-                        row["class_1"], row["pos_1"] = tengeop.lookup(
-                            row["sar_safe_slc"].split("/")[-1].split(":")[0],
-                            int(row["sar_safe_slc"].rsplit(":WV_", 1)[1]))
-                        counts["no_class"] += row["class_1"] is None
                     yield key, names, row
 
 
 def collect(product_dirs, start, end, slc_lookup=slc_safe_dir, satellites=None,
-            tengeop=None) -> tuple:
+            sources=()) -> tuple:
     """All rows of a (small) run as one DataFrame per file: ``(frames, counts, param_names)``.
 
     For inspection and tests; ``build_catalogues`` streams instead of holding every row.
+    ``sources`` are ancillary readers (``Source``) that fill their columns.
     """
     counts, by_file, params = Counter(), {}, {}
-    for key, names, row in iter_rows(product_dirs, start, end, counts, slc_lookup, satellites,
-                                     tengeop):
+    for key, names, row in iter_rows(product_dirs, start, end, counts, slc_lookup, satellites):
         by_file.setdefault(key, []).append(row)
         params[key] = names
+    for rows in by_file.values():
+        for source in sources:
+            source.fill(rows)
+    for source in sources:
+        counts.update(source.counts())
     return {key: pd.DataFrame(rows) for key, rows in by_file.items()}, counts, params
 
 
@@ -137,10 +135,12 @@ def _digest(key: str) -> bytes:
 class _Sink:
     """The rows of one output file, written as they arrive and finished by ``finish``."""
 
-    def __init__(self, key, param_names, out_dir):
+    def __init__(self, key, param_names, out_dir, sources=()):
         self.key, self.param_names, self.out_dir = key, list(param_names), Path(out_dir)
-        self.schema = catalogue_schema(param_names)
-        self.buffer, self.digests, self.sources = [], set(), set()
+        self.sources = list(sources)
+        self.ancillary = [c for source in self.sources for c in source.columns]
+        self.schema = catalogue_schema(param_names, self.ancillary)
+        self.buffer, self.digests, self.ref_sources = [], set(), set()
         self.rows = self.null_angles = self.null_distance = 0
         self.dropped = []                 # keys of repeated rows, first one seen is kept
         self.first = self.last = None
@@ -163,8 +163,10 @@ class _Sink:
             return
         rows = sorted(self.buffer, key=lambda r: (r["sar_time"], r["primary_key"]))
         self.buffer = []
-        summary = check_catalogue(pd.DataFrame(rows), self.param_names)
-        self.sources.update(row["ref_source"] for row in rows)
+        for source in self.sources:
+            source.fill(rows)
+        summary = check_catalogue(pd.DataFrame(rows), self.param_names, self.ancillary)
+        self.ref_sources.update(row["ref_source"] for row in rows)
         self.null_angles += summary["null_angles"]
         self.null_distance += summary["null_distance_to_coast"]
         self.rows += len(rows)
@@ -208,13 +210,12 @@ class _Sink:
         self.partial.unlink(missing_ok=True)
 
 
-def _global_attributes(sources, key, with_classes, production) -> dict:
+def _global_attributes(ref_sources, key, ancillary, production) -> dict:
     """The spec's mandatory global attributes (section 4) of one catalogue."""
     kind = {"KNMI": "scat", "CMEM": "alti", "CCI-": "alti", "SWOT": "swot"}[key[2][:4]]
-    ancillary = ["class: TenGeoP SAR Sentinel-1 surface roughness classification"]
     return {
-        f"source {kind}": ", ".join(sorted(sources)),
-        "source ancillary datasets": "; ".join(ancillary) if with_classes else "",
+        f"source {kind}": ", ".join(sorted(ref_sources)),
+        "source ancillary datasets": ", ".join(source.description for source in ancillary),
         "library used to produce the parquet": "soba_reference_repo",
         "library version": library_version(),
         "creation date": production,
@@ -222,30 +223,31 @@ def _global_attributes(sources, key, with_classes, production) -> dict:
 
 
 def build_catalogues(product_dirs, start, end, out_dir, version="0.1", slc_lookup=slc_safe_dir,
-                     satellites=None, production=None, stac_root="", tengeop_root=None,
-                     recipe_path=None, ancillary_paths=None) -> tuple:
+                     satellites=None, production=None, stac_root="", recipe_path=None,
+                     ancillary_paths=None) -> tuple:
     """Merge STAC day folders into catalogue Parquets. Returns (paths, counts)."""
     production = production or date.today().strftime("%Y%m%d")
-    tengeop = TenGeoP(tengeop_root) if tengeop_root else None
+    paths_by_source = dict(ancillary_paths or {})
+    sources = [make_source(name, folder) for name, folder in paths_by_source.items()]
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     counts, sinks = Counter(), {}
 
     def meta_for(sink):
         meta = {"stac_root": str(stac_root), "stac_days": f"{start}..{end}"}
-        meta.update(_global_attributes(sink.sources, sink.key, bool(tengeop), production))
+        meta.update(_global_attributes(sink.ref_sources, sink.key, sources, production))
         if recipe_path:
             meta["recipe_path"] = str(recipe_path)
-        for name, folder in (ancillary_paths or {}).items():
+        for name, folder in paths_by_source.items():
             meta[f"ancillary path {name}"] = str(folder)
         return meta
 
     paths = []
     try:
         for key, names, row in iter_rows(product_dirs, start, end, counts, slc_lookup,
-                                         satellites, tengeop):
+                                         satellites):
             if key not in sinks:
-                sinks[key] = _Sink(key, names, out_dir)
+                sinks[key] = _Sink(key, names, out_dir, sources)
             sinks[key].add(row)
         for key in sorted(sinks):
             paths.append(sinks[key].finish(production, version, meta_for))
@@ -263,6 +265,6 @@ def build_catalogues(product_dirs, start, end, out_dir, version="0.1", slc_looku
         for leftover in out_dir.glob(".*.partial"):
             leftover.unlink(missing_ok=True)
         raise
-    if tengeop is not None:
-        counts["missing_tengeop_summaries"] = tengeop.missing_summaries
+    for source in sources:
+        counts.update(source.counts())
     return paths, dict(counts)

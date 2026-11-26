@@ -17,7 +17,7 @@ from .catalogue import build_catalogues
 ANCILLARY = {
     "tengeop": True,   # class_1, pos_1: CLS deep-learning DL_Summary.xml tree
     "imerg": False,    # rain rate
-    "ecmwf": False,    # operational 10 m wind
+    "ecmwf": True,     # ECMWF_Wind_Speed, ECMWF_Wind_Direction: operational 10 m wind
     "era5": False,     # reanalysis 10 m wind
     "ww3": False,      # CCI sea state WW3 run
     "gebco": False,    # bathymetry
@@ -80,7 +80,7 @@ def run_recipe(path) -> tuple:
         [recipe["stac_root"] / product for product in recipe["products"]],
         recipe["start"], recipe["end"], recipe["output_dir"], recipe["version"],
         satellites=recipe["satellites"], production=recipe["production_date"],
-        stac_root=recipe["stac_root"], tengeop_root=recipe["ancillary"].get("tengeop"),
+        stac_root=recipe["stac_root"],
         recipe_path=recipe["recipe_path"], ancillary_paths=recipe["ancillary"])
 
 

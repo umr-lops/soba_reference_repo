@@ -15,6 +15,8 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from . import Source
+
 # short_label of the classifier model: the ten TenGeoP classes.
 CLASSES = frozenset("AF BS IB LWA MCC OF POS RC SI WS".split())
 SUMMARY = "DL_Summary.xml"
@@ -69,3 +71,25 @@ class TenGeoP:
             raise ValueError(f"TenGeoP probability {prob} outside [0, 1]: "
                              f"{slc_safe} #{imagette}")
         return label, value
+
+
+class TenGeoPSource(Source):
+    """``class_1`` and ``pos_1`` of every row, from the imagette of its SLC SAFE."""
+
+    name = "tengeop"
+    columns = ("class_1", "pos_1")
+    description = "class: TenGeoP SAR Sentinel-1 surface roughness classification"
+
+    def __init__(self, root):
+        self.reader = TenGeoP(root)
+        self.no_class = 0
+
+    def fill(self, rows):
+        for row in rows:
+            safe, imagette = row["sar_safe_slc"].rsplit(":WV_", 1)
+            row["class_1"], row["pos_1"] = self.reader.lookup(safe.split("/")[-1], int(imagette))
+            self.no_class += row["class_1"] is None
+
+    def counts(self):
+        return {"no_class": self.no_class,
+                "missing_tengeop_summaries": self.reader.missing_summaries}

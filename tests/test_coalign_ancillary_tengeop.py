@@ -8,7 +8,9 @@ from coalign_fixtures import make_archive, make_item, point, write_day
 
 from soba_reference_repo.coalign.catalogue import build_catalogues, collect
 from soba_reference_repo.coalign.sar import slc_safe_dir
-from soba_reference_repo.coalign.tengeop import TenGeoP, dl_summary_path
+from soba_reference_repo.coalign.ancillary.tengeop import (
+    TenGeoP, TenGeoPSource, dl_summary_path,
+)
 
 SLC = "S1C_WV_SLC__1SSV_20261119T003214_20261119T004119_010398_014C82_AAAA"
 LABELS = "AF , BS , IB , LWA , MCC , OF , POS , RC , SI , WS"
@@ -97,7 +99,7 @@ def test_catalogue_gets_class_and_pos_and_keeps_rows_without_a_class(tmp_path):
     product = _stac(tmp_path)
     write_summary(tmp_path / "dl", imagettes={1: ("POS", 0.84, "OK"), 2: ("AF", 0.5, "OK")})
     frames, counts, _ = collect([product], "2026-11-19", "2026-11-19", slc_safe_dir,
-                                tengeop=TenGeoP(tmp_path / "dl"))
+                                sources=[TenGeoPSource(tmp_path / "dl")])
     frame = frames[("S1C", "SV", "KNMI-HSCAT-HY2-25km")].sort_values("primary_key")
     assert frame["class_1"].tolist()[:2] == ["POS", "AF"] and pd.isna(frame["class_1"].iloc[2])
     assert frame["pos_1"].tolist()[:2] == [0.84, 0.5] and pd.isna(frame["pos_1"].iloc[2])
@@ -115,7 +117,7 @@ def test_global_attributes_name_the_ancillary_source_and_library(tmp_path):
     product = _stac(tmp_path)
     write_summary(tmp_path / "dl")
     paths, _ = build_catalogues([product], "2026-11-19", "2026-11-19", tmp_path / "out",
-                                production="20261126", tengeop_root=tmp_path / "dl")
+                                production="20261126", ancillary_paths={"tengeop": tmp_path / "dl"})
     meta = {k.decode(): v.decode() for k, v in pq.read_schema(paths[0]).metadata.items()}
     assert meta["source scat"] == "HY-2B HSCAT"
     assert "class: TenGeoP" in meta["source ancillary datasets"]
