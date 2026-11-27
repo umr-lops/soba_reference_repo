@@ -32,7 +32,8 @@ MISSION_PATTERN = re.compile(r"^(S1[A-Z])_coaligned_catalogue_(WV)_")
 EXPECTED_MISSIONS = ("S1A", "S1C", "S1D")
 DEFAULT_SWOT_TEMPLATE = ASSET_DIR / "latex" / "swot_test_template.tex"
 SWOT_COLUMN_DESCRIPTIONS = {
-    "primary_key": "SLC SAFE plus reference longitude and latitude at one decimal degree.",
+    "primary_key": ("SLC SAFE plus reference longitude and latitude with 2 decimals "
+                    "(one row per imagette and 0.1 degree box)."),
     "sar_time": "UTC SAR acquisition time, rounded down to whole seconds.",
     "sar_incidence_angle": "SAR incidence angle in degrees.",
     "sar_elevation_angle": "SAR elevation angle in degrees.",
@@ -347,16 +348,29 @@ def _build_swot_frames(by_mission, curated=False):
         frame = frame.loc[~invalid].copy()
         for coordinate in ("swot_lon", "swot_lat"):
             frame[coordinate] = frame[coordinate].astype("float32")
-        frame["primary_key"] = (
+        # One row per imagette and 0.1 degree box (the closest in time); the key carries the
+        # kept point with 2 decimals (spec: at least 2 decimals for every reference).
+        frame["_box"] = (
             frame["sar_safe_slc"]
             + "_"
             + frame["swot_lon"].map(lambda value: f"{value:.1f}")
             + "_"
             + frame["swot_lat"].map(lambda value: f"{value:.1f}")
         )
+        frame["primary_key"] = (
+            frame["sar_safe_slc"]
+            + "_"
+            + frame["swot_lon"].map(lambda value: f"{value:.2f}")
+            + "_"
+            + frame["swot_lat"].map(lambda value: f"{value:.2f}")
+        )
         frame["_time_delta_s"] = (frame["swot_time"] - frame["sar_time"]).abs().dt.total_seconds()
-        frame = frame.sort_values(["primary_key", "_time_delta_s", "_input_order"], kind="stable")
-        deduplicated = frame.drop_duplicates("primary_key", keep="first")
+        frame = frame.sort_values(["_box", "_time_delta_s", "_input_order"], kind="stable")
+        deduplicated = frame.drop_duplicates("_box", keep="first")
+        # Neighbouring boxes can round to the same 2-decimal key: keep the closest in time.
+        deduplicated = deduplicated.sort_values(
+            ["primary_key", "_time_delta_s", "_input_order"], kind="stable"
+        ).drop_duplicates("primary_key", keep="first")
         duplicate_count = len(frame) - len(deduplicated)
         exclusions["duplicate_keys"] += duplicate_count
         mission_exclusions["duplicate_keys"] += duplicate_count
@@ -466,9 +480,9 @@ def _read_validated_swot_product(path: Path, role: str):
     expected = (
         frame["sar_safe_slc"]
         + "_"
-        + frame["swot_lon"].map(lambda value: f"{float(value):.1f}")
+        + frame["swot_lon"].map(lambda value: f"{float(value):.2f}")
         + "_"
-        + frame["swot_lat"].map(lambda value: f"{float(value):.1f}")
+        + frame["swot_lat"].map(lambda value: f"{float(value):.2f}")
     )
     if not frame["primary_key"].equals(expected):
         raise ValueError("primary_key composition mismatch")

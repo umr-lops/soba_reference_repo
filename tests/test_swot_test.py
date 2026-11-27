@@ -200,7 +200,7 @@ def test_build_frames_deduplicates_and_keeps_test_target_keys_aligned(tmp_path):
     ]
     assert target.primary_key.tolist() == test.primary_key.tolist()
     assert test.primary_key.is_unique
-    assert test.loc[0, "primary_key"] == ("S1A_WV_SLC__1SSV_20260107.SAFE:WV_033_-135.4_-74.3")
+    assert test.loc[0, "primary_key"] == ("S1A_WV_SLC__1SSV_20260107.SAFE:WV_033_-135.40_-74.30")
     assert test.loc[0, "swot_waveheight"] == 2.2
     assert test["sar_ground_heading"].isna().all()
     assert manifest["input_rows"] == 5
@@ -434,3 +434,27 @@ def test_compile_swot_pdf_falls_back_to_tectonic(tmp_path, monkeypatch):
     ]]
     assert pdf == tmp_path / "minimal.pdf"
     assert pdf.read_bytes().startswith(b"%PDF-")
+
+
+def test_keys_have_two_decimals_and_keep_one_row_per_tenth_degree_box(tmp_path):
+    safe = "/archive/S1A_WV_SLC__1SSV_20260107.SAFE:WV_033"
+    rows = [
+        # same 0.1 degree box: one row kept, the closest in time
+        source_row(sar_safe_slc=safe, ref_lon=-135.41, ref_lat=-74.31,
+                   ref_time=pd.Timestamp("2026-01-07 11:40:00", tz="UTC")),
+        source_row(sar_safe_slc=safe, ref_lon=-135.38, ref_lat=-74.33,
+                   ref_time=pd.Timestamp("2026-01-07 11:34:00", tz="UTC")),
+        # another box
+        source_row(sar_safe_slc=safe, ref_lon=-135.12, ref_lat=-74.31),
+    ]
+    paths = [write_catalogue(tmp_path, "S1A", rows)] + [
+        write_catalogue(tmp_path, mission, [
+            source_row(sar_safe_slc=f"/archive/{mission}_WV_SLC__1SSV_20260107.SAFE:WV_033")])
+        for mission in ("S1C", "S1D")
+    ]
+    test, _, manifest = build_swot_test_frames(paths)
+    assert sorted(k for k in test["primary_key"] if k.startswith("S1A")) == [
+        "S1A_WV_SLC__1SSV_20260107.SAFE:WV_033_-135.12_-74.31",
+        "S1A_WV_SLC__1SSV_20260107.SAFE:WV_033_-135.38_-74.33",
+    ]
+    assert manifest["excluded_rows"]["duplicate_keys"] == 1

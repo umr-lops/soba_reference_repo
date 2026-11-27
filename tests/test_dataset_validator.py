@@ -8,9 +8,18 @@ import pytest
 from soba_reference_repo import validator
 from soba_reference_repo.dataset_validator import validate_dataset
 
-CATALOGUE = ("S1A_coaligned_catalogue_WV_20241126T010000_20250630T230000_20261117T175657_"
-             "SV_CMEMS-ALTI-L3-VAVH_2.0.parquet")
-CURATED = "S1A_curated_WV_20241126_20250630_20261117_SV_CMEMS-ALTI-L3-VAVH_5.0.parquet"
+CATALOGUE = ("S1A_coaligned_catalogue_WV_20241126_20250630_20261117_SV_"
+             "CMEMS-WAV-L3-ALTI-TAC_2.0.parquet")
+CURATED = "S1A_curated_WV_20241126_20250630_20261117_SV_CMEMS-WAV-L3-ALTI-TAC_5.0.parquet"
+IW_CATALOGUE = ("S1A_coaligned_catalogue_IW_20241126_20250630_20261117_DV_"
+                "PODAAC-SWOT-KARIN-L2-WINDWAVE-D2_0.1.parquet")
+GLOBAL_META = {
+    "source alti": "Jason-3 altimeter",
+    "source ancillary datasets": "class: TenGeoP",
+    "library used to produce the parquet": "soba_reference_repo",
+    "library version": "2026.11.27",
+    "creation date": "20261117",
+}
 
 
 def frame(n=3, unit="S1A"):
@@ -21,9 +30,11 @@ def frame(n=3, unit="S1A"):
                         for i in range(n)],
         "sar_time": times,
         "sar_lat": [10.0, -20.0, 45.0][:n],
-        "sar_lon": [1.0, 200.0, -30.0][:n],
+        "sar_lon": [1.0, 179.5, -30.0][:n],
         "sar_incidence_angle": [23.0] * n,
         "sar_elevation_angle": [20.0] * n,
+        "sar_ground_heading": [190.0] * n,
+        "sar_distance_to_coast": [120.0] * n,
         "sar_safe_slc": [f"{unit}_WV_SLC__1SSV_2025010{i}.SAFE" for i in range(n)],
         "sar_safe_ocn": [f"{unit}_WV_OCN__2SSV_2025010{i}.SAFE" for i in range(n)],
         "sar_path_slc": ["/a"] * n,
@@ -32,6 +43,31 @@ def frame(n=3, unit="S1A"):
         "ref_lat": [10.0] * n,
         "ref_lon": [1.0] * n,
         "ref_flag": [0] * n,
+        "ref_id": ["granule"] * n,
+        "legacy_usage": [None] * n,
+        "ref_source": ["Jason-3"] * n,
+        "class_1": ["POS"] * n,
+        "pos_1": [0.8] * n,
+        "swh_alti": [2.0] * n,
+    })
+
+
+def iw_frame(n=3, unit="S1A"):
+    grd = [f"{unit}_IW_GRDH_1SDV_2025010{i}T000000_2025010{i}T000020_000001_000001_AAAA.SAFE"
+           for i in range(n)]
+    times = pd.to_datetime(["2024-11-26 01:00", "2025-03-01 12:00", "2025-06-30 23:00"][:n],
+                           utc=True)
+    columns = {name: [1.0] * n for name in (
+        "sar_incidence_angle", "sar_elevation_angle", "sar_ground_heading",
+        "sar_distance_to_along_track_edge", "sar_distance_to_cross_track_edge",
+        "sea_ice_concentration", "bathymetry", "ref_distance_to_coast", "WW3_Hs",
+        "ECMWF_Wind_Speed", "ECMWF_Wind_Direction", "imerg_rainrate", "swh_swot")}
+    return pd.DataFrame({
+        "primary_key": [f"{safe}_1.25_-10.50" for safe in grd],
+        "sar_time": times, **columns,
+        "sar_path_ocn": [None] * n, "sar_path_slc": ["/s"] * n, "sar_path_grd": ["/g"] * n,
+        "sar_safe_grd": grd, "sar_safe_slc": [""] * n, "sar_safe_ocn": [""] * n,
+        "ref_lon": [1.25] * n, "ref_lat": [-10.5] * n, "ref_time": times, "ref_id": ["g"] * n,
     })
 
 
@@ -40,10 +76,13 @@ def save(tmp_path, df, name, curated=False, metadata=None):
         df = df.assign(_curation_mission=df["sar_safe_slc"].str[:3],
                        _curation_row=range(len(df)))
     table = pa.Table.from_pandas(df, preserve_index=False)
-    if metadata is not None:
-        table = table.replace_schema_metadata(
-            {**(table.schema.metadata or {}), **{k.encode(): v.encode()
-                                                 for k, v in metadata.items()}})
+    metadata = {**GLOBAL_META, **(metadata or {})}
+    if curated:
+        metadata.setdefault("source_catalogue_dataset", CATALOGUE)
+    metadata = {key: value for key, value in metadata.items() if value is not None}
+    table = table.replace_schema_metadata(
+        {**(table.schema.metadata or {}), **{k.encode(): v.encode()
+                                             for k, v in metadata.items()}})
     path = tmp_path / name
     pq.write_table(table, path)
     return path
@@ -74,10 +113,10 @@ def test_curated_filename_dates_must_match_the_kept_sar_dates(tmp_path):
 
 
 def test_catalogue_data_outside_filename_dates_fails_wider_name_warns(tmp_path):
-    outside = CATALOGUE.replace("20250630T230000", "20250101T000000")
+    outside = CATALOGUE.replace("20250630_2026", "20250101_2026")
     assert statuses(validate_dataset(save(tmp_path, frame(), outside), "catalogue"))[
         "Data within the filename dates"] == "FAIL"
-    wider = CATALOGUE.replace("20250630T230000", "20251231T000000")
+    wider = CATALOGUE.replace("20250630_2026", "20251231_2026")
     report = validate_dataset(save(tmp_path, frame(), wider), "catalogue")
     assert report.ok
     assert statuses(report)["Data within the filename dates"] == "WARN"
@@ -110,8 +149,9 @@ def test_duplicated_keys_and_missing_columns_fail(tmp_path):
     report = validate_dataset(save(tmp_path, frame().drop(columns="ref_flag"), CATALOGUE),
                               "catalogue")
     assert statuses(report)["Required columns"] == "FAIL"
-    report = validate_dataset(save(tmp_path, frame(), CURATED), "curated")
-    assert "_curation_mission" in dict((n, d) for _, n, d in report.checks)["Required columns"]
+    meta = {**GOOD_META, "source_catalogue_dataset": CATALOGUE}
+    report = validate_dataset(save(tmp_path, frame(), CURATED, metadata=meta), "curated")
+    assert report.ok and statuses(report)["Curation provenance"] == "WARN"
 
 
 def test_curated_metadata_must_match_the_filename(tmp_path):
@@ -124,9 +164,11 @@ def test_curated_metadata_must_match_the_filename(tmp_path):
 
 
 @pytest.mark.parametrize("name", [
-    "S1A_curated_WV_20241126_20250630_20261117_SV_CMEMS-ALTI-L3-VAVH.parquet",
-    "S1E_curated_WV_20241126_20250630_20261117_SV_CMEMS-ALTI-L3-VAVH_5.0.parquet",
-    "S1A_curated_WV_20250630_20241126_20261117_SV_CMEMS-ALTI-L3-VAVH_5.0.parquet",
+    "S1A_curated_WV_20241126_20250630_20261117_SV_CMEMS-WAV-L3-ALTI-TAC.parquet",
+    "S1E_curated_WV_20241126_20250630_20261117_SV_CMEMS-WAV-L3-ALTI-TAC_5.0.parquet",
+    "S1A_curated_WV_20250630_20241126_20261117_SV_CMEMS-WAV-L3-ALTI-TAC_5.0.parquet",
+    "S1A_curated_WV_20241126T010000_20250630T230000_20261117T175657_SV_CMEMS-WAV-L3-ALTI-TAC"
+    "_5.0.parquet",
     CATALOGUE,
 ])
 def test_filename_convention(tmp_path, name):
@@ -155,10 +197,9 @@ def test_primary_key_coordinates_need_two_decimals(tmp_path):
     df["primary_key"] = [f"S1A_X.SAFE:WV_00{i}_-150.7_-73.6" for i in range(3)]
     report = validate_dataset(save(tmp_path, df, CATALOGUE), "catalogue")
     assert statuses(report)["Primary key coordinate precision"] == "FAIL"
-    swot = CATALOGUE.replace("CMEMS-ALTI-L3-VAVH", "PODAAC-SWOT-KARIN-L2-WINDWAVE-D0")
+    swot = CATALOGUE.replace("CMEMS-WAV-L3-ALTI-TAC", "PODAAC-SWOT-KARIN-L2-WINDWAVE-D0")
     report = validate_dataset(save(tmp_path, df, swot), "catalogue")
-    assert report.ok
-    assert statuses(report)["Primary key coordinate precision"] == "WARN"
+    assert statuses(report)["Primary key coordinate precision"] == "FAIL"  # no SWOT exception
 
 
 def test_sar_lat_lon_are_optional(tmp_path):
@@ -168,3 +209,68 @@ def test_sar_lat_lon_are_optional(tmp_path):
     assert report.ok
     assert statuses(report)["Required columns"] == "PASS"
     assert "not checked" in dict((n, d) for _, n, d in report.checks)["SAR positions"]
+
+
+def test_iw_catalogue_uses_the_iw_spec_columns(tmp_path):
+    report = validate_dataset(save(tmp_path, iw_frame(), IW_CATALOGUE,
+                                   metadata={"source alti": None, "source swot": "KaRIn"}),
+                              "catalogue")
+    assert report.ok, report.checks
+    assert "IW columns present" in dict((n, d) for _, n, d in report.checks)["Required columns"]
+    report = validate_dataset(save(tmp_path, iw_frame().drop(columns="imerg_rainrate"),
+                                   IW_CATALOGUE), "catalogue")
+    assert statuses(report)["Required columns"] == "FAIL"
+    # an IW file is not checked against the WV table (no class_1, legacy_usage...)
+    report = validate_dataset(save(tmp_path, iw_frame(unit="S1C"), IW_CATALOGUE), "catalogue")
+    assert statuses(report)["SAFE unit matches the filename"] == "FAIL"
+
+
+@pytest.mark.parametrize("column", ["sar_ground_heading", "sar_distance_to_coast", "ref_id",
+                                    "legacy_usage", "ref_source", "class_1", "pos_1"])
+def test_wv_spec_mandatory_columns(tmp_path, column):
+    report = validate_dataset(save(tmp_path, frame().drop(columns=column), CATALOGUE),
+                              "catalogue")
+    assert statuses(report)["Required columns"] == "FAIL"
+
+
+@pytest.mark.parametrize("product, ok", [
+    ("KNMI-HSCAT-HY2-25km", True), ("PODAAC-SWOT-KARIN-L2-WINDWAVE-D2", True),
+    ("CCI-SEASTATE_ALTI_L2P-V5", True), ("CMEMS-ALTI-L3-VAVH", False),
+    ("KNMI-ASCAT-METOP-25km", False),
+])
+def test_reference_product_must_be_in_the_spec_list(tmp_path, product, ok):
+    name = CATALOGUE.replace("CMEMS-WAV-L3-ALTI-TAC", product)
+    report = validate_dataset(save(tmp_path, frame(), name), "catalogue")
+    assert (statuses(report)["Reference product in the spec list"] == "PASS") is ok
+
+
+@pytest.mark.parametrize("drop", ["source alti", "library version", "creation date",
+                                  "source ancillary datasets",
+                                  "library used to produce the parquet"])
+def test_global_attributes_are_mandatory(tmp_path, drop):
+    report = validate_dataset(save(tmp_path, frame(), CATALOGUE, metadata={drop: None}),
+                              "catalogue")
+    assert statuses(report)["Global attributes"] == "FAIL"
+    assert drop.replace("source alti", "source <ref>") in dict(
+        (n, d) for _, n, d in report.checks)["Global attributes"]
+
+
+def test_curated_needs_its_source_catalogue(tmp_path):
+    meta = {**GOOD_META, "source_catalogue_dataset": None}
+    path = tmp_path / CURATED
+    df = frame().assign(_curation_mission="S1A", _curation_row=range(3))
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    pq.write_table(table.replace_schema_metadata(
+        {k.encode(): v.encode() for k, v in {**GLOBAL_META, **meta}.items() if v}), path)
+    report = validate_dataset(path, "curated")
+    assert statuses(report)["Global attributes"] == "FAIL"
+    assert "source_catalogue_dataset" in dict((n, d) for _, n, d in report.checks)[
+        "Global attributes"]
+
+
+def test_sar_lon_must_be_within_180(tmp_path):
+    df = frame()
+    df.loc[1, "sar_lon"] = 200.0
+    report = validate_dataset(save(tmp_path, df, CURATED, curated=True, metadata=GOOD_META),
+                              "curated")
+    assert statuses(report)["SAR positions"] == "FAIL"
