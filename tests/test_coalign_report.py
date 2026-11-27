@@ -6,8 +6,14 @@ from test_coalign_ancillary_ecmwf import write_wind
 from test_coalign_ancillary_tengeop import write_summary
 
 from soba_reference_repo.coalign.catalogue import build_catalogues
-from soba_reference_repo.coalign_report import (
-    build_report, completeness_table, read_catalogues, reference_stats,
+from soba_reference_repo.catalogue_report import (
+    build_coalign_report as build_report,
+)
+from soba_reference_repo.catalogue_report import (
+    coalign_completeness_table as completeness_table,
+)
+from soba_reference_repo.catalogue_report import (
+    read_coalign_catalogues as read_catalogues,
 )
 
 DAYS = ["2026-11-19"]
@@ -38,7 +44,7 @@ def test_one_document_per_reference_kind_with_the_expected_sections(tmp_path):
     results = build_report(folder, tmp_path / "out", compile_report=False)
     assert [r["kind"] for r in results] == ["HSCAT", "ALTI"]
     scat = (tmp_path / "out" / "S1_coalign_catalogue_WV_HSCAT.tex").read_text()
-    for text in ("Scatterometer wind speed Distribution", "windspeed\\_scat",
+    for text in ("Wind-Speed and Wind-Direction Distributions", "windspeed\\_scat",
                  "Share of empty values", "KNMI-HSCAT-HY2-25km catalogue columns",
                  "ECMWF\\_Wind\\_Speed", "Position in the Dataflow", "Global Coverage Map",
                  "Monthly Distribution of Matchups"):
@@ -47,7 +53,7 @@ def test_one_document_per_reference_kind_with_the_expected_sections(tmp_path):
                     "How the Catalogue Is Produced", "Agreement of the ECMWF"):
         assert removed not in scat, removed
     alti = (tmp_path / "out" / "S1_coalign_catalogue_WV_ALTI.tex").read_text()
-    assert "swh\\_alti" in alti and "Scatterometer wind speed Distribution" not in alti
+    assert "swh\\_alti" in alti and "windspeed\\_scat" not in alti
     assert "@@" not in scat and "@@" not in alti
     assert (tmp_path / "out" / "images_S1_coalign_catalogue_WV_HSCAT" / "coverage.png").is_file()
 
@@ -74,15 +80,12 @@ def test_read_catalogues_rejects_a_folder_without_catalogues_and_a_foreign_name(
         read_catalogues(tmp_path)
 
 
-def test_reference_stats_and_completeness(tmp_path):
+def test_completeness_table(tmp_path):
     folder, _ = _build(tmp_path)
     entries = read_catalogues(folder)
     scat = [e for e in entries if e["kind"] == "HSCAT"]
     table = completeness_table(scat)
     assert "legacy\\_usage" in table and "100.0\\%" in table
-    import pandas as pd
-    row = reference_stats(pd.DataFrame({"windspeed_scat": [1.0, 3.0, None]}), "windspeed_scat")
-    assert row[1:] == ["1", "3", "2", "2", "2"]
 
 
 def test_the_report_compiles_to_a_pdf(tmp_path):
@@ -95,20 +98,18 @@ def test_the_report_compiles_to_a_pdf(tmp_path):
         r["pdf"].split("/")[-1]).stat().st_size > 20_000 for r in results)
 
 
-def test_the_report_is_not_imported_by_the_build():
-    import pathlib
-    import re
-    package = pathlib.Path(__file__).parents[1] / "src" / "soba_reference_repo" / "coalign"
-    pattern = re.compile(r"(from|import)\s+(\.\.|soba_reference_repo\.)coalign_report")
-    for source in package.rglob("*.py"):
-        assert not pattern.search(source.read_text()), source.name
+def test_the_cli_writes_the_documents(tmp_path):
+    from soba_reference_repo.catalogue_report import main
+    folder, _ = _build(tmp_path)
+    assert main(["--coalign", str(folder), "--output", str(tmp_path / "o"), "--no-compile"]) == 0
+    assert (tmp_path / "o" / "S1_coalign_catalogue_WV_ALTI.tex").is_file()
 
 
 def test_monthly_figure_has_a_bar_for_every_month_that_has_rows(tmp_path):
     """A month is plotted only when it holds matchups, with its count above the bar."""
     import pandas as pd
 
-    from soba_reference_repo.coalign_report import figure_monthly
+    from soba_reference_repo.plotting import figure_monthly
     frame = pd.DataFrame({
         "sar_time": pd.to_datetime(["2026-06-30 23:00", "2026-06-30 23:10", "2026-07-01 00:10"]),
         "satellite": ["S1C", "S1D", "S1D"], "product": ["P"] * 3})
@@ -127,7 +128,7 @@ def _frame():
 
 
 def test_groups_list_the_values_present_most_rows_first():
-    from soba_reference_repo.coalign_report import group_values
+    from soba_reference_repo.plotting import group_values
     frame = _frame()
     assert group_values(frame, "satellite") == ["S1C", "S1D"]
     assert group_values(frame, "mission") == ["HY-2B HSCAT", "HY-2C HSCAT"]
@@ -135,7 +136,12 @@ def test_groups_list_the_values_present_most_rows_first():
 
 
 def test_coverage_and_monthly_blocks_follow_the_groups(tmp_path):
-    from soba_reference_repo.coalign_report import coverage_blocks, monthly_blocks
+    from soba_reference_repo.catalogue_report import (
+        coalign_coverage_blocks as coverage_blocks,
+    )
+    from soba_reference_repo.catalogue_report import (
+        coalign_monthly_blocks as monthly_blocks,
+    )
     tex = coverage_blocks(_frame(), "img", tmp_path)
     assert "Coverage per Sentinel-1 satellite: S1C, S1D." in tex
     assert "Coverage per reference mission: HY-2B HSCAT, HY-2C HSCAT." in tex
@@ -152,7 +158,9 @@ def test_coverage_and_monthly_blocks_follow_the_groups(tmp_path):
 def test_many_values_are_split_over_figures_of_three_panels(tmp_path):
     import pandas as pd
 
-    from soba_reference_repo.coalign_report import coverage_blocks
+    from soba_reference_repo.catalogue_report import (
+        coalign_coverage_blocks as coverage_blocks,
+    )
     frame = pd.DataFrame({
         "sar_time": pd.to_datetime(["2026-06-10"] * 5), "sar_lon": [1.0, 2, 3, 4, 5],
         "sar_lat": [0.0, 1, 2, 3, 4], "satellite": ["S1C"] * 5, "product": ["P"] * 5,

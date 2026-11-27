@@ -260,16 +260,54 @@ def _doc_release_date(product, production_date):
     return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
 
 
+# Reference parameters are named after their dataset (spec, WV catalogue ``ref_param_N``).
+REFERENCE_SUFFIXES = ("_scat", "_alti", "_swot")
+
+# The altimeter wording of the catalogue template, used when ``catalogue_text`` is not given.
+ALTI_CATALOGUE_TEXT = {
+    "COLUMNS_INTRO": (
+        "The co-aligned catalogue carries the SAR observation, the matched reference "
+        "measurement, and the\nco-alignment geometry. The two reference databases (CCI SeaState "
+        "V5 and CMEMS ALTI-L3-VAVH)\ncarry \\emph{different} column sets, so each is described in "
+        "its own table (a union over the SAR\nunits of that database). Descriptions marked "
+        "inferred are field-name interpretations, not\nverified source definitions."),
+    "POSITION_TEXT": (
+        "This document describes the \\textbf{co-aligned catalogue}: the raw, concatenated and "
+        "enriched\nmatchups produced by the colocation pipeline, before any quality curation. It "
+        "is the input to the\ncuration step that yields the \\emph{curated} dataset (see the "
+        "corresponding Curated dataset\ndocument for the applied quality filters and their "
+        "per-step counts)."),
+    "POLARIZATION": "single VV (SV).",
+    "COLUMNS_EXTRA": "",
+    "FILE_DESCRIPTION": (
+        "A catalogue file is one per SAR unit and reference database (CCI SeaState V5 or\n"
+        "CMEMS ALTI-L3-VAVH); each row is a Sentinel-1 WV imagette collocated in space and time\n"
+        "with one or more altimeter observations. The primary key of the catalogue is\n"
+        "\\texttt{sar\\_safe\\_slc} + \\texttt{ref\\_lon} + \\texttt{ref\\_lat} (rounded to 3 "
+        "decimals).\nMultiple reference matches can correspond to one SAR image, so row counts "
+        "are not counts\nof distinct images."),
+    "PRODUCTION_SECTION": (
+        "\\Needspace{0.5\\textheight}\n\\subsection{How the Catalogue Is Produced}\n"
+        "The co-aligned catalogue is built by the colocation-to-catalogue pipeline\n"
+        "(\\texttt{catawvaltioneshot}): it loads the unified WV--altimeter colocation NetCDF "
+        "files,\nenriches them, and writes one SOBA-schema Parquet catalogue per SAR unit and "
+        "reference\ndatabase. The table below lists the columns the pipeline \\emph{adds or "
+        "renames} on top of\nthe raw colocation variables; the remaining columns are carried "
+        "over from the colocation\nfiles (renamed to the SOBA schema, e.g. \\texttt{oswLon} "
+        "$\\to$ \\texttt{sar\\_lon},\n\\texttt{hs\\_alti\\_closest} $\\to$ "
+        "\\texttt{ref\\_hs\\_alti\\_closest}).\n@@DATAFLOW_EXTRA@@"),
+}
+
+
 def render_column_table(schema, descriptions, *, caption, label, longtable_threshold=35,
-                        reference_names=frozenset(), name_width="4.1cm",
-                        description_width="8.1cm"):
+                        name_width="4.1cm", description_width="8.1cm"):
     """Render one Column/Type/Description table for a single (per-database) schema.
 
     Shares the curated doc's grouping (Identification / SAR geometry / Reference /
     Ancillary) and description fallback, and switches to a ``longtable`` for wide
     schemas. Used by the catalogue report to describe the CCI and CMEMS catalogues
-    separately (their column sets differ). ``reference_names`` lists extra columns that belong
-    to the Reference group (the dataset-named parameters of the coalign catalogues).
+    separately (their column sets differ). The reference parameters named after their dataset
+    by the spec (``windspeed_scat``, ``swh_alti``, ``swh_swot``) are in the Reference group.
     """
     groups = {g: [] for g in ("Identification", "SAR geometry", "Reference", "Ancillary")}
     for field in schema:
@@ -280,7 +318,7 @@ def render_column_table(schema, descriptions, *, caption, label, longtable_thres
             group = "Identification"
         elif name.startswith("sar_"):
             group = "SAR geometry"
-        elif name.startswith(("ref_", "scat_", "swot_")) or name in reference_names:
+        elif name.startswith(("ref_", "scat_", "swot_")) or name.endswith(REFERENCE_SUFFIXES):
             group = "Reference"
         else:
             group = "Ancillary"
@@ -333,8 +371,18 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
                          filter_removal_figures="", template="curated_template.tex",
                          scope_text=None, general_description=None,
                          column_caption="Columns of the Curated Parquet files",
-                         column_tables=None, dataflow_extra="", file_version_rows=None):
+                         column_tables=None, dataflow_extra="", file_version_rows=None,
+                         catalogue_text=None, value_column=None, release_date=None,
+                         column_widths=None):
     """Preserve the supplied PDF's cover, section order, tables, and SOBA style.
+
+    ``catalogue_text`` (catalogue template only) replaces the altimeter wording of the
+    ``COLUMNS_INTRO``, ``POSITION_TEXT``, ``POLARIZATION``, ``FILE_DESCRIPTION``,
+    ``COLUMNS_EXTRA`` and ``PRODUCTION_SECTION`` placeholders, keyed by those names, LaTeX ready.
+
+    ``value_column`` names the reference column of the statistics table (default: the
+    reference's usual column), ``release_date`` the date on the cover and ``column_widths`` a
+    ``(name, description)`` pair of ``cm`` widths for the column tables.
 
     ``version_extra`` adds a per-database source-version note (e.g. the distinct
     CCI and CMEMS catalogue versions) after the Catalogue Columns table; the
@@ -364,16 +412,17 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     hscat = "HSCAT" in reference
     alti = not hscat and reference.lower().startswith("alti")
     product = "HSCAT" if hscat else ("ALTI" if alti else "SWOT")
-    doc_release_date = _doc_release_date(product, recipe["production_date"])
+    doc_release_date = release_date or _doc_release_date(product, recipe["production_date"])
     selected_variable = recipe.get("reference_variable", "swh")
     rename = recipe.get("rename_columns") or {}
     if hscat:
         native = "ref_param_1" if selected_variable == "winddirection" else "ref_param_2"
-        value_column = rename.get(native, native)
+        default_value_column = rename.get(native, native)
     elif alti:
-        value_column = "ref_hs_alti_closest"
+        default_value_column = "ref_hs_alti_closest"
     else:
-        value_column = "ref_mean_hs_karin"
+        default_value_column = "ref_mean_hs_karin"
+    value_column = value_column or default_value_column
     units = ("degrees" if selected_variable == "winddirection" else "m/s") if hscat else "m"
     if hscat:
         reference_label = ("HSCAT wind directions" if selected_variable == "winddirection"
@@ -476,7 +525,7 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
     paths = list(figures.values())
     assets = f"images_{document_stem}"
     sar_product = "Copernicus/ESA Sentinel-1 Level-2 Ocean (OCN), Wave Mode"
-    ref_product = (
+    ref_product = (catalogue_text or {}).get("REF_PRODUCT") or (
         "HY-2 HSCAT 25 km ocean surface winds, processed by KNMI for EUMETSAT OSI SAF"
         if hscat else
         ("altimeter significant wave height (CCI SeaState V5 and CMEMS ALTI-L3-VAVH)"
@@ -841,17 +890,22 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
         # Per-database column tables (catalogue report). ``column_tables`` is a list of
         # (caption, label, schema); each is rendered with the shared description set.
         "COLUMN_TABLES": "\n\n".join(
-            render_column_table(schema, descriptions, caption=caption, label=label)
+            render_column_table(schema, descriptions, caption=caption, label=label,
+                                **({"name_width": f"{column_widths[0]}cm",
+                                    "description_width": f"{column_widths[1]}cm"}
+                                   if column_widths else {}))
             for caption, label, schema in (column_tables or [])
         ),
         "DATAFLOW_EXTRA": dataflow_extra,
+        **{**ALTI_CATALOGUE_TEXT, **{k: v for k, v in (catalogue_text or {}).items()
+                                    if k != "REF_PRODUCT"}},
     }
     text = (ASSET_DIR / "latex" / template).read_text()
     # Optional placeholder lines that vanish entirely when empty, so the shared
     # SWOT/HSCAT documents (which leave them blank) stay byte-identical.
     optional_lines = {"COVERAGE_EXTRA", "MONTHLY_EXTRA", "DISTRIBUTION_EXTRA",
                       "CATALOGUE_VERSIONS", "FILTER_REMOVAL_FIGURES", "DATAFLOW_EXTRA",
-                      "FILTER_DETAILS"}
+                      "FILTER_DETAILS", "PRODUCTION_SECTION", "COLUMNS_EXTRA"}
     kept = []
     for line in text.split("\n"):
         match = re.fullmatch(r"@@([A-Z_]+)@@", line.strip())
@@ -860,8 +914,9 @@ def build_curated_report(*, title, platform, instrument, reference, variable,
             continue
         kept.append(line)
     text = "\n".join(kept)
-    for key, value in mapping.items():
-        text = text.replace(f"@@{key}@@", value)
+    for _ in range(2):          # a value may hold another placeholder (the catalogue text)
+        for key, value in mapping.items():
+            text = text.replace(f"@@{key}@@", value)
     leftovers = re.findall(r"@@[A-Z_]+@@", text)
     if leftovers:
         raise ValueError(f"Unfilled Curated report fields: {leftovers}")

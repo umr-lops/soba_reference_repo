@@ -31,8 +31,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import tomllib
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -53,6 +55,14 @@ from .curated_report import build_curated_report
 from .hscat_report import _tex
 from .pdf_support import (ASSET_DIR, _path, compile_pdf, purge_latex_byproducts,
                           stage_latex_assets)
+from .plotting import (
+    figure_coverage,
+    figure_coverage_panels,
+    figure_distribution,
+    figure_monthly,
+    figure_monthly_stacked,
+    group_values,
+)
 
 DOCUMENT_STEM = "S1_catalogue_WV_ALTI"
 # Columns the report reads from each raw catalogue Parquet (``_curation_mission``
@@ -416,9 +426,340 @@ def run_catalogue_run_dir(run_dir, *, compile_report=True, miktex_bin=None,
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Catalogues written by ``soba_build_coalign``: any reference (scatterometer, altimeter, SWOT).
+# Same engine (``build_curated_report``) and template (``catalogue_template.tex``) as above.
+# ---------------------------------------------------------------------------
+
+COALIGN_NAME = re.compile(
+    r"(?P<sat>S1[A-D])_coaligned_catalogue_(?P<mode>WV)_(?P<start>\d{8})_(?P<stop>\d{8})_"
+    r"(?P<production>\d{8})_(?P<pol>SV|DV|SH|DH)_(?P<product>[A-Za-z0-9][A-Za-z0-9._-]*)_"
+    r"(?P<version>\d+\.\d+)\.parquet$")
+COALIGN_POLARIZATION = {"SV": "single VV (SV)", "SH": "single HH (SH)",
+                        "DV": "dual VV+VH (DV)", "DH": "dual HH+HV (DH)"}
+# Reference parameter column (named after its dataset, spec ``ref_param_N``) -> (label, unit, kind)
+COALIGN_PARAMETERS = {
+    "windspeed_scat": ("Scatterometer wind speed", "m/s", "HSCAT"),
+    "winddirection_scat": ("Scatterometer wind direction (towards)", "degrees", "HSCAT"),
+    "swh_alti": ("Altimeter significant wave height", "m", "ALTI"),
+    "swh_swot": ("SWOT KaRIn significant wave height", "m", "SWOT"),
+}
+COALIGN_KINDS = {
+    "HSCAT": ("scatterometer", "scatterometer winds",
+              "HY-2 HSCAT 25 km ocean surface winds, processed by KNMI for EUMETSAT OSI SAF"),
+    "ALTI": ("altimeter", "altimeter significant wave heights",
+             "significant wave height (CMEMS wave L3 altimetry)"),
+    "SWOT": ("SWOT", "SWOT significant wave heights",
+             "SWOT KaRIn Level-2 WindWave (PGD0/PID0), distributed by NASA/JPL PO.DAAC"),
+}
+# The groupings of the maps and monthly counts: (title, frame column).
+COALIGN_GROUPS = (("Sentinel-1 satellite", "satellite"), ("reference mission", "mission"),
+                  ("reference product", "product"))
+COALIGN_PANELS_PER_FIGURE = 3
+COALIGN_DESCRIPTIONS = {
+    "primary_key": ("SLC SAFE name, imagette number, ref_lon and ref_lat (four decimals); "
+                    "unique in the file."),
+    "sar_time": "UTC start time of the SAR measurement.",
+    "sar_lat": "Latitude of the centre of the imagette footprint, in degrees.",
+    "sar_lon": "Longitude of the centre of the imagette footprint, in degrees.",
+    "sar_incidence_angle": "SAR incidence angle in degrees, as given with the matched point.",
+    "sar_elevation_angle": "SAR elevation angle in degrees, as given with the matched point.",
+    "sar_ground_heading": "SAR ground heading in degrees, as given with the matched point.",
+    "sar_ground_heading_uncertainty": "Uncertainty of the SAR ground heading, in degrees.",
+    "sar_distance_to_coast": "Distance to the coast in km (NASA GSFC grid), from the STAC Item.",
+    "sar_path_ocn": "Full path of the Sentinel-1 OCN measurement file of the imagette.",
+    "sar_path_slc": "Full path of the Sentinel-1 SLC measurement file of the imagette.",
+    "sar_safe_slc": "Sentinel-1 SLC SAFE name followed by :WV_ and the imagette number.",
+    "sar_safe_ocn": "Sentinel-1 OCN SAFE name followed by :WV_ and the imagette number.",
+    "ref_lon": "Longitude of the reference point, in degrees.",
+    "ref_lat": "Latitude of the reference point, in degrees.",
+    "ref_time": "UTC time of the reference point.",
+    "ref_time_delta_min": "Reference time minus SAR time, in minutes.",
+    "ref_flag": ("Integer quality flag of the reference product (bit mask); empty when the "
+                 "product has none."),
+    "ref_id": "Name of the reference product file the point comes from.",
+    "legacy_usage": "Marks a case already used for training in a previous exercise; empty here.",
+    "ref_source": "Name of the reference product.",
+    "windspeed_scat": "Scatterometer wind speed in m/s.",
+    "winddirection_scat": "Scatterometer wind direction, towards, in degrees clockwise from north.",
+    "swh_alti": "Altimeter significant wave height in m.",
+    "swh_swot": "SWOT KaRIn significant wave height (swh_karin) in m.",
+    "class_1": "Most likely TenGeoP surface roughness class of the imagette.",
+    "pos_1": "Probability (0 to 1) of class_1.",
+    "ECMWF_Wind_Speed": ("ECMWF operational 10 m wind speed at the reference point and time, "
+                         "in m/s."),
+    "ECMWF_Wind_Direction": ("ECMWF operational 10 m wind direction, towards, in degrees "
+                             "clockwise from north."),
+}
+
+
+def _coalign_kind(columns) -> str:
+    for column, (_, _, kind) in COALIGN_PARAMETERS.items():
+        if column in columns:
+            return kind
+    return "OTHER"
+
+
+def _coalign_date(text: str) -> str:
+    return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+
+
+def read_coalign_catalogues(folder) -> list:
+    """One entry per catalogue file of ``folder``: name parts, attributes, schema, row count."""
+    entries = []
+    for path in sorted(Path(folder).glob("S1*_coaligned_catalogue_WV_*.parquet")):
+        match = COALIGN_NAME.match(path.name)
+        if match is None:
+            raise ValueError(f"not a coalign catalogue name: {path.name}")
+        parquet = pq.ParquetFile(path)
+        attrs = {k.decode(): v.decode("utf-8", errors="replace")
+                 for k, v in (parquet.schema_arrow.metadata or {}).items()}
+        schema = parquet.schema_arrow
+        entries.append({**match.groupdict(), "path": path, "attrs": attrs, "schema": schema,
+                        "rows": parquet.metadata.num_rows, "kind": _coalign_kind(schema.names)})
+    if not entries:
+        raise FileNotFoundError(f"no coalign catalogue in {folder}")
+    return entries
+
+
+def read_coalign_frame(entries) -> pd.DataFrame:
+    """The report columns of every file, with the satellite, mission, product and kind of rows."""
+    wanted = ["sar_lon", "sar_lat", "sar_time", "ref_source", *COALIGN_PARAMETERS]
+    frames = []
+    for entry in entries:
+        columns = [c for c in wanted if c in entry["schema"].names]
+        frame = pq.read_table(entry["path"], columns=columns).to_pandas()
+        frame["mission"] = frame.pop("ref_source").astype("category")
+        frame["satellite"], frame["product"], frame["kind"] = (
+            entry["sat"], entry["product"], entry["kind"])
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _coalign_figure(name, caption, label, width="0.9"):
+    return "\n".join([
+        r"\begin{figure}[H]\centering",
+        rf"\includegraphics[width={width}\textwidth]{{{name}}}",
+        rf"\caption{{{caption}}}", rf"\label{{{label}}}", r"\end{figure}"])
+
+
+def coalign_coverage_blocks(frame, assets, figures) -> str:
+    """Maps per Sentinel-1 satellite, reference mission and reference product (LaTeX)."""
+    blocks = []
+    for title, column in COALIGN_GROUPS:
+        values = group_values(frame, column)
+        if len(values) < 2:
+            blocks.append(rf"\noindent\textbf{{Coverage by {title}.}} All rows have the same "
+                          rf"{title}: {_tex(values[0])}, shown in the global map above.")
+            continue
+        blocks.append(rf"\noindent\textbf{{Coverage by {title}.}}")
+        for number, start in enumerate(range(0, len(values), COALIGN_PANELS_PER_FIGURE), 1):
+            chunk = values[start:start + COALIGN_PANELS_PER_FIGURE]
+            name = f"coverage_{column}_{number}.png"
+            figure_coverage_panels(frame, column, chunk, figures / name)
+            blocks.append(_coalign_figure(
+                f"{assets}/{name}", f"Coverage per {title}: " + ", ".join(_tex(v) for v in chunk)
+                + ".", f"fig:coverage_{column}_{number}", width="0.88"))
+    return "\n\n".join(blocks)
+
+
+def coalign_monthly_blocks(frame, assets, figures) -> str:
+    """Monthly counts by reference mission and reference product (LaTeX)."""
+    blocks = []
+    for title, column in COALIGN_GROUPS[1:]:
+        values = group_values(frame, column)
+        if len(values) < 2:
+            blocks.append(rf"\noindent\textbf{{Matchups by {title}.}} All rows have the same "
+                          rf"{title}: {_tex(values[0])}.")
+            continue
+        name = f"monthly_{column}.png"
+        figure_monthly_stacked(frame, column, title, figures / name)
+        blocks.append(_coalign_figure(
+            f"{assets}/{name}", f"Monthly count of matches, stacked by {title}.",
+            f"fig:monthly_{column}", width="0.85"))
+    return "\n\n".join(blocks)
+
+
+def coalign_column_tables(entries) -> list:
+    """One ``(caption, label, schema)`` per reference product, columns of all its files."""
+    by_product = defaultdict(list)
+    for entry in entries:
+        by_product[entry["product"]].append(entry)
+    tables = []
+    for index, (product, group) in enumerate(sorted(by_product.items())):
+        fields = {}
+        for entry in group:
+            for field in entry["schema"]:
+                fields.setdefault(field.name, field)
+        satellites = "/".join(sorted({e["sat"] for e in group}))
+        tables.append((f"{_tex(product)} catalogue columns ({satellites})", f"tab:cols_{index}",
+                       pa.schema(list(fields.values()))))
+    return tables
+
+
+def coalign_completeness_table(entries) -> str:
+    """Share of empty values per column and reference product (LaTeX table)."""
+    by_product = defaultdict(list)
+    for entry in entries:
+        by_product[entry["product"]].append(entry)
+    products = sorted(by_product)
+    shares = {}
+    for product in products:
+        total, empty = 0, defaultdict(int)
+        for entry in by_product[product]:
+            table = pq.read_table(entry["path"])
+            total += table.num_rows
+            for name in table.column_names:
+                empty[name] += table.column(name).null_count
+        shares[product] = {name: count / total for name, count in empty.items()}
+    names = [n for n in dict.fromkeys(n for p in products for n in shares[p])
+             if any(shares[p].get(n, 0) > 0 for p in products)]
+    if not names:
+        return r"\noindent No column of the catalogues holds an empty value."
+    rows = [" & ".join([_tex(name), *(f"{shares[p][name]:.1%}".replace("%", r"\%")
+                                      if name in shares[p] else "--" for p in products)]) + r" \\"
+            for name in names]
+    spec = r"@{}>{\raggedright\arraybackslash}p{5cm}" + "r" * len(products) + "@{}"
+    header = " & ".join(rf"\textbf{{{h}}}" for h in ["Column", *[_tex(p) for p in products]])
+    return "\n".join([
+        r"\begin{table}[H]\centering",
+        r"\caption{Share of empty values per column and reference product}",
+        r"\label{tab:completeness}", r"{\small", rf"\begin{{tabular}}{{{spec}}}", r"\toprule",
+        header + r" \\", r"\midrule", *rows, r"\bottomrule", r"\end{tabular}", "}",
+        r"\end{table}"])
+
+
+def coalign_metadata_label(entry, several_products) -> str:
+    """Short unique name of a file for the attribute table."""
+    product = f" {entry['product']}" if several_products else ""
+    return f"{entry['sat']}{product} {entry['start']}-{entry['stop']}"
+
+
+def _coalign_catalogue_text(polarizations, completeness, product_text) -> dict:
+    """The wording of the template placeholders for the coalign catalogues (LaTeX)."""
+    return {
+        "REF_PRODUCT": product_text,
+        "COLUMNS_INTRO": (
+            "The co-aligned catalogue carries the SAR observation, the matched reference "
+            "measurement, and the\nancillary values. The reference parameters are named after "
+            "their dataset, so each\nreference product has its own table."),
+        "COLUMNS_EXTRA": completeness,
+        "POSITION_TEXT": (
+            "This document describes the \\textbf{co-aligned catalogue}: the matchups between "
+            "Sentinel-1 Wave\nMode imagettes and the reference products, with the ancillary "
+            "values added, before any quality\ncuration. It is the input to the curation step "
+            "that yields the \\emph{curated} dataset."),
+        "POLARIZATION": _tex(polarizations) + ".",
+        "FILE_DESCRIPTION": (
+            "A catalogue file holds one satellite, one polarization and one reference product. "
+            "Each row is\none reference point matched to one Sentinel-1 WV imagette. The "
+            "primary key is the SLC SAFE name,\nthe imagette number, \\texttt{ref\\_lon} and "
+            "\\texttt{ref\\_lat} (four decimals). One imagette can have several rows,\nso row "
+            "counts are not counts of distinct images."),
+        "PRODUCTION_SECTION": "",
+    }
+
+
+def build_coalign_document(entries, kind, output_dir, *, compile_report=True,
+                           miktex_bin=None) -> dict:
+    """The document of the catalogues of one reference kind (SWOT, HSCAT or ALTI).
+
+    Written as ``<output_dir>/S1_coalign_catalogue_WV_<KIND>.tex`` and, compiled,
+    ``S1_coalign_catalogue_WV_<KIND>_<version>.pdf``.
+    """
+    versions = sorted({e["version"] for e in entries})
+    if len(versions) != 1:
+        raise ValueError(f"{kind} catalogues of several versions in one report: {versions}")
+    version = versions[0]
+    noun, scope, product_text = COALIGN_KINDS[kind]
+    stem = f"S1_coalign_catalogue_WV_{kind}"
+    output_dir = Path(output_dir)
+    assets = f"images_{stem}"
+    figures = output_dir / assets
+    figures.mkdir(parents=True, exist_ok=True)
+    stage_latex_assets(ASSET_DIR / "latex", figures)
+
+    frame = read_coalign_frame(entries)
+    parameters = [column for column, (_, _, k) in COALIGN_PARAMETERS.items()
+                  if k == kind and column in frame and frame[column].notna().any()]
+    figure_coverage(frame, figures / "coverage.png")
+    figure_monthly(frame, figures / "monthly.png")
+    chosen = {"coverage": figures / "coverage.png", "monthly": figures / "monthly.png"}
+    for column in parameters:
+        label, unit, _ = COALIGN_PARAMETERS[column]
+        figure_distribution(frame, column, label, unit, figures / f"distribution_{column}.png")
+        chosen[column] = figures / f"distribution_{column}.png"
+    several_products = len({e["product"] for e in entries}) > 1
+    sources = [{"mission": coalign_metadata_label(e, several_products), "path": str(e["path"]),
+                "curated_path": str(e["path"]), "input_rows": e["rows"],
+                "curated_rows": e["rows"], "steps": []} for e in entries]
+    manifest = {"reference": noun, "mode": "WV", "status": "complete",
+                "input_rows": sum(e["rows"] for e in entries),
+                "curated_rows": sum(e["rows"] for e in entries), "sources": sources}
+    production_dates = sorted({e["production"] for e in entries})
+    polarizations = ", ".join(sorted({COALIGN_POLARIZATION[e["pol"]] for e in entries}))
+    notes = [f", {int(e['attrs']['rows_dropped_duplicate_key'])} repeated key(s) dropped"
+             if "rows_dropped_duplicate_key" in e["attrs"] else "" for e in entries]
+    tex = build_curated_report(
+        title=f"Sentinel-1 co-aligned {noun} catalogue", platform=f"WV | {kind}",
+        instrument="Sentinel-1 WV", reference=f"{noun} {product_text}",
+        variable=COALIGN_PARAMETERS[parameters[0]][0].lower() if parameters else "reference value",
+        document_stem=stem,
+        recipe={"production_date": production_dates[-1], "version": version,
+                "reference_variable": "windspeed", "catalogues": []},
+        manifest=manifest, figures=chosen, summary={},
+        observation_path=output_dir / "manifest.json",
+        field_descriptions=COALIGN_DESCRIPTIONS,
+        scope_text=_tex("A co-aligned catalogue of Sentinel-1 Wave Mode observations matched to "
+                        f"{scope}, with ancillary values, before quality curation."),
+        general_description=(
+            "Copernicus/ESA Sentinel-1 Level-2 Ocean (OCN), Wave Mode observations are matched "
+            "to the reference product; the matched points are merged into one row per "
+            "reference point, with the ancillary values added."),
+        column_caption="Columns of the co-aligned catalogue Parquet files",
+        column_tables=coalign_column_tables(entries), column_widths=(5.0, 7.2),
+        coverage_extra=coalign_coverage_blocks(frame, assets, figures),
+        monthly_extra=coalign_monthly_blocks(frame, assets, figures),
+        file_version_rows=[
+            " & ".join([_path(e["path"].name), _tex(_coalign_date(e["production"])),
+                        f"Contains {e['rows']:,} matches{note}."]) + r" \\"
+            for e, note in zip(entries, notes)],
+        template="catalogue_template.tex",
+        catalogue_text=_coalign_catalogue_text(
+            polarizations, coalign_completeness_table(entries), product_text),
+        value_column=parameters[0] if parameters else None,
+        release_date=_coalign_date(production_dates[-1]))
+    tex_path = output_dir / f"{stem}.tex"
+    tex_path.write_text(tex, encoding="utf-8")
+    pdf_path = None
+    if compile_report:
+        pdf_path = compile_pdf(output_dir, stem, miktex_bin)
+        purge_latex_byproducts(output_dir, stem)
+        versioned = output_dir / f"{stem}_{version}.pdf"
+        pdf_path.replace(versioned)
+        pdf_path = versioned
+    return {"kind": kind, "tex": str(tex_path), "pdf": str(pdf_path) if pdf_path else None,
+            "files": len(entries), "rows": sum(e["rows"] for e in entries)}
+
+
+def build_coalign_report(catalogue_dir, output_dir, *, compile_report=True,
+                         miktex_bin=None) -> list:
+    """One document per reference kind found in ``catalogue_dir``; one result dict each."""
+    entries = read_coalign_catalogues(catalogue_dir)
+    unknown = sorted({e["path"].name for e in entries if e["kind"] not in COALIGN_KINDS})
+    if unknown:
+        raise ValueError(f"catalogues of an unknown reference kind: {unknown}")
+    return [build_coalign_document([e for e in entries if e["kind"] == kind], kind, output_dir,
+                                   compile_report=compile_report, miktex_bin=miktex_bin)
+            for kind in COALIGN_KINDS if any(e["kind"] == kind for e in entries)]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--coalign", type=Path, metavar="CATALOGUES",
+                       help="folder of catalogues written by soba_build_coalign (one document "
+                            "per reference kind, written to --output)")
     group.add_argument("--recipe", type=Path, help="catalogue recipe to run")
     group.add_argument("--run-dir", type=Path,
                        help="catalogue run dir (recipe.toml + catalogues) to rebuild")
@@ -426,7 +767,19 @@ def main(argv=None) -> int:
     parser.add_argument("--miktex-bin", type=Path, default=None)
     parser.add_argument("--html", action="store_true",
                         help="also write the interactive HTML producer report")
+    parser.add_argument("--output", type=Path, default=None,
+                        help="output folder for --coalign (default: <catalogues>/report)")
     args = parser.parse_args(argv)
+    if args.coalign is not None:
+        output = args.output or args.coalign / "report"
+        for result in build_coalign_report(args.coalign, output,
+                                           compile_report=not args.no_compile,
+                                           miktex_bin=args.miktex_bin):
+            print(f"{result['kind']}: {result['tex']} ({result['files']} files, "
+                  f"{result['rows']:,} rows)")
+            if result["pdf"]:
+                print(f"  PDF: {result['pdf']}")
+        return 0
     if args.recipe is not None:
         return run_catalogue_recipe(
             args.recipe,

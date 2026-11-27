@@ -35,7 +35,6 @@ soba_catalogue_report = "soba_reference_repo.catalogue_report:main"
 soba_html_report = "soba_reference_repo.html_report:main"
 soba_validate_parquets = "soba_reference_repo.validator:main"
 soba_build_coalign = "soba_reference_repo.coalign.recipe:main"
-soba_coalign_report = "soba_reference_repo.coalign_report:main"
 soba_produce_challenger = "soba_reference_repo.challenger:main"
 soba_create_target_dataset = "soba_reference_repo.create_target_dataset:main"
 
