@@ -7,6 +7,8 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the badge step pushes the badges branch (on main only)
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -17,6 +19,23 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-      - run: pip install -e '.[challenger]' pytest pre-commit
+      - run: pip install -e '.[challenger]' pytest pytest-cov pre-commit
       - run: pre-commit run --all-files --show-diff-on-failure
-      - run: python -m pytest -q
+      - run: >-
+          python -m pytest -q --cov=soba_reference_repo --cov-report=term
+          --cov-report=json:coverage.json --junitxml=junit.xml
+      # Coverage and test-count badges: shields.io endpoint files on the orphan "badges" branch,
+      # one commit replaced at each push to main (README badges read them from there).
+      - name: Update the badges
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/scripts/write_badges.py coverage.json junit.xml badges
+          cd badges
+          git init -q -b badges
+          git add coverage.json tests.json
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Badges for ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges

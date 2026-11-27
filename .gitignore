@@ -18,3 +18,9 @@ docs/_build/
 
 # local knowledge graph: rebuild with `graphify extract . --code-only`
 graphify-out/
+
+# test coverage and badge files (CI)
+.coverage
+coverage.json
+junit.xml
+/badges/
