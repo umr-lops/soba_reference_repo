@@ -23,6 +23,7 @@ ANCILLARY = {
     "era5": True,      # ERA5_Wind_Speed, ERA5_Wind_Direction: reanalysis 10 m wind
     "ww3": True,       # WW3_Hs, WW3_Tp: WAVEWATCH III CCI sea state run GLOB-30M
     "gebco": True,     # bathymetry: GEBCO grid, depth = -elevation at the nearest cell
+    "seaice": True,    # sea_ice_concentration: Bremen ASI v5.4 AMSR2, 6.25 km, daily
 }
 KEYS = {"stac_root", "output_dir", "production_date", "version", "start", "end", "products",
         "satellites", "ancillary", "sar_mode"}

@@ -235,7 +235,7 @@ class IW(Mode):
 
     name = SAR_MODE
     # TenGeoP classifies WV imagettes only.
-    sources = ("ecmwf", "era5", "ww3", "gebco")
+    sources = ("ecmwf", "era5", "ww3", "gebco", "seaice")
 
     def __init__(self, matcher=None, archives=None):
         self.matcher, self.archives = matcher, archives or Archives()
