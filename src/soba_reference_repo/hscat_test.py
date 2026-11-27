@@ -63,12 +63,16 @@ BASE_TEST_COLUMNS = [
     "sar_incidence_angle",
     "sar_elevation_angle",
     "sar_ground_heading",
+    "sar_distance_to_coast",
     "sar_safe_slc",
     "sar_safe_ocn",
     "scat_lon",
     "scat_lat",
 ]
 BASE_TARGET_COLUMNS = ["primary_key", "sar_safe_slc", "sar_safe_ocn", "scat_lon", "scat_lat"]
+# Text columns of the SCAT TEST / TARGET files (the others are numbers or times).
+STRING_COLUMNS = {"primary_key", "sar_safe_slc", "sar_safe_ocn", "scat_source"}
+TIME_COLUMNS = {"sar_time", "scat_time"}
 SCAT_METADATA_KEYS = (
     b"source scat",
     b"source ancillary datasets",
@@ -169,8 +173,14 @@ def validate_scat_input(path, expected_product):
     return info, attrs
 
 
-def build_scat_frames(frame, variable, duplicate_keys=None, column_map=None):
-    """Map curated source fields to aligned SCAT TEST/TARGET tables."""
+def build_scat_frames(frame, variable, duplicate_keys=None, column_map=None, source=None):
+    """Map curated source fields to aligned SCAT TEST/TARGET tables.
+
+    The TEST has the spec ``sar_distance_to_coast`` (from ``sar_distance_to_coast``, or the
+    ``ref_distance_to_coast`` of catalogues made before the coalign builder) and ``scat_source``
+    (the row's ``ref_source``, else ``source``: the run's ``source scat``). The TARGET has no
+    reference parameter: it holds the rows to predict (spec, #61).
+    """
     if variable not in VARIABLE_COLUMNS:
         raise ValueError(f"unsupported SCAT reference variable: {variable}")
     colmap = column_map or {}
@@ -181,6 +191,16 @@ def build_scat_frames(frame, variable, duplicate_keys=None, column_map=None):
     if missing:
         raise ValueError(f"Curated SCAT rows lack required fields: {sorted(missing)}")
     data = frame.copy()
+    if "sar_distance_to_coast" not in data and "ref_distance_to_coast" in data:
+        data["sar_distance_to_coast"] = data["ref_distance_to_coast"]
+    if "sar_distance_to_coast" not in data:
+        raise ValueError("Curated SCAT rows lack sar_distance_to_coast (or ref_distance_to_coast)")
+    if "ref_source" in data:
+        data["scat_source"] = data["ref_source"].astype("string")
+    elif source:
+        data["scat_source"] = source
+    else:
+        raise ValueError("Curated SCAT rows lack ref_source and the run has no source scat")
     for column in ("sar_safe_slc", "sar_safe_ocn"):
         data[column] = (
             data[column]
@@ -197,24 +217,12 @@ def build_scat_frames(frame, variable, duplicate_keys=None, column_map=None):
             source_variable: output_variable,
         }
     )
-    test_columns = [*BASE_TEST_COLUMNS, "scat_time", output_variable]
-    target_columns = [
-        "primary_key",
-        "sar_safe_slc",
-        "sar_safe_ocn",
-        "scat_lon",
-        "scat_lat",
-        "scat_time",
-        output_variable,
-    ]
+    test_columns = output_columns("test", variable)
+    target_columns = output_columns("target", variable)
     required = test_columns
     data["sar_time"] = pd.to_datetime(data["sar_time"], utc=True, errors="coerce")
     data["scat_time"] = pd.to_datetime(data["scat_time"], utc=True, errors="coerce")
-    numeric = [
-        name
-        for name in required
-        if name not in {"primary_key", "sar_time", "scat_time", "sar_safe_slc", "sar_safe_ocn"}
-    ]
+    numeric = [name for name in required if name not in STRING_COLUMNS | TIME_COLUMNS]
     for column in numeric:
         data[column] = pd.to_numeric(data[column], errors="coerce")
     missing = data[required].isna().any(axis=1)
@@ -268,6 +276,14 @@ def write_scat_pair_chunked(
     """Write aligned SCAT files in bounded-memory batches with global key checks."""
     if batch_size < 1:
         raise ValueError("batch_size must be positive")
+    metadata = metadata or {
+        b"source scat": b"KNMI-HSCAT-HY2-25km",
+        b"source ancillary datasets": b"Configured HSCAT recipe curation filters applied",
+        b"library used to produce the parquet": b"soba_reference_repo",
+        b"library version": library_version().encode(),
+        b"creation date": b"",
+    }
+    scat_source = metadata.get(b"source scat", b"").decode() or None
     source, test_path, target_path = map(Path, (source, test_path, target_path))
     test_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -319,7 +335,8 @@ def write_scat_pair_chunked(
                     else:
                         duplicates = set()
                     test, target, part = build_scat_frames(
-                        frame, variable, duplicates, column_map=column_map
+                        frame, variable, duplicates, column_map=column_map,
+                        source=scat_source,
                     )
                     excluded_incomplete += part["excluded_incomplete_rows"]
                     accepted += len(test)
@@ -340,16 +357,7 @@ def write_scat_pair_chunked(
                             continue
                         table = pa.Table.from_pandas(current, preserve_index=False)
                         if writer is None:
-                            table = table.replace_schema_metadata(
-                                metadata
-                                or {
-                                    b"source scat": b"KNMI-HSCAT-HY2-25km",
-                                    b"source ancillary datasets": b"Configured HSCAT recipe curation filters applied",
-                                    b"library used to produce the parquet": b"soba_reference_repo",
-                                    b"library version": library_version().encode(),
-                                    b"creation date": b"",
-                                }
-                            )
+                            table = table.replace_schema_metadata(metadata)
                             writer = pq.ParquetWriter(path, table.schema)
                             if path == test_path:
                                 test_writer = writer
@@ -396,8 +404,9 @@ def output_columns(file_type, variable):
         raise ValueError(f"unsupported SCAT reference variable: {variable}")
     output_variable = VARIABLE_COLUMNS[variable][1]
     if file_type == "test":
-        return [*BASE_TEST_COLUMNS, "scat_time", output_variable]
-    return [*BASE_TARGET_COLUMNS, "scat_time", output_variable]
+        return [*BASE_TEST_COLUMNS, "scat_time", output_variable, "scat_source"]
+    # A TARGET never holds the reference parameter: it is what the challengers predict (#61).
+    return [*BASE_TARGET_COLUMNS, "scat_time"]
 
 
 def validate_scat_file(path, file_type):
@@ -406,9 +415,15 @@ def validate_scat_file(path, file_type):
     variable_columns = [
         name for name in ("scat_windspeed", "scat_winddirection") if name in table.column_names
     ]
-    if len(variable_columns) != 1:
+    if file_type == "target":
+        if variable_columns:
+            raise ValueError(
+                f"SCAT TARGET must not contain the reference parameter: {variable_columns}")
+        variable = "windspeed"            # the TARGET columns do not depend on it
+    elif len(variable_columns) != 1:
         raise ValueError("SCAT Parquet must contain exactly one reference variable column")
-    variable = "windspeed" if variable_columns[0] == "scat_windspeed" else "winddirection"
+    else:
+        variable = "windspeed" if variable_columns[0] == "scat_windspeed" else "winddirection"
     expected = output_columns(file_type, variable)
     if table.column_names != expected:
         raise ValueError(f"SCAT {file_type.upper()} schema/order must be {expected}")
@@ -418,9 +433,9 @@ def validate_scat_file(path, file_type):
         raise ValueError(f"SCAT metadata missing required attributes: {sorted(missing_metadata)}")
     for name in expected:
         dtype = table.schema.field(name).type
-        if name in {"primary_key", "sar_safe_slc", "sar_safe_ocn"}:
+        if name in STRING_COLUMNS:
             valid = pa.types.is_string(dtype) or pa.types.is_large_string(dtype)
-        elif name in {"sar_time", "scat_time"}:
+        elif name in TIME_COLUMNS:
             valid = pa.types.is_timestamp(dtype) and dtype.unit == "ns"
         else:
             valid = dtype == pa.float32()
@@ -433,11 +448,7 @@ def validate_scat_file(path, file_type):
         raise ValueError("SCAT primary_key values must be nonempty strings")
     if len(keys) != len(set(keys)):
         raise ValueError("SCAT primary_key values must be unique")
-    numeric = [
-        name
-        for name in expected
-        if name not in {"primary_key", "sar_time", "scat_time", "sar_safe_slc", "sar_safe_ocn"}
-    ]
+    numeric = [name for name in expected if name not in STRING_COLUMNS | TIME_COLUMNS]
     for name in numeric:
         values = table.column(name).to_numpy(zero_copy_only=False)
         if not np.isfinite(values).all():
