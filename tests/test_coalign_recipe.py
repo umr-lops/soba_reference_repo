@@ -94,4 +94,4 @@ def test_cli_runs_a_recipe_and_the_example_recipe_is_valid(tmp_path, capsys):
     assert "1 rows" in capsys.readouterr().out
     example = Path(__file__).parents[1] / "examples" / "coalign.toml"
     recipe = read_recipe(example)
-    assert set(recipe["ancillary"]) == {"tengeop", "ecmwf"} and len(recipe["products"]) == 4
+    assert set(recipe["ancillary"]) == {"tengeop", "ecmwf", "era5"} and len(recipe["products"]) == 4
