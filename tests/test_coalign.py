@@ -23,6 +23,23 @@ def test_find_days_reads_both_layouts_and_skips_replaced(tmp_path):
     assert [d.name for d in days] == ["2026-08-30", "2026-08-31"]
 
 
+def test_find_days_reads_the_common_layout_and_prefers_it(tmp_path):
+    """<collection>/<day>/<product_type>/<mode>/ (soba_matchups production layout)."""
+    swot = tmp_path / "swot" / "d2"
+    write_day(swot / "2026-11-19" / "ocn", "wv", [])          # -> swot/d2/2026-11-19/ocn/wv
+    write_day(swot / "2026-11-19" / "ocn", "iw", [])          # another mode: not a WV run
+    write_day(swot / "2026-11-20" / "slc", "wv", [])          # another product type
+    write_day(swot / "2026-11-21" / "ocn", "wv", [])
+    write_day(swot, "2026-11-21", [])                         # old layout, same day: common wins
+    write_day(swot, "2026-11-22", [])                         # old layout only
+    days = find_days(swot, "2026-11-19", "2026-11-22")
+    assert [d.relative_to(swot).as_posix() for d in days] == [
+        "2026-11-19/ocn/wv", "2026-11-21/ocn/wv", "2026-11-22"]
+    assert [d.relative_to(swot).as_posix()
+            for d in find_days(swot, "2026-11-19", "2026-11-22", run=("ocn", "iw"),
+                               legacy=False)] == ["2026-11-19/ocn/iw"]
+
+
 def test_slc_twin_found_by_acquisition_not_crc(tmp_path):
     ocn_dir = make_archive(tmp_path / "arch")
     assert slc_safe_dir(ocn_dir).name == f"{SLC}.SAFE"

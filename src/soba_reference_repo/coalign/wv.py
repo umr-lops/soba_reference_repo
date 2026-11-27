@@ -205,7 +205,7 @@ class WV(Mode):
 
     def rows(self, product_dirs, start, end, counts, satellites=None):
         for product_dir in product_dirs:
-            for day in find_days(product_dir, start, end):
+            for day in find_days(product_dir, start, end, run=("ocn", "wv")):
                 reference = reference_for(read_manifest(day)["reference_product"])
                 names = [column for column, _ in reference.params]
                 for item in iter_items(day):

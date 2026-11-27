@@ -29,7 +29,7 @@ import pyarrow as pa
 from .catalogue import Mode
 from .rows import KEY_DECIMALS, as_flag, as_float, stac_time
 from .sar import PLATFORM
-from .stac import DAY
+from .stac import find_days
 
 SAR_MODE = "IW"
 # File-name polarization (spec 1.1) from the two polarization letters of a SAFE name. A product
@@ -219,17 +219,6 @@ def item_rows(item: dict, reference: IWReference, twins: dict, archives: Archive
     return rows, ""
 
 
-def find_days(collection_dir, start: str, end: str) -> list:
-    """GRD IW run folders ``<collection>/<YYYY-MM-DD>/grd/iw`` holding a manifest, in day order."""
-    days = []
-    root = Path(collection_dir)
-    for day in sorted(root.iterdir()) if root.is_dir() else []:
-        run = day / "grd" / "iw"
-        if DAY.match(day.name) and start <= day.name <= end and (run / "manifest.json").is_file():
-            days.append(run)
-    return days
-
-
 class IW(Mode):
     """IW GRD scenes, with their OCN and SLC twins on the same rows."""
 
@@ -274,7 +263,7 @@ class IW(Mode):
 
     def rows(self, product_dirs, start, end, counts, satellites=None):
         for collection in product_dirs:
-            for run in find_days(collection, start, end):
+            for run in find_days(collection, start, end, run=("grd", "iw"), legacy=False):
                 label = json.loads((run / "manifest.json").read_text())["reference_product"]
                 reference, product = reference_for(label)
                 names = [column for column, _ in reference.params]
