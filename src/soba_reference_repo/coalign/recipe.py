@@ -21,7 +21,7 @@ ANCILLARY = {
     "imerg": False,    # rain rate
     "ecmwf": True,     # ECMWF_Wind_Speed, ECMWF_Wind_Direction: operational 10 m wind
     "era5": True,      # ERA5_Wind_Speed, ERA5_Wind_Direction: reanalysis 10 m wind
-    "ww3": False,      # CCI sea state WW3 run
+    "ww3": True,       # WW3_Hs, WW3_Tp: WAVEWATCH III CCI sea state run GLOB-30M
     "gebco": False,    # bathymetry
 }
 KEYS = {"stac_root", "output_dir", "production_date", "version", "start", "end", "products",

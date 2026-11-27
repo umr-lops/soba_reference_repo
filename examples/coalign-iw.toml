@@ -22,8 +22,9 @@ l1 = ["/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa",  # M
       "/scale/project/lops-siam-sentinel1-workbench/data/esa"]
 
 # Ancillary sources (same readers as WV). TenGeoP classifies WV imagettes only.
-# Spec columns without a reader yet (sea ice, bathymetry, WW3) are written empty and listed in
+# Spec columns without a reader yet (sea ice, bathymetry) are written empty and listed in
 # the "ancillary columns not filled" global attribute.
 [ancillary]
 ecmwf = "/legacy/project/cersat/public/provider/ecmwf/forecast/hourly/0100deg/netcdf_light"
 era5 = "/reference/ref-ecmwf/ERA5"
+ww3 = "/scale/project/wave/WW3/PROJECT/CCI/RUNS/GLOB-30M"
