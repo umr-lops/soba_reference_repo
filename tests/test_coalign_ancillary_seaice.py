@@ -96,7 +96,8 @@ def test_file_name_prefers_v54_over_the_v5_duplicate(tmp_path):
 @pytest.mark.parametrize("hemisphere", ["n", "s"])
 def test_each_cell_centre_finds_its_own_cell(tmp_path, hemisphere):
     lat, lon = write_grid(tmp_path, hemisphere)
-    values = {(r, c): float(r * SHAPE[1] + c) / 10 for r in range(SHAPE[0]) for c in range(SHAPE[1])}
+    values = {(r, c): float(r * SHAPE[1] + c) / 10
+              for r in range(SHAPE[0]) for c in range(SHAPE[1])}
     write_asi(tmp_path, hemisphere, cells=values)
     rows = rows_at(*[(float(lon[r, c]) - 360, float(lat[r, c])) for r, c in values])
     SeaIce(tmp_path).fill(rows)
