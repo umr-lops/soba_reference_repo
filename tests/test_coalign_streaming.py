@@ -7,9 +7,9 @@ import pyarrow.parquet as pq
 import pytest
 from coalign_fixtures import make_archive, make_item, point, write_day
 
-from soba_reference_repo.coalign import catalogue
+from soba_reference_repo.coalign import catalogue, wv
 from soba_reference_repo.coalign.catalogue import build_catalogues
-from soba_reference_repo.coalign.rows import columns
+from soba_reference_repo.coalign.wv import columns
 from soba_reference_repo.dataset_validator import validate_dataset
 
 DAYS = [f"2026-11-{d:02d}" for d in range(10, 16)]
@@ -146,7 +146,7 @@ def test_no_repeated_key_means_no_dropped_attribute(tmp_path):
 def test_a_failure_while_finishing_a_later_file_removes_the_finished_ones(tmp_path, monkeypatch):
     """HY-2C June 2026: the S1C file was finished, then the S1D file failed and S1C stayed."""
     root = stac(tmp_path)
-    real_rows = catalogue.item_rows
+    real_rows = wv.item_rows
 
     def split_satellites(item, reference, slc_lookup):          # even days S1C, odd days S1D
         rows, skipped = real_rows(item, reference, slc_lookup)
@@ -163,7 +163,7 @@ def test_a_failure_while_finishing_a_later_file_removes_the_finished_ones(tmp_pa
             raise RuntimeError("boom")
         return real_finish(self, *args, **kwargs)
 
-    monkeypatch.setattr(catalogue, "item_rows", split_satellites)
+    monkeypatch.setattr(wv, "item_rows", split_satellites)
     monkeypatch.setattr(catalogue._Sink, "finish", second_file_fails)
     with pytest.raises(RuntimeError, match="boom"):
         run(tmp_path, root)

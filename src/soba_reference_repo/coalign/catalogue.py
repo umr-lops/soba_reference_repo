@@ -1,7 +1,10 @@
-"""Build WV co-aligned catalogue Parquets from soba_matchups day folders.
+"""Build co-aligned catalogue Parquets from soba_matchups day folders: the part every mode shares.
 
-One file per (satellite, polarization, reference product name), named as in the SOBA spec
-section 1.1. Writes catalogues only: curation (``curation.py``) reads them like any other.
+A mode (``wv.WV``, ``iw.IW``) says which days to read, how an Item becomes rows, and the columns,
+schema and checks of its catalogues; this module streams the rows into one file per (satellite,
+polarization, reference product name), named as in the SOBA spec section 1.1, fills the
+ancillary columns (``ancillary`` package) and writes the global attributes. Writes catalogues
+only: curation (``curation.py``) reads them like any other.
 
 Rows are streamed: every group buffers at most ``FLUSH_ROWS`` rows, sorts them by SAR time and
 appends them to a hidden ``.partial`` file as one row group. When the run ends, the row groups
@@ -24,100 +27,69 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ..pdf_support import library_version
-from .products import reference_for
-from .rows import columns, item_rows
-from .sar import slc_safe_dir
-from .stac import find_days, iter_items, read_manifest
 from .ancillary import make as make_source
 
-SAR_MODE = "WV"
 FLUSH_ROWS = 100_000  # rows buffered per output file before a row group is written
-# Null outside the footprint, or when the SLC SAFE is missing: not an error.
-NULLABLE = {
-    "sar_lat", "sar_lon", "sar_incidence_angle", "sar_elevation_angle", "sar_ground_heading",
-    "sar_ground_heading_uncertainty", "sar_distance_to_coast", "legacy_usage", "class_1",
-    "pos_1", "ref_flag", "ref_time_delta_min",
-}
-STRINGS = {"primary_key", "sar_path_ocn", "sar_path_slc", "sar_safe_slc", "sar_safe_ocn",
-           "ref_id", "ref_source", "legacy_usage", "class_1"}
-TIMES = {"sar_time", "ref_time"}
 
 
-def catalogue_schema(param_names, ancillary=()) -> pa.Schema:
-    """The Arrow schema of a catalogue: explicit, so no column depends on the data it holds."""
-    def kind(name):
-        if name in STRINGS:
-            return pa.string()
-        if name in TIMES:
-            return pa.timestamp("us")
-        return pa.int64() if name == "ref_flag" else pa.float64()
+class Mode:
+    """What one SAR mode contributes to its catalogues (see ``wv.WV``, ``iw.IW``)."""
 
-    return pa.schema([(name, kind(name)) for name in columns(param_names, ancillary)])
+    name = ""        # SAR mode in the file names and the ``sar_mode`` attribute
+    sources = ()     # ancillary sources (recipe names) that apply to this mode
+
+    def rows(self, product_dirs, start, end, counts, satellites=None):
+        """Yield ``(file key, parameter column names, row)`` for every row, day by day.
+
+        ``counts`` (a Counter) tallies Items read and the reasons Items produced no row.
+        """
+        raise NotImplementedError
+
+    def schema(self, param_names, ancillary) -> pa.Schema:
+        raise NotImplementedError
+
+    def check(self, rows, param_names, ancillary) -> dict:
+        """Raise on rows that break the mode's rules; return counts (unused by the writer)."""
+        raise NotImplementedError
+
+    def attributes(self, sources) -> dict:
+        """Global attributes of this mode, beyond the shared ones."""
+        return {}
+
+    def counts(self) -> dict:
+        """Run counters of this mode, added to the summary."""
+        return {}
 
 
-def catalogue_name(satellite, polarization, product, start, stop, production, version) -> str:
+def catalogue_name(satellite, polarization, product, start, stop, production, version,
+                   mode="WV") -> str:
     """Spec 1.1 name: S1X_coaligned_catalogue_<mode>_<start>_<stop>_<production>_<pol>_
     <product>_<X.Y>.parquet."""
-    return (f"{satellite}_coaligned_catalogue_{SAR_MODE}_{start}_{stop}_{production}_"
+    return (f"{satellite}_coaligned_catalogue_{mode}_{start}_{stop}_{production}_"
             f"{polarization}_{product}_{version}.parquet")
 
 
-def check_catalogue(frame: pd.DataFrame, param_names, ancillary=()) -> dict:
-    """Fail on duplicate keys or nulls in mandatory columns; return counts for the summary."""
-    duplicated = frame["primary_key"][frame["primary_key"].duplicated(keep=False)]
-    if len(duplicated):
-        raise ValueError(f"{duplicated.nunique()} duplicated primary_key, first: "
-                         f"{sorted(duplicated.unique())[:3]}")
-    nulls = {}
-    for name in columns(param_names, ancillary):
-        if name in NULLABLE or name in param_names or name in ancillary:
-            continue
-        count = int(frame[name].isna().sum())
-        if count:
-            nulls[name] = count
-    if nulls:
-        raise ValueError(f"nulls in mandatory columns: {nulls}")
-    if not frame["sar_lon"].between(-180, 180).all():
-        raise ValueError("sar_lon outside [-180, 180]")
-    return {
-        "rows": len(frame),
-        "null_angles": int(frame["sar_incidence_angle"].isna().sum()),
-        "null_distance_to_coast": int(frame["sar_distance_to_coast"].isna().sum()),
-    }
+def _wv(slc_lookup=None):
+    from .wv import WV, slc_safe_dir
+
+    return WV(slc_lookup or slc_safe_dir)
 
 
-def iter_rows(product_dirs, start, end, counts, slc_lookup=slc_safe_dir, satellites=None):
-    """Yield ``(file key, parameter column names, row)`` for every catalogue row, day by day.
-
-    ``counts`` (a Counter) tallies Items read and the reasons Items produced no row. Ancillary
-    columns are not filled here: the writer fills them a buffer at a time.
-    """
-    for product_dir in product_dirs:
-        for day in find_days(product_dir, start, end):
-            reference = reference_for(read_manifest(day)["reference_product"])
-            names = [column for column, _ in reference.params]
-            for item in iter_items(day):
-                counts["items"] += 1
-                rows, skipped = item_rows(item, reference, slc_lookup)
-                if skipped:
-                    counts[f"skipped_{skipped}"] += 1
-                    continue
-                for row in rows:
-                    key = (row["_satellite"], row["_polarization"], row["_product"])
-                    if satellites and key[0] not in satellites:
-                        continue
-                    yield key, names, row
+def iter_rows(product_dirs, start, end, counts, slc_lookup=None, satellites=None, mode=None):
+    """Every row of the days, as the mode yields them (WV by default)."""
+    return (mode or _wv(slc_lookup)).rows(product_dirs, start, end, counts, satellites)
 
 
-def collect(product_dirs, start, end, slc_lookup=slc_safe_dir, satellites=None,
-            sources=()) -> tuple:
+def collect(product_dirs, start, end, slc_lookup=None, satellites=None, sources=(),
+            mode=None) -> tuple:
     """All rows of a (small) run as one DataFrame per file: ``(frames, counts, param_names)``.
 
     For inspection and tests; ``build_catalogues`` streams instead of holding every row.
     ``sources`` are ancillary readers (``Source``) that fill their columns.
     """
     counts, by_file, params = Counter(), {}, {}
-    for key, names, row in iter_rows(product_dirs, start, end, counts, slc_lookup, satellites):
+    for key, names, row in iter_rows(product_dirs, start, end, counts, slc_lookup, satellites,
+                                     mode):
         by_file.setdefault(key, []).append(row)
         params[key] = names
     for rows in by_file.values():
@@ -135,13 +107,14 @@ def _digest(key: str) -> bytes:
 class _Sink:
     """The rows of one output file, written as they arrive and finished by ``finish``."""
 
-    def __init__(self, key, param_names, out_dir, sources=()):
+    def __init__(self, key, param_names, out_dir, sources=(), mode=None):
+        self.mode = mode or _wv()
         self.key, self.param_names, self.out_dir = key, list(param_names), Path(out_dir)
         self.sources = list(sources)
         self.ancillary = [c for source in self.sources for c in source.columns]
-        self.schema = catalogue_schema(param_names, self.ancillary)
+        self.schema = self.mode.schema(param_names, self.ancillary)
         self.buffer, self.digests, self.ref_sources = [], set(), set()
-        self.rows = self.null_angles = self.null_distance = 0
+        self.rows = 0
         self.dropped = []                 # keys of repeated rows, first one seen is kept
         self.first = self.last = None
         satellite, polarization, product = key
@@ -165,10 +138,8 @@ class _Sink:
         self.buffer = []
         for source in self.sources:
             source.fill(rows)
-        summary = check_catalogue(pd.DataFrame(rows), self.param_names, self.ancillary)
+        self.mode.check(rows, self.param_names, self.ancillary)
         self.ref_sources.update(row["ref_source"] for row in rows)
-        self.null_angles += summary["null_angles"]
-        self.null_distance += summary["null_distance_to_coast"]
         self.rows += len(rows)
         self.first = min(filter(None, [self.first, rows[0]["sar_time"]]))
         self.last = max(filter(None, [self.last, max(r["sar_time"] for r in rows)]))
@@ -184,11 +155,11 @@ class _Sink:
         satellite, polarization, product = self.key
         start, stop = self.first.strftime("%Y%m%d"), self.last.strftime("%Y%m%d")
         path = self.out_dir / catalogue_name(
-            satellite, polarization, product, start, stop, production, version)
+            satellite, polarization, product, start, stop, production, version, self.mode.name)
         if path.exists():
             raise FileExistsError(f"refusing to overwrite {path}")
         meta = {
-            "sar_mode": SAR_MODE, "satellite": satellite, "polarization": polarization,
+            "sar_mode": self.mode.name, "satellite": satellite, "polarization": polarization,
             "ref_product": product, "version": version, "start_date": start, "end_date": stop,
             "creation_date": production, "rows": str(self.rows), **meta_for(self),
         }
@@ -210,9 +181,13 @@ class _Sink:
         self.partial.unlink(missing_ok=True)
 
 
+# The reference kind of the ``source <kind>`` global attribute, from the product name's start.
+REFERENCE_KIND = {"KNMI": "scat", "CMEM": "alti", "CCI-": "alti", "SWOT": "swot", "PODA": "swot"}
+
+
 def _global_attributes(ref_sources, key, ancillary, production) -> dict:
     """The spec's mandatory global attributes (section 4) of one catalogue."""
-    kind = {"KNMI": "scat", "CMEM": "alti", "CCI-": "alti", "SWOT": "swot"}[key[2][:4]]
+    kind = REFERENCE_KIND[key[2][:4]]
     return {
         f"source {kind}": ", ".join(sorted(ref_sources)),
         "source ancillary datasets": ", ".join(source.description for source in ancillary),
@@ -222,32 +197,42 @@ def _global_attributes(ref_sources, key, ancillary, production) -> dict:
     }
 
 
-def build_catalogues(product_dirs, start, end, out_dir, version="0.1", slc_lookup=slc_safe_dir,
+def build_catalogues(product_dirs, start, end, out_dir, version="0.1", slc_lookup=None,
                      satellites=None, production=None, stac_root="", recipe_path=None,
-                     ancillary_paths=None) -> tuple:
-    """Merge STAC day folders into catalogue Parquets. Returns (paths, counts)."""
+                     ancillary_paths=None, mode=None, meta=None) -> tuple:
+    """Merge STAC day folders into catalogue Parquets. Returns (paths, counts).
+
+    ``mode`` is a ``Mode`` (default: WV, its SLC twins found with ``slc_lookup``); ``meta`` adds
+    global attributes.
+    """
+    mode = mode or _wv(slc_lookup)
     production = production or date.today().strftime("%Y%m%d")
     paths_by_source = dict(ancillary_paths or {})
+    for name in paths_by_source:
+        if name not in mode.sources:
+            raise ValueError(f"ancillary source {name!r} does not apply to {mode.name} "
+                             f"catalogues; it takes {sorted(mode.sources)}")
     sources = [make_source(name, folder) for name, folder in paths_by_source.items()]
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     counts, sinks = Counter(), {}
 
     def meta_for(sink):
-        meta = {"stac_root": str(stac_root), "stac_days": f"{start}..{end}"}
-        meta.update(_global_attributes(sink.ref_sources, sink.key, sources, production))
+        attributes = {"stac_root": str(stac_root), "stac_days": f"{start}..{end}"}
+        attributes.update(_global_attributes(sink.ref_sources, sink.key, sources, production))
+        attributes.update(mode.attributes(sources))
         if recipe_path:
-            meta["recipe_path"] = str(recipe_path)
+            attributes["recipe_path"] = str(recipe_path)
         for name, folder in paths_by_source.items():
-            meta[f"ancillary path {name}"] = str(folder)
-        return meta
+            attributes[f"ancillary path {name}"] = str(folder)
+        attributes.update(meta or {})
+        return attributes
 
     paths = []
     try:
-        for key, names, row in iter_rows(product_dirs, start, end, counts, slc_lookup,
-                                         satellites):
+        for key, names, row in mode.rows(product_dirs, start, end, counts, satellites):
             if key not in sinks:
-                sinks[key] = _Sink(key, names, out_dir, sources)
+                sinks[key] = _Sink(key, names, out_dir, sources, mode)
             sinks[key].add(row)
         for key in sorted(sinks):
             paths.append(sinks[key].finish(production, version, meta_for))
@@ -267,4 +252,5 @@ def build_catalogues(product_dirs, start, end, out_dir, version="0.1", slc_looku
         raise
     for source in sources:
         counts.update(source.counts())
+    counts.update(mode.counts())
     return paths, dict(counts)

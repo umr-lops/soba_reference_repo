@@ -7,7 +7,7 @@ import pytest
 from coalign_fixtures import make_archive, make_item, point, write_day
 
 from soba_reference_repo.coalign.catalogue import build_catalogues, collect
-from soba_reference_repo.coalign.sar import slc_safe_dir
+from soba_reference_repo.coalign.wv import slc_safe_dir
 from soba_reference_repo.coalign.ancillary.tengeop import (
     TenGeoP, TenGeoPSource, dl_summary_path,
 )

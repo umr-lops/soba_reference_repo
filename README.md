@@ -224,9 +224,13 @@ from `<stac_root>/<collection>/<YYYY-MM-DD>/grd/iw` (soba_matchups `product_type
 - SWOT parameters: `swh_swot`, `windspeed_swot` (`wind_speed_karin`), `windspeed_2_swot`
   (`wind_speed_karin_2`); `ref_flag` is `swh_karin_qual`; the other KaRIn flags, the distances
   to the footprint edges and `ref_distance_to_coast` (NASA GSFC grid) are kept.
-- The spec ancillary columns without an IW reader yet (sea ice, bathymetry, WW3, ECMWF) are
+- Ancillary columns come from the same readers as WV (`[ancillary]`, e.g. `ecmwf`); TenGeoP is
+  WV only. The spec ancillary columns without a reader yet (sea ice, bathymetry, WW3) are
   written empty and listed in the `ancillary columns not filled` global attribute, so small
   catalogues can be built and checked now.
+- Code layout: `coalign/catalogue.py` is shared by every mode (streaming writer, file names,
+  global attributes, ancillary sources); `coalign/wv.py` and `coalign/iw.py` hold the
+  mode-specific rows, columns and checks; `rows.py` / `sar.py` the shared value and SAR helpers.
 - File names carry the SWOT release of the matchups (`PODAAC-SWOT-KARIN-L2-WINDWAVE-D0` / `-D2`)
   and the GRD polarization (`SV`, `SH`, `DV`, `DH`; a partial dual-polarization `VV` / `HH`
   product is filed under `SV` / `SH`).

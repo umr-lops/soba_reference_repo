@@ -2,7 +2,9 @@
 
 Relative paths are resolved against the recipe file, like the other SOBA recipes. A source
 listed under ``[ancillary]`` must exist: a wrong path stops the run instead of leaving null
-columns.
+columns. ``sar_mode`` picks the catalogues: ``"WV"`` (default, ``wv.py``) or ``"IW"``
+(``iw.py``: rows from GRD matchups; it also takes ``sar_parquet_root``, to put the OCN / SLC
+twins on the rows, and ``[archives]``, where SAFEs are looked for).
 """
 
 from __future__ import annotations
@@ -23,7 +25,10 @@ ANCILLARY = {
     "gebco": False,    # bathymetry
 }
 KEYS = {"stac_root", "output_dir", "production_date", "version", "start", "end", "products",
-        "satellites", "ancillary"}
+        "satellites", "ancillary", "sar_mode"}
+# Keys that only IW recipes take.
+IW_KEYS = {"sar_parquet_root", "archives"}
+SAR_MODES = ("WV", "IW")
 REQUIRED = {"stac_root", "output_dir", "production_date", "version", "start", "end", "products"}
 SATELLITE = re.compile(r"S1[A-D]")
 
@@ -38,9 +43,12 @@ def read_recipe(path) -> dict:
     path = Path(path).resolve()
     with path.open("rb") as stream:
         recipe = tomllib.load(stream)
-    unknown, missing = recipe.keys() - KEYS, REQUIRED - recipe.keys()
+    mode = recipe.setdefault("sar_mode", "WV")
+    _check(mode in SAR_MODES, f"sar_mode must be one of {list(SAR_MODES)}")
+    allowed = KEYS | (IW_KEYS if mode == "IW" else set())
+    unknown, missing = recipe.keys() - allowed, REQUIRED - recipe.keys()
     _check(not unknown and not missing,
-           f"unknown keys {sorted(unknown)}; missing keys {sorted(missing)}")
+           f"unknown keys {sorted(unknown)} for sar_mode {mode}; missing keys {sorted(missing)}")
     _check(re.fullmatch(r"\d+\.\d+", str(recipe["version"])), "version must look like X.Y")
     _check(re.fullmatch(r"\d{8}", str(recipe["production_date"])),
            "production_date must be YYYYMMDD")
@@ -66,29 +74,53 @@ def read_recipe(path) -> dict:
                            for name, value in ancillary.items()}
     recipe["stac_root"] = (path.parent / recipe["stac_root"]).resolve()
     recipe["output_dir"] = (path.parent / recipe["output_dir"]).resolve()
+    if mode == "IW":
+        archives = recipe.get("archives", {})
+        _check(isinstance(archives, dict) and set(archives) <= {"ocn", "l1"},
+               "archives takes 'ocn' (provider L2 tree) and 'l1' (list of MPC-layout roots)")
+        _check(isinstance(archives.get("l1", []), list), "archives.l1 must be a list of paths")
+        recipe["archives"] = {
+            "ocn": (path.parent / archives["ocn"]).resolve() if archives.get("ocn") else None,
+            "l1": [(path.parent / p).resolve() for p in archives.get("l1", [])],
+        }
+        if recipe.get("sar_parquet_root"):
+            recipe["sar_parquet_root"] = (path.parent / recipe["sar_parquet_root"]).resolve()
     recipe["recipe_path"] = path
     return recipe
 
 
+def mode_of(recipe: dict):
+    """The catalogue ``Mode`` a validated recipe asks for."""
+    if recipe["sar_mode"] == "IW":
+        from .iw import IW, Archives, cdsodatacli_matcher
+
+        parquet = recipe.get("sar_parquet_root")
+        if parquet is not None and not parquet.is_dir():
+            raise FileNotFoundError(f"sar_parquet_root {parquet} is not a folder")
+        archives = recipe.get("archives", {"ocn": None, "l1": []})
+        return IW(cdsodatacli_matcher(parquet) if parquet else None,
+                  Archives(archives["ocn"], archives["l1"]))
+    from .wv import WV
+
+    return WV()
+
+
 def run_recipe(path) -> tuple:
-    """Build the catalogues a recipe describes. Returns (paths, counts).
-
-    A recipe with ``sar_mode = "IW"`` builds IW catalogues from GRD matchups (``iw.py``).
-    """
-    from .iw import is_iw_recipe, run_iw_recipe
-
-    if is_iw_recipe(path):
-        return run_iw_recipe(path)
+    """Build the catalogues a recipe describes. Returns (paths, counts)."""
     recipe = read_recipe(path)
     for name, folder in recipe["ancillary"].items():
         if not folder.is_dir():
             raise FileNotFoundError(f"ancillary {name}: {folder} is not a folder")
+    meta = {}
+    if recipe.get("sar_parquet_root"):
+        meta["sar_parquet_root"] = str(recipe["sar_parquet_root"])
     return build_catalogues(
         [recipe["stac_root"] / product for product in recipe["products"]],
         recipe["start"], recipe["end"], recipe["output_dir"], recipe["version"],
         satellites=recipe["satellites"], production=recipe["production_date"],
         stac_root=recipe["stac_root"],
-        recipe_path=recipe["recipe_path"], ancillary_paths=recipe["ancillary"])
+        recipe_path=recipe["recipe_path"], ancillary_paths=recipe["ancillary"],
+        mode=mode_of(recipe), meta=meta)
 
 
 def main(argv=None) -> int:

@@ -13,7 +13,7 @@ from soba_reference_repo.coalign.ancillary.ecmwf import (
     DIRECTION, SPEED, Ecmwf, hour_of, speed_direction, wind_file,
 )
 from soba_reference_repo.coalign.catalogue import build_catalogues, collect
-from soba_reference_repo.coalign.sar import slc_safe_dir
+from soba_reference_repo.coalign.wv import slc_safe_dir
 from soba_reference_repo.dataset_validator import validate_dataset
 
 HOUR = datetime(2026, 11, 19, 0, 0)

@@ -7,6 +7,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from soba_reference_repo.coalign import iw
+from soba_reference_repo.coalign.catalogue import build_catalogues
 from soba_reference_repo.coalign.recipe import run_recipe
 
 GRD = "S1C_IW_GRDH_1SDV_20261122T162138_20261122T162203_010452_014E3B_D026.SAFE"
@@ -75,9 +76,9 @@ def test_catalogue_rows_twins_paths_and_names(tmp_path):
     ocn_dir = tmp_path / "l2/sentinel-1c/c-band_sar/s1c_iw_ocn__2s/2026/326" / OCN
     ocn_dir.mkdir(parents=True)
     archives = iw.Archives(tmp_path / "l2", [tmp_path / "l1"])
-    paths, counts = iw.build_iw_catalogues(
-        [collection], "2026-11-22", "2026-11-22", tmp_path / "out", "0.1", "20261127",
-        matcher=fake_matcher, archives=archives)
+    paths, counts = build_catalogues(
+        [collection], "2026-11-22", "2026-11-22", tmp_path / "out", "0.1",
+        production="20261127", mode=iw.IW(fake_matcher, archives))
     assert [p.name for p in paths] == [
         f"S1C_coaligned_catalogue_IW_20261122_20261122_20261127_DH_{PRODUCT}_0.1.parquet",
         f"S1C_coaligned_catalogue_IW_20261122_20261122_20261127_DV_{PRODUCT}_0.1.parquet",
@@ -117,8 +118,8 @@ def test_without_matcher_or_archives_a_small_test_still_builds(tmp_path):
               label="PODAAC_SWOT_KARIN_L2_WINDWAVE_D0")
     write_day(collection, "2026-11-11", [item(GRD, [point(3.0, 4.0)])],
               label="PODAAC_SWOT_KARIN_L2_WINDWAVE_D0")
-    paths, counts = iw.build_iw_catalogues([collection], "2026-11-10", "2026-11-10",
-                                           tmp_path / "out", production="20261127")
+    paths, counts = build_catalogues([collection], "2026-11-10", "2026-11-10",
+                                     tmp_path / "out", production="20261127", mode=iw.IW())
     assert len(paths) == 1 and "WINDWAVE-D0" in paths[0].name
     assert counts["rows"] == 1 and counts["dropped_duplicate_key"] == 1  # same cell twice
     row = pq.read_table(paths[0]).to_pylist()[0]
@@ -127,8 +128,8 @@ def test_without_matcher_or_archives_a_small_test_still_builds(tmp_path):
     assert b"not associated" in meta[b"triplets"]
     # An existing catalogue is never overwritten.
     with pytest.raises(FileExistsError):
-        iw.build_iw_catalogues([collection], "2026-11-10", "2026-11-10", tmp_path / "out",
-                               production="20261127")
+        build_catalogues([collection], "2026-11-10", "2026-11-10", tmp_path / "out",
+                         production="20261127", mode=iw.IW())
 
 
 def test_unknown_reference_product_fails_loudly(tmp_path):
@@ -136,7 +137,8 @@ def test_unknown_reference_product_fails_loudly(tmp_path):
     write_day(collection, "2026-11-10", [item(GRD, [point(1.0, 2.0)])],
               label="KNMI_HSCAT_HY2B_25KM")
     with pytest.raises(ValueError, match="no IW catalogue mapping"):
-        iw.build_iw_catalogues([collection], "2026-11-10", "2026-11-10", tmp_path / "out")
+        build_catalogues([collection], "2026-11-10", "2026-11-10", tmp_path / "out",
+                         mode=iw.IW())
 
 
 def test_iw_recipe_through_the_coalign_entry_point(tmp_path):
@@ -166,3 +168,25 @@ def test_safe_names_and_polarizations():
     partial = GRD.replace("_1SDV_", "_1SVV_")
     rows, _ = iw.item_rows(item(partial, [point(0, 0)]), iw.SWOT, {}, iw.Archives())
     assert rows[0]["_polarization"] == "SV"
+
+
+def test_iw_recipe_rejects_wv_only_sources_and_wv_recipes_the_iw_keys(tmp_path):
+    from soba_reference_repo.coalign.recipe import read_recipe
+
+    write_day(tmp_path / "stac" / "swot" / "d2", "2026-11-22", [item(GRD, [point(5.0, 6.0)])])
+    (tmp_path / "tengeop").mkdir()
+    base = """stac_root = "stac"
+output_dir = "out"
+production_date = "20261127"
+version = "0.1"
+start = "2026-11-22"
+end = "2026-11-22"
+products = ["swot/d2"]
+"""
+    recipe = tmp_path / "r.toml"
+    recipe.write_text('sar_mode = "IW"\n' + base + '[ancillary]\ntengeop = "tengeop"\n')
+    with pytest.raises(ValueError, match="does not apply to IW"):
+        run_recipe(recipe)
+    recipe.write_text(base + 'sar_parquet_root = "stac"\n')  # WV by default
+    with pytest.raises(ValueError, match="unknown keys"):
+        read_recipe(recipe)

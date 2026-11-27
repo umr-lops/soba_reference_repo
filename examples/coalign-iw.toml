@@ -20,3 +20,9 @@ sar_parquet_root = "/scale/project/lops-siam-sentinel1-workbench/data/ifremer/me
 ocn = "/legacy/project/cersat/public/provider/esa/satellite/l2"            # provider L2 tree
 l1 = ["/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa",  # MPC layout, in order
       "/scale/project/lops-siam-sentinel1-workbench/data/esa"]
+
+# Ancillary sources (same readers as WV). TenGeoP classifies WV imagettes only.
+# Spec columns without a reader yet (sea ice, bathymetry, WW3) are written empty and listed in
+# the "ancillary columns not filled" global attribute.
+[ancillary]
+ecmwf = "/legacy/project/cersat/public/provider/ecmwf/forecast/hourly/0100deg/netcdf_light"
