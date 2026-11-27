@@ -48,6 +48,12 @@ VARIABLE_COLUMNS = {
     "windspeed": ("ref_param_2", "scat_windspeed", "m/s"),
     "winddirection": ("ref_param_1", "scat_winddirection", "degrees"),
 }
+# Spec section 1.4/1.5: <variablename> in the TEST and TARGET file names.
+VARIABLE_FILE_NAMES = {"windspeed": "wind-speed", "winddirection": "wind-direction"}
+# A target holds the test rows without the reference parameter (spec section 1.5).
+TARGET_COLUMNS_BASE = ["primary_key", "sar_safe_slc", "sar_safe_ocn", "scat_lon", "scat_lat",
+                       "scat_time"]
+REFERENCE_PARAMETERS = tuple(column for _, column, _ in VARIABLE_COLUMNS.values())
 HSCAT_DEFAULT_RULES = (
     {
         "id": "ecmwf_scat_speed_difference",
@@ -69,7 +75,6 @@ BASE_TEST_COLUMNS = [
     "scat_lon",
     "scat_lat",
 ]
-BASE_TARGET_COLUMNS = ["primary_key", "sar_safe_slc", "sar_safe_ocn", "scat_lon", "scat_lat"]
 SCAT_METADATA_KEYS = (
     b"source scat",
     b"source ancillary datasets",
@@ -199,15 +204,7 @@ def build_scat_frames(frame, variable, duplicate_keys=None, column_map=None):
         }
     )
     test_columns = [*BASE_TEST_COLUMNS, "scat_time", output_variable]
-    target_columns = [
-        "primary_key",
-        "sar_safe_slc",
-        "sar_safe_ocn",
-        "scat_lon",
-        "scat_lat",
-        "scat_time",
-        output_variable,
-    ]
+    target_columns = list(TARGET_COLUMNS_BASE)
     required = test_columns
     data["sar_time"] = pd.to_datetime(data["sar_time"], utc=True, errors="coerce")
     data["scat_time"] = pd.to_datetime(data["scat_time"], utc=True, errors="coerce")
@@ -395,21 +392,26 @@ def output_columns(file_type, variable):
         raise ValueError(f"unsupported SCAT file type: {file_type}")
     if variable not in VARIABLE_COLUMNS:
         raise ValueError(f"unsupported SCAT reference variable: {variable}")
-    output_variable = VARIABLE_COLUMNS[variable][1]
     if file_type == "test":
-        return [*BASE_TEST_COLUMNS, "scat_time", output_variable]
-    return [*BASE_TARGET_COLUMNS, "scat_time", output_variable]
+        return [*BASE_TEST_COLUMNS, "scat_time", VARIABLE_COLUMNS[variable][1]]
+    return list(TARGET_COLUMNS_BASE)
 
 
 def validate_scat_file(path, file_type):
     """Validate one exported SCAT TEST or TARGET Parquet against its exact contract."""
     table = pq.read_table(path)
-    variable_columns = [
-        name for name in ("scat_windspeed", "scat_winddirection") if name in table.column_names
-    ]
-    if len(variable_columns) != 1:
-        raise ValueError("SCAT Parquet must contain exactly one reference variable column")
-    variable = "windspeed" if variable_columns[0] == "scat_windspeed" else "winddirection"
+    variable_columns = [name for name in REFERENCE_PARAMETERS if name in table.column_names]
+    if file_type == "target":
+        # Any <ref>_<param> column is a reference value; only position and time are allowed.
+        leaked = [name for name in table.column_names
+                  if name.startswith("scat_") and name not in TARGET_COLUMNS_BASE]
+        if leaked:
+            raise ValueError(f"SCAT TARGET must not contain the reference parameter: {leaked}")
+        variable = "windspeed"            # a target has the same columns for either variable
+    else:
+        if len(variable_columns) != 1:
+            raise ValueError("SCAT Parquet must contain exactly one reference variable column")
+        variable = "windspeed" if variable_columns[0] == "scat_windspeed" else "winddirection"
     expected = output_columns(file_type, variable)
     if table.column_names != expected:
         raise ValueError(f"SCAT {file_type.upper()} schema/order must be {expected}")
@@ -451,7 +453,7 @@ def _write_pair(
 ):
     stem = (
         f"S1_reference_test_dataset_WV_{recipe['production_date']}_"
-        f"{recipe['reference_variable']}_{recipe['version']}"
+        f"{VARIABLE_FILE_NAMES[recipe['reference_variable']]}_{recipe['version']}"
     )
     target_stem = stem.replace("reference_test_dataset", "target_dataset", 1)
     directory = root / "datasets"
@@ -594,7 +596,7 @@ def run_hscat_recipe(recipe_path):
         stage = "pair"
         stem = (
             f"S1_reference_test_dataset_WV_{recipe['production_date']}_"
-            f"{recipe['reference_variable']}_{recipe['version']}"
+            f"{VARIABLE_FILE_NAMES[recipe['reference_variable']]}_{recipe['version']}"
         )
         test_path = root / "datasets" / f"{stem}.parquet"
         target_path = (

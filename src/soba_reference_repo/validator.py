@@ -67,7 +67,8 @@ def _print_file_report(path: Path, file_type: str, reference="swot") -> None:
     if file_type in ("test", "target"):
         if reference == "scat":
             schema_arrow = parquet.schema_arrow
-            variable = "windspeed" if "scat_windspeed" in schema_arrow.names else "winddirection"
+            wind_direction = "scat_winddirection" in schema_arrow.names
+            variable = "winddirection" if wind_direction else "windspeed"
             columns = output_columns(file_type, variable)
             strings = {"primary_key", "sar_safe_slc", "sar_safe_ocn"}
             types = {
@@ -99,7 +100,9 @@ def _print_file_report(path: Path, file_type: str, reference="swot") -> None:
             "Non-null numeric values finite",
             "Primary keys non-null, nonempty and unique",
         ]
-        if reference == "scat":
+        if reference == "scat" and file_type == "target":
+            checks.append("Reference parameter absent from the target; key values preserved")
+        elif reference == "scat":
             checks.append("Selected SCAT reference variable is present; key values preserved")
         else:
             checks += [
