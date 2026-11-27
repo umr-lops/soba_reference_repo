@@ -16,7 +16,6 @@ products = [
 # satellites = ["S1C", "S1D"]           # default: every satellite found
 
 # Every ancillary data path used by the catalogues. A listed path must exist.
-# Not implemented yet (rejected if listed): imerg.
 [ancillary]
 tengeop = "/legacy/project/cersat/public/cache/public/ftp/project/deeplearning"
 ecmwf = "/legacy/project/cersat/public/provider/ecmwf/forecast/hourly/0100deg/netcdf_light"
@@ -24,3 +23,4 @@ era5 = "/reference/ref-ecmwf/ERA5"
 ww3 = "/scale/project/wave/WW3/PROJECT/CCI/RUNS/GLOB-30M"
 gebco = "/legacy/project/cersat/public/provider/bodc/reference/gebco/gebco_19"  # GEBCO_2019.nc
 seaice = "/legacy/project/cersat/public/provider/bremen/satellite/l2/GCOM-W/amsr2/asi_daygrid_swath"
+imerg = "/reference/remote-sensing/public/precipitation/precipitation-rate/global/nasa/multisensor/gpm_3imerghhl/v7b"

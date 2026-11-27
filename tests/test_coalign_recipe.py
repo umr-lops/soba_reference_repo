@@ -42,7 +42,6 @@ def test_ancillary_table_is_optional(tmp_path):
     (BASE.replace('"20261126"', '"2026-11-26"'), "production_date"),
     (BASE.replace('"2026-11-19"\nend', '"19/11/2026"\nend'), "start"),
     (BASE.replace('["scat/hscat_hy-2b_25km"]', "[]"), "products"),
-    (BASE + '[ancillary]\nimerg = "/x"\n', "not implemented"),
     (BASE + '[ancillary]\nnonsense = "/x"\n', "unknown ancillary"),
     (BASE + '[ancillary]\ntengeop = 3\n', "path"),
     (BASE + 'satellites = ["S1X"]\n', "satellites"),
@@ -52,11 +51,19 @@ def test_invalid_recipes_are_rejected(tmp_path, text, message):
         read_recipe(write(tmp_path, text))
 
 
+def test_a_source_without_a_reader_yet_is_refused(tmp_path, monkeypatch):
+    from soba_reference_repo.coalign import recipe as recipe_module
+
+    monkeypatch.setitem(recipe_module.ANCILLARY, "imerg", False)
+    with pytest.raises(ValueError, match="not implemented"):
+        read_recipe(write(tmp_path, BASE + '[ancillary]\nimerg = "/x"\n'))
+
+
 def test_every_ancillary_source_of_the_project_is_named():
-    """The recipe knows all agreed sources; only the implemented ones are accepted for now."""
+    """The recipe knows all agreed sources, and each one has a reader now."""
     assert set(ANCILLARY) == {"tengeop", "imerg", "ecmwf", "era5", "ww3", "gebco", "seaice"}
     assert [k for k, v in ANCILLARY.items() if v] == [
-        "tengeop", "ecmwf", "era5", "ww3", "gebco", "seaice"]
+        "tengeop", "imerg", "ecmwf", "era5", "ww3", "gebco", "seaice"]
 
 
 def test_a_missing_ancillary_folder_fails_instead_of_leaving_nulls(tmp_path):
@@ -95,5 +102,6 @@ def test_cli_runs_a_recipe_and_the_example_recipe_is_valid(tmp_path, capsys):
     assert "1 rows" in capsys.readouterr().out
     example = Path(__file__).parents[1] / "examples" / "coalign.toml"
     recipe = read_recipe(example)
-    assert set(recipe["ancillary"]) == {"tengeop", "ecmwf", "era5", "ww3", "gebco", "seaice"}
+    assert set(recipe["ancillary"]) == {
+        "tengeop", "ecmwf", "era5", "ww3", "gebco", "seaice", "imerg"}
     assert len(recipe["products"]) == 4

@@ -18,7 +18,7 @@ from .catalogue import build_catalogues
 # Every ancillary source agreed for the catalogues, and whether its reader exists yet.
 ANCILLARY = {
     "tengeop": True,   # class_1, pos_1: CLS deep-learning DL_Summary.xml tree
-    "imerg": False,    # rain rate
+    "imerg": True,     # imerg_rainrate: IMERG Late V07B rain rate (mm/h), half-hourly
     "ecmwf": True,     # ECMWF_Wind_Speed, ECMWF_Wind_Direction: operational 10 m wind
     "era5": True,      # ERA5_Wind_Speed, ERA5_Wind_Direction: reanalysis 10 m wind
     "ww3": True,       # WW3_Hs, WW3_Tp: WAVEWATCH III CCI sea state run GLOB-30M

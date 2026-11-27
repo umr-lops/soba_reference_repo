@@ -20,6 +20,7 @@ READERS = {
     "ww3": ("ww3", "WW3"),
     "gebco": ("gebco", "Gebco"),
     "seaice": ("seaice", "SeaIce"),
+    "imerg": ("imerg", "Imerg"),
 }
 
 
