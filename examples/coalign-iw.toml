@@ -1,0 +1,28 @@
+# IW co-aligned catalogues from soba_matchups GRD days (one row per reference point and GRD scene).
+# Run: soba_build_coalign --recipe coalign-iw.toml   (relative paths: against this file)
+sar_mode = "IW"
+stac_root = "/scale/project/lops-siam-sentinel1-workbench/data/ifremer/soba_matchups"
+output_dir = "../runs/coalign-iw-0.1"   # existing catalogues are never overwritten
+production_date = "20261127"            # YYYYMMDD
+version = "0.1"                         # X.Y, in the file names
+start = "2026-11-20"                    # first matched day, inclusive
+end = "2026-11-22"                      # last matched day, inclusive
+# Collections under stac_root; the rows come from <collection>/<YYYY-MM-DD>/grd/iw.
+products = ["swot/d2"]
+# satellites = ["S1C", "S1D"]           # default: every satellite found
+
+# Optional: the CDSE daily metadata Parquets, to put the OCN and SLC twins of each GRD on its rows
+# (cdsodatacli parquet backend). Without it, sar_safe_ocn / sar_safe_slc / their paths stay empty.
+sar_parquet_root = "/scale/project/lops-siam-sentinel1-workbench/data/ifremer/metadata_cdse_sentinel1/daily_parquet_files_v2"
+
+# Optional: where SAFEs are looked for; a SAFE found nowhere gives an empty sar_path_* (the row stays).
+[archives]
+ocn = "/legacy/project/cersat/public/provider/esa/satellite/l2"            # provider L2 tree
+l1 = ["/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa",  # MPC layout, in order
+      "/scale/project/lops-siam-sentinel1-workbench/data/esa"]
+
+# Ancillary sources (same readers as WV). TenGeoP classifies WV imagettes only.
+# Spec columns without a reader yet (sea ice, bathymetry, WW3) are written empty and listed in
+# the "ancillary columns not filled" global attribute.
+[ancillary]
+ecmwf = "/legacy/project/cersat/public/provider/ecmwf/forecast/hourly/0100deg/netcdf_light"

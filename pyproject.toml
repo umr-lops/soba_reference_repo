@@ -25,6 +25,8 @@ dependencies = [
 
 [project.optional-dependencies]
 challenger = ["netCDF4"]
+# IW catalogues: OCN / SLC twins of each GRD from the CDSE daily metadata Parquets.
+iw = ["cdsodatacli>=2026.11.27"]
 docs = ["sphinx", "furo", "myst-parser"]
 
 [project.scripts]

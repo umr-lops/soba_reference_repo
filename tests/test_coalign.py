@@ -5,11 +5,11 @@ import pytest
 from coalign_fixtures import OCN, SLC, make_archive, make_item, point, write_day
 
 from soba_reference_repo.coalign.catalogue import (
-    build_catalogues, catalogue_name, check_catalogue, collect,
+    build_catalogues, catalogue_name, collect,
 )
 from soba_reference_repo.coalign.products import REFERENCES, product_name, reference_for
-from soba_reference_repo.coalign.rows import columns, item_rows
-from soba_reference_repo.coalign.sar import centroid, slc_safe_dir
+from soba_reference_repo.coalign.wv import check_catalogue, columns, item_rows, slc_safe_dir
+from soba_reference_repo.coalign.sar import centroid
 from soba_reference_repo.coalign.stac import find_days
 from soba_reference_repo.dataset_validator import validate_dataset
 
