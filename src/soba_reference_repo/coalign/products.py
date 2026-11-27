@@ -31,14 +31,13 @@ REFERENCES = {
     "KNMI_HSCAT_HY2C_25KM": Reference("KNMI-HSCAT-HY2-25km", _SCAT, _ASCAT_FLAG),
     "KNMI_ASCAT_METOPB_12P5KM": Reference("KNMI-ASCAT-METOP-12.5km", _SCAT, _ASCAT_FLAG),
     "KNMI_ASCAT_METOPC_12P5KM": Reference("KNMI-ASCAT-METOP-12.5km", _SCAT, _ASCAT_FLAG),
-    # Not in the spec's name list: named after the same pattern.
-    "KNMI_ASCAT_METOPB_25KM": Reference("KNMI-ASCAT-METOP-25km", _SCAT, _ASCAT_FLAG),
-    "KNMI_ASCAT_METOPB_5P7KM": Reference("KNMI-ASCAT-METOP-5.7km", _SCAT, _ASCAT_FLAG),
+    "KNMI_ASCAT_METOPB_25KM": Reference("KNMI-ASCAT-METOP-25KM", _SCAT, _ASCAT_FLAG),
+    "KNMI_ASCAT_METOPB_5P7KM": Reference("KNMI-ASCAT-METOP-5.7KM", _SCAT, _ASCAT_FLAG),
     "CMEMS_WAV_L3_ALTI_VAVH": Reference(
         "CMEMS-WAV-L3-ALTI-TAC", (("swh_alti", "VAVH"),), None
     ),
     "ESACCI_SEASTATE_L2P_V5": Reference(
-        "CCI-SEASTATE_ALTI_L2P-V5", (("swh_alti", "swh"),), "swh_quality_level",
+        "CCI-SEA-STATE-ALTI-L2-V5", (("swh_alti", "swh"),), "swh_quality_level",
     ),
     # Spec 1.5.0: the SWOT name carries the release of the run (D0, D2), as the matchups do.
     "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0": Reference(

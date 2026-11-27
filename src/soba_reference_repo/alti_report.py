@@ -103,7 +103,7 @@ def _database_of(curated_path):
     name = Path(curated_path).name
     if "CMEMS-ALTI-L3-VAVH" in name:
         return "CMEMS"
-    if "CCI-SEATSTATE" in name:
+    if "CCI-SEATSTATE" in name or "CCI-SEA-STATE" in name:  # published, spec 1.7.0
         return "CCI"
     return "OTHER"
 

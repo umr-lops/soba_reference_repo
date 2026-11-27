@@ -8,17 +8,19 @@ from __future__ import annotations
 
 import re
 
-SPEC_VERSION = "1.6.0"
+SPEC_VERSION = "1.7.0"
 
 # <refproductname> of the file names (spec, naming convention). SWOT carries the release of the
 # run (D0, D2, ...).
 REF_PRODUCTS = (
     "KNMI-HSCAT-HY2-25km",
     "KNMI-ASCAT-METOP-12.5km",
+    "KNMI-ASCAT-METOP-25KM",
+    "KNMI-ASCAT-METOP-5.7KM",
     "CMEMS-WAV-L3-ALTI-TAC",
     "CCI-SEASTATE-ALTI-L2P-V4",
-    "CCI-SEASTATE_ALTI_L2P-V5",
-    "CMEMS-ALTI_L3_VAVH",
+    "CCI-SEA-STATE-ALTI-L2-V5",
+    "CMEMS-ALTI-L3-VAVH",
     "CMEMS-INSITU_013_030-BUOYS-HISTORY",
     "NOAA-NDBC-BUOYS-STDMET-TXT",
     "NOAA-NDBC-BUOYS-CWIND-TXT",

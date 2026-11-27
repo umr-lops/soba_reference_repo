@@ -235,7 +235,9 @@ def test_wv_spec_mandatory_columns(tmp_path, column):
 
 @pytest.mark.parametrize("product, ok", [
     ("KNMI-HSCAT-HY2-25km", True), ("PODAAC-SWOT-KARIN-L2-WINDWAVE-D2", True),
-    ("CCI-SEASTATE_ALTI_L2P-V5", True), ("CMEMS-ALTI-L3-VAVH", False),
+    ("CCI-SEA-STATE-ALTI-L2-V5", True), ("CMEMS-ALTI-L3-VAVH", True),
+    ("KNMI-ASCAT-METOP-25KM", True), ("KNMI-ASCAT-METOP-5.7KM", True),
+    ("CCI-SEATSTATE_ALTI_L2P-V5", False), ("CMEMS-ALTI_L3_VAVH", False),
     ("KNMI-ASCAT-METOP-25km", False),
 ])
 def test_reference_product_must_be_in_the_spec_list(tmp_path, product, ok):

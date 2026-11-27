@@ -311,7 +311,7 @@ Each check is reported `[PASS]`, `[WARN]` or `[FAIL]`; the command exits 1 when 
 `[FAIL]`.
 
 The checks follow the parquet format specification (`src/soba_reference_repo/spec.py`, spec
-1.6.0); the last two rows are SOBA production checks outside the spec.
+1.7.0); the last two rows are SOBA production checks outside the spec.
 
 | Check | catalogue | curated |
 |---|---|---|
