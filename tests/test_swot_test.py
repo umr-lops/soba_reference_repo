@@ -178,8 +178,6 @@ def test_build_frames_deduplicates_and_keeps_test_target_keys_aligned(tmp_path):
     assert test.columns.tolist() == [
         "primary_key",
         "sar_time",
-        "sar_lat",
-        "sar_lon",
         "sar_incidence_angle",
         "sar_elevation_angle",
         "sar_ground_heading",

@@ -17,13 +17,15 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from .positions import position_columns
+
 
 _FILENAME = re.compile(
     r"ESACCI-SEASTATE-L2P-ISSP-SENTINEL-1([ABCD])_WV_IFR-"
     r"([0-9]{8}T[0-9]{6})-fv[0-9]+\.nc$"
 )
 _SAFE = re.compile(r"^(S1[ABCD])_WV_OCN__[^_]+_([0-9]{8}T[0-9]{6})_")
-_COLUMNS = ["primary_key", "sar_safe_ocn", "sar_time", "sar_lat", "sar_lon"]
+_COLUMNS = ["primary_key", "sar_safe_ocn", "sar_time"]
 _EPOCH = datetime(1990, 1, 1, tzinfo=timezone.utc)
 DEFAULT_CHALLENGER_NAME = "ESACCI-SEASTATE"
 
@@ -133,7 +135,7 @@ def _observation(row, ds, max_seconds, max_km):
         time = time.replace(tzinfo=timezone.utc)
     else:
         time = time.astimezone(timezone.utc)
-    lat, lon = _scalar(row["sar_lat"]), _scalar(row["sar_lon"])
+    lat, lon = _scalar(row["_lat"]), _scalar(row["_lon"])
     if lat is None or lon is None or not -90 <= lat <= 90:
         return None, {"reason": "invalid_test_position"}
     matches = []
@@ -177,7 +179,11 @@ def _observation(row, ds, max_seconds, max_km):
 def produce_challenger(recipe_path):
     """Write ordered nullable predictions and a path-portable audit to a fresh directory."""
     cfg = _read_recipe(recipe_path)
-    table = pq.read_table(cfg["test"], columns=_COLUMNS)
+    # The TEST row's position is its reference point (<ref>_lon / <ref>_lat, spec 1.5.0); TEST
+    # files produced before it may only have sar_lon / sar_lat.
+    lon_column, lat_column = position_columns(pq.read_schema(cfg["test"]).names)
+    table = pq.read_table(cfg["test"], columns=[*_COLUMNS, lon_column, lat_column]).rename_columns(
+        [*_COLUMNS, "_lon", "_lat"])
     rows = table.to_pylist()
     keys = [row["primary_key"] for row in rows]
     if any(not isinstance(key, str) or not key for key in keys) or len(keys) != len(set(keys)):

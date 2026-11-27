@@ -26,6 +26,7 @@ from .pdf_support import (
 )
 from .hscat_report import _annual_tick_indices
 from .plotting import MISSION_COLORS, finish_density_map, plot_mission_distribution
+from .positions import position_columns
 
 MISSION_PATTERN = re.compile(r"^(S1[A-Z])_coaligned_catalogue_(WV)_")
 EXPECTED_MISSIONS = ("S1A", "S1C", "S1D")
@@ -33,8 +34,6 @@ DEFAULT_SWOT_TEMPLATE = ASSET_DIR / "latex" / "swot_test_template.tex"
 SWOT_COLUMN_DESCRIPTIONS = {
     "primary_key": "SLC SAFE plus reference longitude and latitude at one decimal degree.",
     "sar_time": "UTC SAR acquisition time, rounded down to whole seconds.",
-    "sar_lat": "SAR WV imagette latitude in degrees.",
-    "sar_lon": "SAR WV imagette longitude in degrees.",
     "sar_incidence_angle": "SAR incidence angle in degrees.",
     "sar_elevation_angle": "SAR elevation angle in degrees.",
     "sar_ground_heading": "SAR ground heading in degrees; unavailable in the source and null.",
@@ -49,8 +48,6 @@ SWOT_COLUMN_DESCRIPTIONS = {
 }
 SOURCE_COLUMNS = (
     "sar_time",
-    "sar_lat",
-    "sar_lon",
     "sar_incidence_angle",
     "sar_elevation_angle",
     "sar_distance_to_coast",
@@ -116,8 +113,6 @@ def _normalize_swot_frame(frame, mission, path, input_order=None):
 TEST_COLUMNS = [
     "primary_key",
     "sar_time",
-    "sar_lat",
-    "sar_lon",
     "sar_incidence_angle",
     "sar_elevation_angle",
     "sar_ground_heading",
@@ -142,8 +137,6 @@ KEY_FIELDS = ("sar_safe_slc", "swot_lon", "swot_lat")
 REQUIRED_VALUES = (
     "sar_safe_ocn",
     "sar_time",
-    "sar_lat",
-    "sar_lon",
     "sar_incidence_angle",
     "sar_elevation_angle",
     "sar_distance_to_coast",
@@ -247,8 +240,6 @@ def build_swot_test_from_merged(merged_path, curation):
     table = pq.read_table(merged_path)
     required = {
         "sar_time",
-        "sar_lat",
-        "sar_lon",
         "sar_incidence_angle",
         "sar_elevation_angle",
         "sar_distance_to_coast",
@@ -322,8 +313,6 @@ def _build_swot_frames(by_mission, curated=False):
                     total[key] += step[key]
         mission_exclusions = {reason: 0 for reason in exclusions}
         numeric = (
-            "sar_lat",
-            "sar_lon",
             "sar_incidence_angle",
             "sar_elevation_angle",
             "sar_distance_to_coast",
@@ -344,8 +333,6 @@ def _build_swot_frames(by_mission, curated=False):
         frame = frame.loc[~key_missing].copy()
         remaining_required = frame[list(REQUIRED_VALUES)].isna().any(axis=1)
         numeric_required = (
-            "sar_lat",
-            "sar_lon",
             "sar_incidence_angle",
             "sar_elevation_angle",
             "sar_distance_to_coast",
@@ -403,8 +390,6 @@ def _build_swot_frames(by_mission, curated=False):
         swot_time=_second_precision(frame["swot_time"]),
     )
     for column in (
-        "sar_lat",
-        "sar_lon",
         "sar_incidence_angle",
         "sar_elevation_angle",
         "sar_distance_to_coast",
@@ -913,14 +898,15 @@ def plot_swot_figures(test: pd.DataFrame, figures_dir: Path) -> dict[str, Path]:
     present = [mission for mission in MISSION_COLORS if missions.eq(mission).any()]
 
     figure, axis = plt.subplots(figsize=(9, 4.5))
+    lon_column, lat_column = position_columns(test.columns)
     if curated:
-        lon = pd.to_numeric(test["sar_lon"], errors="coerce").to_numpy(dtype=float)
-        lat = pd.to_numeric(test["sar_lat"], errors="coerce").to_numpy(dtype=float)
+        lon = pd.to_numeric(test[lon_column], errors="coerce").to_numpy(dtype=float)
+        lat = pd.to_numeric(test[lat_column], errors="coerce").to_numpy(dtype=float)
         valid = np.isfinite(lon) & np.isfinite(lat)
         cells = axis.hexbin(lon[valid], lat[valid], gridsize=360,
                             extent=(-180, 180, -90, 90), mincnt=0, linewidths=0)
     elif len(test):
-        axis.scatter(test["sar_lon"], test["sar_lat"], s=2, alpha=0.4, color="#355C7D")
+        axis.scatter(test[lon_column], test[lat_column], s=2, alpha=0.4, color="#355C7D")
     axis.set(
         xlim=(-180, 180),
         ylim=(-90, 90),
@@ -1136,7 +1122,7 @@ def run_recipe(recipe_path):
         curated = pq.read_table(
             merged_path,
             columns=[
-                "sar_lon", "sar_lat", "sar_time", "sar_safe_slc",
+                "ref_lon", "ref_lat", "sar_time", "sar_safe_slc",
                 "_curation_mission", "ref_mean_hs_karin",
             ],
         ).to_pandas().rename(columns={"ref_mean_hs_karin": "swot_waveheight"})
@@ -1171,8 +1157,6 @@ def run_recipe(recipe_path):
                 "sar_safe_ocn": SWOT_COLUMN_DESCRIPTIONS["sar_safe_ocn"],
                 "_curation_mission": "Sentinel-1 mission identifier recorded during curation.",
                 "_curation_row": "Zero-based row number in the original source Parquet.",
-                "sar_lon": SWOT_COLUMN_DESCRIPTIONS["sar_lon"],
-                "sar_lat": SWOT_COLUMN_DESCRIPTIONS["sar_lat"],
                 "sar_time": SWOT_COLUMN_DESCRIPTIONS["sar_time"],
                 "ref_lon": "SWOT reference longitude in degrees.",
                 "ref_lat": "SWOT reference latitude in degrees.",

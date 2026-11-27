@@ -381,7 +381,7 @@ def test_hscat_recipe_filters_direction_circularity_ice_and_ref_flag():
     ]
 
 
-@pytest.mark.parametrize("bad_column", ["sar_lon", "ref_param_2"])
+@pytest.mark.parametrize("bad_column", ["ref_lon", "ref_param_2"])
 def test_hscat_report_handles_nonfinite_curated_values(tmp_path, bad_column):
     source = hscat_source(tmp_path)
     frame = pd.read_parquet(source)
@@ -397,7 +397,7 @@ def test_hscat_report_handles_nonfinite_curated_values(tmp_path, bad_column):
     recipe.write_text(text, encoding="utf-8")
     assert cli_main(["--recipe", str(recipe)]) == 0
     manifest = json.loads((tmp_path / "output/manifest.json").read_text())
-    assert manifest["sources"][0]["curated_rows"] == (2 if bad_column == "sar_lon" else 3)
+    assert manifest["sources"][0]["curated_rows"] == (2 if bad_column == "ref_lon" else 3)
     assert manifest["accepted_rows"] == manifest["sources"][0]["curated_rows"] - 1
     assert_report_layout(manifest)
 
@@ -533,7 +533,7 @@ def test_chunked_duplicate_exclusions_do_not_overlap_incomplete_rows(tmp_path):
     source = hscat_source(tmp_path)
     frame = pq.read_table(source).to_pandas()
     frame["primary_key"] = ["ambiguous", "ambiguous", "complete"]
-    frame.loc[1, "sar_lat"] = float("nan")
+    frame.loc[1, "sar_incidence_angle"] = float("nan")
     frame["_curation_mission"] = "S1A"
     source = tmp_path / "merged_with_incomplete.parquet"
     pq.write_table(pa.Table.from_pandas(frame, preserve_index=False), source)

@@ -35,10 +35,13 @@ from .curated_report import build_curated_report
 from .hscat_report import _annual_tick_indices, _tex
 from .pdf_support import ASSET_DIR, compile_pdf, purge_latex_byproducts, stage_latex_assets
 from .plotting import MISSION_COLORS, finish_density_map, plot_mission_distribution
+from .positions import position_columns
 
 DOCUMENT_STEM = "S1_curated_WV_ALTI"
 VALUE_COLUMN = "ref_hs_alti_closest"
-READ_COLUMNS = ("sar_lon", "sar_lat", "sar_time", "fname", "_curation_mission", VALUE_COLUMN)
+# The map position is read separately: ref_lon / ref_lat (spec 1.5.0 has no SAR position), or
+# for files produced before it the SAR one (positions.position_columns).
+READ_COLUMNS = ("sar_time", "fname", "_curation_mission", VALUE_COLUMN)
 
 # Reference filenames identify the altimeter that produced the row.
 CMEMS_ALTIMETER_NAMES = {
@@ -55,8 +58,6 @@ FIELD_DESCRIPTIONS = {
     "imerg_rainrate": "IMERG rain rate at the reference time (mm/h).",
     "fname": "Reference altimeter source filename, identifying the altimeter.",
     "sar_time": "UTC SAR acquisition time.",
-    "sar_lon": "SAR WV imagette longitude in degrees.",
-    "sar_lat": "SAR WV imagette latitude in degrees.",
     "ref_time": "UTC altimeter reference acquisition time.",
     "ref_lon": "Altimeter reference longitude in degrees.",
     "ref_lat": "Altimeter reference latitude in degrees.",
@@ -65,6 +66,22 @@ FIELD_DESCRIPTIONS = {
 }
 
 _LAND_POLYGONS = None
+
+
+def _read_with_position(path, columns) -> pd.DataFrame:
+    """``columns`` of a Parquet plus its map position as ``map_lon`` / ``map_lat``."""
+    lon, lat = position_columns(pq.read_schema(path).names)
+    wanted = [c for c in columns if c not in (lon, lat)] + [lon, lat]
+    frame = pq.read_table(path, columns=wanted).to_pandas()
+    return frame.rename(columns={lon: "map_lon", lat: "map_lat"})
+
+
+def _with_map_position(frame: pd.DataFrame) -> pd.DataFrame:
+    """The frame with ``map_lon`` / ``map_lat`` (from its position columns) if it lacks them."""
+    if {"map_lon", "map_lat"} <= set(frame.columns):
+        return frame
+    lon, lat = position_columns(frame.columns)
+    return frame.assign(map_lon=frame[lon], map_lat=frame[lat])
 
 
 def _land_polygons():
@@ -105,7 +122,7 @@ def _read_curated(sources) -> pd.DataFrame:
     """Concatenate the report columns from every Curated Parquet in the run."""
     frames = []
     for item in sources:
-        frame = pq.read_table(item["curated_path"], columns=list(READ_COLUMNS)).to_pandas()
+        frame = _read_with_position(item["curated_path"], READ_COLUMNS)
         frame["_source_db"] = _database_of(item["curated_path"])
         frames.append(frame)
     return pd.concat(frames, ignore_index=True)
@@ -131,6 +148,7 @@ def _hexbin_panel(axis, lon, lat, norm):
 
 def plot_alti_figures(curated: pd.DataFrame, figures_dir) -> dict[str, Path]:
     """Write the global coverage, monthly-count and altimeter-SWH figures."""
+    curated = _with_map_position(curated)
     figures_dir = Path(figures_dir)
     figures_dir.mkdir(parents=True, exist_ok=True)
     paths = {
@@ -142,8 +160,8 @@ def plot_alti_figures(curated: pd.DataFrame, figures_dir) -> dict[str, Path]:
     present = [m for m in MISSION_COLORS if missions.eq(m).any()]
 
     figure, axis = plt.subplots(figsize=(9, 4.5))
-    lon = pd.to_numeric(curated["sar_lon"], errors="coerce").to_numpy(dtype=float)
-    lat = pd.to_numeric(curated["sar_lat"], errors="coerce").to_numpy(dtype=float)
+    lon = pd.to_numeric(curated["map_lon"], errors="coerce").to_numpy(dtype=float)
+    lat = pd.to_numeric(curated["map_lat"], errors="coerce").to_numpy(dtype=float)
     valid = np.isfinite(lon) & np.isfinite(lat)
     cells = axis.hexbin(lon[valid], lat[valid], gridsize=360,
                         extent=(-180, 180, -90, 90), mincnt=0, linewidths=0)
@@ -210,14 +228,15 @@ def plot_alti_figures(curated: pd.DataFrame, figures_dir) -> dict[str, Path]:
 
 def plot_alti_split_figures(curated: pd.DataFrame, figures_dir) -> dict[str, Path]:
     """Per-database, per-SAR-unit coverage + monthly figures (altimeter panels)."""
+    curated = _with_map_position(curated)
     figures_dir = Path(figures_dir)
     figures_dir.mkdir(parents=True, exist_ok=True)
     if "_source_db" not in curated.columns or "fname" not in curated.columns:
         return {}
     altimeter = _altimeter_name(curated["fname"])
     curated = curated.assign(_altimeter=altimeter)
-    lon = pd.to_numeric(curated["sar_lon"], errors="coerce")
-    lat = pd.to_numeric(curated["sar_lat"], errors="coerce")
+    lon = pd.to_numeric(curated["map_lon"], errors="coerce")
+    lat = pd.to_numeric(curated["map_lat"], errors="coerce")
     times = pd.to_datetime(curated["sar_time"], errors="coerce", utc=True)
     months = times.dt.tz_localize(None).dt.to_period("M")
 
@@ -334,11 +353,10 @@ def _load_source_frames(sources, recipe_by_name) -> list[tuple[dict, pd.DataFram
     for item in sources:
         catalogue = recipe_by_name.get(Path(item["path"]).name, {})
         rules = catalogue.get("rules", [])
-        columns = sorted(_rule_columns(rules) | {"sar_lon", "sar_lat", "sar_time",
-                                                  "fname", VALUE_COLUMN})
+        columns = sorted(_rule_columns(rules) | {"sar_time", "fname", VALUE_COLUMN})
         available = pq.read_schema(item["path"]).names
         columns = [c for c in columns if c in available]
-        frame = pq.read_table(item["path"], columns=columns).to_pandas().reset_index(drop=True)
+        frame = _read_with_position(item["path"], columns).reset_index(drop=True)
         frames.append((item, frame))
     return frames
 
@@ -357,8 +375,9 @@ def plot_filter_removal_maps(source_frames, recipe_by_name, sources, figures_dir
             if rule_id not in by_rule:
                 by_rule[rule_id] = ([], [])
                 order.append(rule_id)
-            by_rule[rule_id][0].extend(frame["sar_lon"].loc[idx].to_numpy())
-            by_rule[rule_id][1].extend(frame["sar_lat"].loc[idx].to_numpy())
+            frame = _with_map_position(frame)
+            by_rule[rule_id][0].extend(frame["map_lon"].loc[idx].to_numpy())
+            by_rule[rule_id][1].extend(frame["map_lat"].loc[idx].to_numpy())
     rule_names = {}
     for item in sources:
         catalogue = recipe_by_name.get(Path(item["path"]).name, {})

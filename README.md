@@ -203,10 +203,10 @@ Each check is reported `[PASS]`, `[WARN]` or `[FAIL]`; the command exits 1 when 
 |---|---|---|
 | Filename convention (`S1X_<kind>_<mode>_<start>_<stop>_<production>_<pol>_<product>_<X.Y>`) | FAIL | FAIL |
 | Parquet readable, at least one row | FAIL | FAIL |
-| Common columns (`primary_key`, `sar_time`, `sar_*_angle`, `sar_safe_*`, `sar_path_*`, `ref_*`; curated: `_curation_mission`, `_curation_row`); `sar_lat`/`sar_lon` optional | FAIL | FAIL |
+| Common columns (`primary_key`, `sar_time`, `sar_*_angle`, `sar_safe_*`, `sar_path_*`, `ref_*`; curated: `_curation_mission`, `_curation_row`); `sar_lat`/`sar_lon` optional (not written since spec 1.5.0, still found in older files) | FAIL | FAIL |
 | `sar_time` non-null | FAIL | FAIL |
 | Filename dates vs data | FAIL if data outside, WARN if name wider | FAIL unless first/last kept SAR dates |
-| SAR positions (`|sar_lat| <= 90`, `-180 <= sar_lon <= 360`), only when the optional `sar_lat`/`sar_lon` are present | WARN | FAIL |
+| SAR positions (`|sar_lat| <= 90`, `-180 <= sar_lon <= 360`), only in older files that still have the optional `sar_lat`/`sar_lon` | WARN | FAIL |
 | SAFE identities (missing / `UNKNOWN`) | WARN | WARN |
 | SLC SAFE unit matches the filename unit | FAIL | FAIL |
 | Primary keys non-null and unique | FAIL | FAIL |

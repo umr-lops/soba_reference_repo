@@ -30,8 +30,6 @@ from .pdf_support import (
 SOURCE_COLUMNS = (
     "primary_key",
     "sar_time",
-    "sar_lat",
-    "sar_lon",
     "sar_incidence_angle",
     "sar_elevation_angle",
     "sar_ground_heading",
@@ -62,8 +60,6 @@ HSCAT_DEFAULT_RULES = (
 BASE_TEST_COLUMNS = [
     "primary_key",
     "sar_time",
-    "sar_lat",
-    "sar_lon",
     "sar_incidence_angle",
     "sar_elevation_angle",
     "sar_ground_heading",
@@ -686,8 +682,6 @@ def run_hscat_recipe(recipe_path):
             field_descriptions={
                 "sar_safe_slc": "Sentinel-1 SLC SAFE identifier and WV imagette.",
                 "sar_safe_ocn": "Sentinel-1 OCN SAFE identifier.",
-                "sar_lon": "Longitude of the co-aligned Sentinel-1 WV matchup, in degrees.",
-                "sar_lat": "Latitude of the co-aligned Sentinel-1 WV matchup, in degrees.",
                 "sar_time": "Sentinel-1 SAR acquisition time.",
                 rename.get("ref_param_1", "ref_param_1"):
                     "HSCAT reference wind direction, in degrees.",

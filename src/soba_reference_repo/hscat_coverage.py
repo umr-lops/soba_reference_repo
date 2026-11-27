@@ -10,6 +10,7 @@ from matplotlib import colors, pyplot as plt, ticker
 from matplotlib.patches import Polygon
 
 from .pdf_support import ASSET_DIR
+from .positions import position_columns
 
 
 def _platforms(frame):
@@ -22,7 +23,8 @@ def _platforms(frame):
 def plot_platform_coverage(source, output_path, batch_size=65_536):
     """Count every row; map finite valid SAR coordinates without deduplication."""
     parquet = pq.ParquetFile(source)
-    columns = ['_curation_mission', 'ref_id', 'sar_time', 'sar_lon', 'sar_lat']
+    lon_column, lat_column = position_columns(parquet.schema_arrow.names)
+    columns = ['_curation_mission', 'ref_id', 'sar_time', lon_column, lat_column]
     counts, periods = Counter(), {}
     for batch in parquet.iter_batches(batch_size=batch_size, columns=columns):
         frame = batch.to_pandas()
@@ -62,8 +64,8 @@ def plot_platform_coverage(source, output_path, batch_size=65_536):
         frame['hy2'] = _platforms(frame)
         for key, group in frame.groupby(['_curation_mission', 'hy2']):
             axis, cells = panels[key]
-            lon = pd.to_numeric(group['sar_lon'], errors='coerce').to_numpy(dtype=float)
-            lat = pd.to_numeric(group['sar_lat'], errors='coerce').to_numpy(dtype=float)
+            lon = pd.to_numeric(group[lon_column], errors='coerce').to_numpy(dtype=float)
+            lat = pd.to_numeric(group[lat_column], errors='coerce').to_numpy(dtype=float)
             valid = (np.isfinite(lon) & np.isfinite(lat) & (abs(lon) <= 180)
                      & (abs(lat) <= 90))
             if not valid.any():

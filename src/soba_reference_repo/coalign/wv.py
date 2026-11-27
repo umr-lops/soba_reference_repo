@@ -17,7 +17,7 @@ import pyarrow as pa
 from .catalogue import Mode
 from .products import Reference, product_name, reference_for
 from .rows import KEY_DECIMALS, as_flag, as_float, stac_time
-from .sar import PLATFORM, footprint_centroid, href_path, safe_dir_of
+from .sar import PLATFORM, href_path, safe_dir_of
 from .stac import find_days, iter_items, read_manifest
 
 SAR_MODE = "WV"
@@ -26,7 +26,7 @@ POLARIZATION = {"VV": "SV", "HH": "SH"}  # WV is single polarization
 # Spec order. The dataset-named reference parameters sit between the reference position and
 # ref_time.
 HEAD = (
-    "primary_key", "sar_time", "sar_lat", "sar_lon", "sar_incidence_angle", "sar_elevation_angle",
+    "primary_key", "sar_time", "sar_incidence_angle", "sar_elevation_angle",
     "sar_ground_heading", "sar_distance_to_coast", "sar_path_ocn", "sar_path_slc", "sar_safe_slc",
     "sar_safe_ocn", "ref_lon", "ref_lat",
 )
@@ -35,7 +35,7 @@ TAIL = ("ref_time", "ref_flag", "ref_id", "legacy_usage", "ref_source", "class_1
 EXTRA = ("ref_time_delta_min", "sar_ground_heading_uncertainty")
 # Null outside the footprint, or when the SLC SAFE is missing: not an error.
 NULLABLE = {
-    "sar_lat", "sar_lon", "sar_incidence_angle", "sar_elevation_angle", "sar_ground_heading",
+    "sar_incidence_angle", "sar_elevation_angle", "sar_ground_heading",
     "sar_ground_heading_uncertainty", "sar_distance_to_coast", "legacy_usage", "class_1",
     "pos_1", "ref_flag", "ref_time_delta_min",
 }
@@ -79,8 +79,6 @@ def check_catalogue(frame: pd.DataFrame, param_names, ancillary=()) -> dict:
             nulls[name] = count
     if nulls:
         raise ValueError(f"nulls in mandatory columns: {nulls}")
-    if not frame["sar_lon"].between(-180, 180).all():
-        raise ValueError("sar_lon outside [-180, 180]")
     return {
         "rows": len(frame),
         "null_angles": int(frame["sar_incidence_angle"].isna().sum()),
@@ -150,10 +148,9 @@ def item_rows(item: dict, reference: Reference, slc_lookup=slc_safe_dir) -> tupl
     imagette = int(props["sarmatchup:imagette_index"])
     satellite = PLATFORM[props["sarmatchup:sar_platform"]]
     polarization = POLARIZATION[props["sarmatchup:polarization"]]
-    sar_lon, sar_lat = footprint_centroid(item["geometry"])
     sar_time = stac_time(props["start_datetime"]).replace(microsecond=0)
     base = {
-        "sar_time": sar_time, "sar_lat": sar_lat, "sar_lon": sar_lon,
+        "sar_time": sar_time,
         "sar_path_ocn": ocn_path, "sar_path_slc": slc_measurement(ocn_path, slc_dir),
         "sar_safe_slc": safe_ref(slc_dir, imagette), "sar_safe_ocn": safe_ref(ocn_dir, imagette),
         "legacy_usage": None, "class_1": None, "pos_1": None,

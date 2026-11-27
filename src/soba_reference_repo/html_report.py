@@ -38,6 +38,8 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pyarrow.types as pat
 
+from .positions import POSITION_PAIRS
+
 PLOTLY_JS = "https://cdn.plot.ly/plotly-2.35.2.min.js"
 MAP_STEP = 2.0
 # (column, label, (start, stop, step)) candidates per product; the first present column of
@@ -126,9 +128,10 @@ def aggregate(frame, variables, with_map=True) -> dict:
     if len(frame) and "sar_time" in frame:
         months = pd.to_datetime(frame["sar_time"], utc=True, errors="coerce").dt.strftime("%Y-%m")
         out["monthly"] = {str(k): int(v) for k, v in months.value_counts().items()}
-    if with_map and len(frame) and {"sar_lat", "sar_lon"} <= set(frame.columns):
-        lat = pd.to_numeric(frame["sar_lat"], errors="coerce").to_numpy(dtype=float)
-        lon = pd.to_numeric(frame["sar_lon"], errors="coerce").to_numpy(dtype=float)
+    pair = next((p for p in POSITION_PAIRS if set(p) <= set(frame.columns)), None)
+    if with_map and len(frame) and pair:
+        lon = pd.to_numeric(frame[pair[0]], errors="coerce").to_numpy(dtype=float)
+        lat = pd.to_numeric(frame[pair[1]], errors="coerce").to_numpy(dtype=float)
         ok = (np.abs(lat) <= 90) & (np.abs(lon) <= 360)
         lon = np.where(lon[ok] > 180, lon[ok] - 360, lon[ok])
         cells = pd.DataFrame({"x": np.floor(lon / MAP_STEP) * MAP_STEP + MAP_STEP / 2,
@@ -313,7 +316,8 @@ def build_payload(run_dir, previous_run=None) -> dict:
     output_paths = [Path(s.get("curated_path") or s["path"]) for s in sources]
     columns = set().union(*(set(pq.read_schema(p).names) for p in output_paths))
     variables = _variables(product, columns)
-    base_columns = ["sar_time", "sar_lat", "sar_lon", "fname"] + [v[0] for v in variables]
+    base_columns = ["sar_time", "fname", *[c for pair in POSITION_PAIRS for c in pair]] + [
+        v[0] for v in variables]
 
     groups = [{"id": "kept", "label": "Curated rows (kept)" if curated else "All rows"}]
     data: dict[str, dict] = {"kept": {}}
