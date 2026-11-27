@@ -480,7 +480,8 @@ def _attributes(name, metadata, columns):
 def test_curated_global_attributes_from_a_coalign_catalogue_keep_its_keys():
     meta = {b"source alti": b"Jason-3 altimeter", b"source ancillary datasets": b"wind: ECMWF",
             b"library version": b"v0.3.0"}
-    name = "S1A_coaligned_catalogue_WV_20261123_20261124_20261127_SV_CMEMS-WAV-L3-ALTI-TAC_0.1.parquet"
+    name = ("S1A_coaligned_catalogue_WV_20261123_20261124_20261127_SV_CMEMS-WAV-L3-ALTI-TAC_"
+            "0.1.parquet")
     attrs = _attributes(name, meta, ["primary_key"])
     assert attrs["source_catalogue_dataset"] == name
     assert attrs["source alti"] == "Jason-3 altimeter"
