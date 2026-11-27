@@ -55,7 +55,7 @@ def test_invalid_recipes_are_rejected(tmp_path, text, message):
 def test_every_ancillary_source_of_the_project_is_named():
     """The recipe knows all agreed sources; only the implemented ones are accepted for now."""
     assert set(ANCILLARY) == {"tengeop", "imerg", "ecmwf", "era5", "ww3", "gebco"}
-    assert [k for k, v in ANCILLARY.items() if v] == ["tengeop", "ecmwf", "era5", "ww3"]
+    assert [k for k, v in ANCILLARY.items() if v] == ["tengeop", "ecmwf", "era5", "ww3", "gebco"]
 
 
 def test_a_missing_ancillary_folder_fails_instead_of_leaving_nulls(tmp_path):
@@ -94,5 +94,5 @@ def test_cli_runs_a_recipe_and_the_example_recipe_is_valid(tmp_path, capsys):
     assert "1 rows" in capsys.readouterr().out
     example = Path(__file__).parents[1] / "examples" / "coalign.toml"
     recipe = read_recipe(example)
-    assert set(recipe["ancillary"]) == {"tengeop", "ecmwf", "era5", "ww3"}
+    assert set(recipe["ancillary"]) == {"tengeop", "ecmwf", "era5", "ww3", "gebco"}
     assert len(recipe["products"]) == 4

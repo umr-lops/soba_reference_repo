@@ -18,6 +18,7 @@ READERS = {
     "ecmwf": ("ecmwf", "Ecmwf"),
     "era5": ("era5", "Era5"),
     "ww3": ("ww3", "WW3"),
+    "gebco": ("gebco", "Gebco"),
 }
 
 
