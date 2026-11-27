@@ -484,5 +484,3 @@ def run_iw_recipe(path) -> tuple:
 def is_iw_recipe(path) -> bool:
     with Path(path).open("rb") as stream:
         return tomllib.load(stream).get("sar_mode") == SAR_MODE
-
-
