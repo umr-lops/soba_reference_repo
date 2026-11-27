@@ -1,5 +1,6 @@
 """The recipe's curation boundary preserves raw catalogue data."""
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -246,7 +247,12 @@ def test_curated_parquet_keeps_source_schema_and_original_row_ordinals(tmp_path)
     ledger = curation.write_curated(source, target, curation.resolve_rules([]), "S1A")
     saved = pq.read_table(target)
     assert list(saved.schema)[:len(original.schema)] == list(original.schema)
-    assert saved.schema.metadata == original.schema.metadata
+    # The catalogue metadata is kept; the spec global attributes are added (#58, #59).
+    meta = {k.decode(): v.decode() for k, v in saved.schema.metadata.items()}
+    assert meta["source"] == "keep"
+    assert meta["source_catalogue_dataset"] == source.name
+    assert meta["library used to produce the parquet"] == "soba_reference_repo"
+    assert {"source ancillary datasets", "library version", "creation date"} <= set(meta)
     assert saved.column_names == original.column_names + ["_curation_mission", "_curation_row"]
     assert saved.column("_curation_mission").to_pylist() == ["S1A"]
     assert saved.column("_curation_row").to_pylist() == [1]
@@ -464,3 +470,47 @@ def test_not_in_numeric():
 def test_not_in_rejects_invalid_operands(bad):
     with pytest.raises(ValueError):
         curation._validate_clause(bad)
+
+
+def _attributes(name, metadata, columns):
+    table = pa.table({c: ["x"] for c in columns})
+    return curation.curated_global_attributes(Path("/d") / name, metadata, table, "20261127")
+
+
+def test_curated_global_attributes_from_a_coalign_catalogue_keep_its_keys():
+    meta = {b"source alti": b"Jason-3 altimeter", b"source ancillary datasets": b"wind: ECMWF",
+            b"library version": b"v0.3.0"}
+    name = ("S1A_coaligned_catalogue_WV_20261123_20261124_20261127_SV_CMEMS-WAV-L3-ALTI-TAC_"
+            "0.1.parquet")
+    attrs = _attributes(name, meta, ["primary_key"])
+    assert attrs["source_catalogue_dataset"] == name
+    assert attrs["source alti"] == "Jason-3 altimeter"
+    assert attrs["source ancillary datasets"] == "wind: ECMWF"
+    assert attrs["library used to produce the parquet"] == "soba_reference_repo"
+    assert attrs["creation date"] == "20261127"
+    assert attrs["source catalogue library version"] == "v0.3.0"
+
+
+def test_curated_global_attributes_from_older_catalogues():
+    """SWOT (source_ref), HSCAT (utils_meta attrs) and altimeter (none) catalogues of 2026-09."""
+    swot = _attributes(
+        "S1A_coaligned_catalogue_WV_20230327_20260629_20260902_SV_"
+        "PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet",
+        {b"source_ref": b"PODAAC SWOT Karin L2 WindWave PGD0 and PID0 (D0)"}, ["prob_1"])
+    assert swot["source swot"] == "PODAAC SWOT Karin L2 WindWave PGD0 and PID0 (D0)"
+    assert swot["source ancillary datasets"] == ""
+    hscat = _attributes(
+        "S1A_coaligned_catalogue_WV_20190116_20260629_20260908_SV_KNMI-HSCAT-HY2-25km_0.2.parquet",
+        {b"utils_meta": json.dumps({"attrs": {"source ref": "HY-2B/HY-2C/HY-2D 25km KNMI"}})
+         .encode()}, ["ecmwf_wind_speed", "class"])
+    assert hscat["source scat"] == "HY-2B/HY-2C/HY-2D 25km KNMI"
+    assert hscat["source ancillary datasets"] == (
+        "class: TenGeoP SAR Sentinel-1 surface roughness classification, "
+        "wind: ECMWF operational forecast 10 m wind")
+    alti = _attributes(
+        "S1A_coaligned_catalogue_WV_20150319T134347_20251231T192542_20261117T175723_SV_"
+        "CCI-SEASTATE_ALTI_L2P-V5_5.0.parquet", {}, ["imerg_rainrate", "ww3_swh"])
+    assert alti["source alti"] == "CCI-SEASTATE_ALTI_L2P-V5"
+    assert alti["source ancillary datasets"] == (
+        "rain: IMERG NASA GPM rain rate, sea state: WAVEWATCH III")
+    assert "source catalogue library version" not in alti
