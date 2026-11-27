@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import tomllib
@@ -15,6 +16,75 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .quality_disclaimers import flagged_safe_mask
+
+# Spec global attributes (section "Global attributes", mandatory for any SOBA parquet).
+LIBRARY = "soba_reference_repo"
+# The reference kind of ``source <kind>``, from the start of the reference product name.
+REFERENCE_KIND = {"KNMI": "scat", "CMEM": "alti", "CCI-": "alti", "SWOT": "swot", "PODA": "swot"}
+# Catalogues made before the coalign builder do not list their ancillary sources: they are read
+# from the columns those sources added.
+ANCILLARY_COLUMNS = (
+    (("class_1", "class"), "class: TenGeoP SAR Sentinel-1 surface roughness classification"),
+    (("imerg_rainrate",), "rain: IMERG NASA GPM rain rate"),
+    (("ECMWF_Wind_Speed", "ecmwf_wind_speed"), "wind: ECMWF operational forecast 10 m wind"),
+    (("ERA5_Wind_Speed",), "wind: ERA5 reanalysis 10 m wind"),
+    (("WW3_Hs", "ww3_swh", "ww3_hs"), "sea state: WAVEWATCH III"),
+    (("bathymetry",), "bathymetry: GEBCO"),
+    (("sea_ice_concentration",), "sea ice: sea ice concentration"),
+)
+_CATALOGUE_PRODUCT = re.compile(
+    r"S1[A-D]_coaligned_catalogue_[A-Z]{2}_[^_]+_[^_]+_[^_]+_[A-Z]{2}_(?P<product>.+)_\d+\.\d+\.parquet$"
+)
+
+
+def curated_global_attributes(source_path, metadata, table, production_date=None) -> dict:
+    """The spec global attributes of a curated file made from the catalogue ``source_path``.
+
+    ``source_catalogue_dataset`` names the catalogue. ``source <kind>`` and ``source ancillary
+    datasets`` are kept from the catalogue; for catalogues made before the coalign builder they
+    come from the older keys (``source_ref``, HSCAT ``utils_meta`` attrs) or the columns. The
+    library is this one (it produces the curated file); the catalogue's own version is kept as
+    ``source catalogue library version``. ``creation date`` is the run's production date.
+    """
+    from .pdf_support import library_version
+
+    meta = {k.decode(): v.decode() for k, v in (metadata or {}).items()
+            if not k.startswith(b"ARROW") and k != b"pandas"}
+    try:
+        utils = json.loads(meta.get("utils_meta", "{}")).get("attrs", {})
+    except ValueError:
+        utils = {}
+    name = Path(source_path).name
+    found = _CATALOGUE_PRODUCT.match(name)
+    product = found["product"] if found else ""
+    kind = next((k for k, v in meta.items() if k.startswith("source ")
+                 and k not in ("source ancillary datasets", "source catalogue library version")),
+                None)
+    if kind is not None:
+        source_key, source = kind, meta[kind]
+    else:
+        source_key = f"source {REFERENCE_KIND.get(product[:4], 'ref')}"
+        source = meta.get("source_ref") or utils.get("source ref")
+        if not source and "ref_source" in table.column_names:
+            source = ", ".join(sorted({str(v) for v in table.column("ref_source").to_pylist()
+                                       if v is not None}))
+        source = source or product
+    if "source ancillary datasets" in meta:
+        ancillary = meta["source ancillary datasets"]
+    else:
+        ancillary = ", ".join(text for columns, text in ANCILLARY_COLUMNS
+                              if any(c in table.column_names for c in columns))
+    attributes = {
+        "source_catalogue_dataset": name,
+        source_key: source,
+        "source ancillary datasets": ancillary,
+        "library used to produce the parquet": LIBRARY,
+        "library version": library_version(),
+        "creation date": str(production_date or datetime.now().strftime("%Y%m%d")),
+    }
+    if meta.get("library version"):
+        attributes["source catalogue library version"] = meta["library version"]
+    return attributes
 
 
 _DEFAULT_SPEC = (
@@ -574,6 +644,11 @@ def write_curated(source_path, target_path, rules, mission, context=None):
         meta[b"dataset_version"] = str(context["dataset_version"]).encode()
     if context.get("production_date"):
         meta[b"production_date"] = str(context["production_date"]).encode()
+    # Spec global attributes (source_catalogue_dataset and the five mandatory ones).
+    for key, value in curated_global_attributes(
+        source_path, source.schema.metadata, source, context.get("production_date")
+    ).items():
+        meta[key.encode()] = str(value).encode()
     table = table.replace_schema_metadata(meta)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     pq.write_table(table, target_path)
