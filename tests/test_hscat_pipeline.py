@@ -17,6 +17,7 @@ from soba_reference_repo.hscat_report import (
 from soba_reference_repo.hscat_test import (
     HSCAT_DEFAULT_RULES,
     build_scat_frames,
+    output_columns,
     write_scat_pair_chunked,
 )
 from soba_reference_repo.quality_disclaimers import (
@@ -425,8 +426,8 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert "TEST" not in report and "TARGET" not in report
     assert r"ref\_param\_1" in report and r"ref\_param\_2" in report
     assert Path(manifest["report_tex"]).parent == tmp_path / "output/report"
-    assert test_path.name == "S1_reference_test_dataset_WV_20260103_windspeed_0.1.parquet"
-    assert target_path.name == "S1_target_dataset_WV_20260103_windspeed_0.1.parquet"
+    assert test_path.name == "S1_reference_test_dataset_WV_20260103_wind-speed_0.1.parquet"
+    assert target_path.name == "S1_target_dataset_WV_20260103_wind-speed_0.1.parquet"
     sections = [
         "Version History", "Dataset Content Description", "Global Coverage Map",
         "Monthly Distribution of Matchups", "HSCAT Wind-Speed and Wind-Direction Distributions",
@@ -469,7 +470,12 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
         assert validate_main([
             "--type", role, "--file", output_path, "--reference", "scat"
         ]) == 0
-        assert "Selected SCAT reference variable is present" in capsys.readouterr().out
+        printed = capsys.readouterr().out
+        if role == "test":
+            assert "Selected SCAT reference variable is present" in printed
+        else:
+            assert "Reference parameter absent" in printed
+            assert "Selected SCAT reference variable is present" not in printed
 
 
 def test_hscat_preflight_requires_ecmwf_wind_speed(tmp_path):
@@ -548,3 +554,73 @@ def test_chunked_duplicate_exclusions_do_not_overlap_incomplete_rows(tmp_path):
         "excluded_duplicate_key_rows"
     ] == len(frame)
     assert pq.read_table(tmp_path / "TEST2.parquet")["primary_key"].to_pylist() == ["complete"]
+
+
+def test_target_columns_have_no_reference_parameter():
+    """Spec: a target holds the test rows without the reference parameter."""
+    for variable in ("windspeed", "winddirection"):
+        columns = output_columns("target", variable)
+        assert columns == ["primary_key", "sar_safe_slc", "sar_safe_ocn", "scat_lon", "scat_lat",
+                           "scat_time"]
+        assert output_columns("test", variable)[-1] == (
+            "scat_windspeed" if variable == "windspeed" else "scat_winddirection")
+
+
+def test_built_target_frame_lacks_the_reference_value(tmp_path):
+    frame = pq.read_table(hscat_source(tmp_path)).to_pandas()
+    frame["_curation_mission"] = "S1A"
+    test, target, summary = build_scat_frames(frame, "windspeed")
+    assert "scat_windspeed" in test.columns
+    assert list(target.columns) == output_columns("target", "windspeed")
+    assert summary["target_columns"] == output_columns("target", "windspeed")
+
+
+@pytest.mark.parametrize("variable", ["windspeed", "winddirection"])
+def test_exported_target_has_no_reference_value_and_validates(tmp_path, variable):
+    source = hscat_source(tmp_path)
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(recipe_text(source).replace('"windspeed"', f'"{variable}"'))
+    assert cli_main(["--recipe", str(recipe)]) == 0
+    manifest = json.loads((tmp_path / "output/manifest.json").read_text())
+    name = {"windspeed": "wind-speed", "winddirection": "wind-direction"}[variable]
+    assert Path(manifest["test_parquet"]).name == (
+        f"S1_reference_test_dataset_WV_20260103_{name}_0.1.parquet")
+    assert Path(manifest["target_parquet"]).name == (
+        f"S1_target_dataset_WV_20260103_{name}_0.1.parquet")
+    target = pq.read_table(manifest["target_parquet"])
+    assert not [c for c in target.column_names if c in ("scat_windspeed", "scat_winddirection")]
+    assert target.column_names == output_columns("target", variable)
+    assert validate_file(manifest["target_parquet"], "target", "scat")
+    assert validate_file(manifest["test_parquet"], "test", "scat")
+
+
+@pytest.mark.parametrize("leaked", ["scat_windspeed", "scat_winddirection", "scat_swh"])
+def test_validator_fails_a_target_that_contains_the_reference_parameter(tmp_path, leaked):
+    """Issue #61: the validator used to require the value in the target; now it forbids it."""
+    source = hscat_source(tmp_path)
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(recipe_text(source))
+    cli_main(["--recipe", str(recipe)])
+    manifest = json.loads((tmp_path / "output/manifest.json").read_text())
+    table = pq.read_table(manifest["target_parquet"])
+    leaking = table.append_column(leaked, pa.array([5.0] * table.num_rows, type=pa.float32()))
+    path = tmp_path / "leaking_target.parquet"
+    pq.write_table(leaking.replace_schema_metadata(table.schema.metadata), path)
+    with pytest.raises(ValueError, match="must not contain the reference parameter"):
+        validate_file(path, "target", "scat")
+    with pytest.raises(SystemExit) as exit_info:
+        validate_main(["--type", "target", "--file", str(path), "--reference", "scat"])
+    assert exit_info.value.code == 1
+
+
+def test_validator_still_requires_the_reference_value_in_the_test_file(tmp_path):
+    source = hscat_source(tmp_path)
+    recipe = tmp_path / "recipe.toml"
+    recipe.write_text(recipe_text(source))
+    cli_main(["--recipe", str(recipe)])
+    manifest = json.loads((tmp_path / "output/manifest.json").read_text())
+    table = pq.read_table(manifest["test_parquet"]).drop_columns(["scat_windspeed"])
+    path = tmp_path / "test_without_value.parquet"
+    pq.write_table(table, path)
+    with pytest.raises(ValueError, match="exactly one reference variable"):
+        validate_file(path, "test", "scat")
