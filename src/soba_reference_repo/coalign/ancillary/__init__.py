@@ -16,6 +16,7 @@ from pathlib import Path
 READERS = {
     "tengeop": ("tengeop", "TenGeoPSource"),
     "ecmwf": ("ecmwf", "Ecmwf"),
+    "era5": ("era5", "Era5"),
 }
 
 

@@ -192,7 +192,7 @@ class WV(Mode):
 
     name = SAR_MODE
     # Ancillary sources that only make sense per WV imagette.
-    sources = ("tengeop", "ecmwf")
+    sources = ("tengeop", "ecmwf", "era5")
 
     def __init__(self, slc_lookup=slc_safe_dir):
         self.slc_lookup = slc_lookup
