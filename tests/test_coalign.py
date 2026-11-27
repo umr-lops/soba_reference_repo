@@ -40,6 +40,11 @@ def test_find_days_reads_the_common_layout_and_prefers_it(tmp_path):
                                legacy=False)] == ["2026-11-19/ocn/iw"]
 
 
+def test_wv_catalogue_has_no_sar_position_columns():
+    """Spec 1.5.0: sar_lat / sar_lon are not part of the datasets any more."""
+    assert "sar_lat" not in columns(["swh_alti"]) and "sar_lon" not in columns(["swh_alti"])
+
+
 def test_slc_twin_found_by_acquisition_not_crc(tmp_path):
     ocn_dir = make_archive(tmp_path / "arch")
     assert slc_safe_dir(ocn_dir).name == f"{SLC}.SAFE"

@@ -37,7 +37,8 @@ COMMON_COLUMNS = (
     "sar_elevation_angle", "sar_safe_slc", "sar_safe_ocn", "sar_path_slc",
     "sar_path_ocn", "ref_time", "ref_lat", "ref_lon", "ref_flag",
 )
-# Optional: checked only when present.
+# Optional: checked only when present. Spec 1.5.0 dropped them from every dataset; files produced
+# before it may still carry them.
 POSITION_COLUMNS = ("sar_lat", "sar_lon")
 CURATION_COLUMNS = ("_curation_mission", "_curation_row")
 MISSING_SAFE = ("", "UNKNOWN")

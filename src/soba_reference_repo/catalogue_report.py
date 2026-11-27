@@ -45,6 +45,7 @@ from .alti_report import (
     _coverage_extra_latex,
     _database_of,
     _monthly_extra_latex,
+    _read_with_position,
     plot_alti_figures,
     plot_alti_split_figures,
 )
@@ -57,7 +58,9 @@ from .pdf_support import (ASSET_DIR, _path, compile_pdf, purge_latex_byproducts,
 DOCUMENT_STEM = "S1_catalogue_WV_ALTI"
 # Columns the report reads from each raw catalogue Parquet (``_curation_mission``
 # is added here, since the pre-curation catalogue does not carry it).
-READ_COLUMNS = ("sar_lon", "sar_lat", "sar_time", "fname", VALUE_COLUMN)
+# The map position is read separately (alti_report._read_with_position): ref_lon / ref_lat, or
+# the SAR one for files produced before spec 1.5.0.
+READ_COLUMNS = ("sar_time", "fname", VALUE_COLUMN)
 
 CATALOGUE_FIELD_DESCRIPTIONS = {
     "ref_hs_alti_closest": "Significant wave height from the closest altimeter (m).",
@@ -65,8 +68,6 @@ CATALOGUE_FIELD_DESCRIPTIONS = {
     "imerg_rainrate": "IMERG rain rate at the reference time (mm/h).",
     "fname": "Reference altimeter source filename, identifying the altimeter.",
     "sar_time": "UTC SAR acquisition time.",
-    "sar_lon": "SAR WV imagette longitude in degrees.",
-    "sar_lat": "SAR WV imagette latitude in degrees.",
     "ref_time": "UTC altimeter reference acquisition time.",
     "ref_lon": "Altimeter reference longitude in degrees.",
     "ref_lat": "Altimeter reference latitude in degrees.",
@@ -156,7 +157,7 @@ def _read_catalogue(sources) -> pd.DataFrame:
     """
     frames = []
     for item in sources:
-        frame = pq.read_table(item["path"], columns=list(READ_COLUMNS)).to_pandas()
+        frame = _read_with_position(item["path"], READ_COLUMNS)
         frame["_curation_mission"] = item["mission"]
         frame["_source_db"] = _database_of(item["path"])
         frames.append(frame)

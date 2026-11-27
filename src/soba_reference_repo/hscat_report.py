@@ -14,6 +14,7 @@ from matplotlib import pyplot as plt
 from .hscat_coverage import plot_platform_coverage
 from .pdf_support import ASSET_DIR, _path, stage_latex_assets
 from .plotting import MISSION_COLORS, finish_density_map, plot_mission_distribution
+from .positions import position_columns
 
 MISSION_RE = re.compile(r"^(?:.*/)?(S1[A-D])")
 
@@ -57,7 +58,8 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
         value_column = _column("ref_param_2")
     mission_column = "_curation_mission" if curated else "sar_safe_slc"
     parquet = pq.ParquetFile(test_path)
-    required = ["sar_lon", "sar_lat", "sar_time", mission_column, value_column]
+    lon_column, lat_column = position_columns(parquet.schema_arrow.names)
+    required = [lon_column, lat_column, "sar_time", mission_column, value_column]
     if curated:
         required.extend([_column("ref_param_1"), "ref_id"])
     missing = set(required) - set(parquet.schema_arrow.names)
@@ -76,8 +78,8 @@ def plot_hscat_figures(test_path, variable, output_dir, batch_size=65_536, *, cu
     for batch in parquet.iter_batches(batch_size=batch_size, columns=required):
         frame = batch.to_pandas()
         missions = _mission_series(frame)
-        lon = pd.to_numeric(frame["sar_lon"], errors="coerce").to_numpy(dtype=float)
-        lat = pd.to_numeric(frame["sar_lat"], errors="coerce").to_numpy(dtype=float)
+        lon = pd.to_numeric(frame[lon_column], errors="coerce").to_numpy(dtype=float)
+        lat = pd.to_numeric(frame[lat_column], errors="coerce").to_numpy(dtype=float)
         values = pd.to_numeric(frame[value_column], errors="coerce").to_numpy(dtype=float)
         finite_coordinates = np.isfinite(lon) & np.isfinite(lat)
         finite_values = np.isfinite(values)
@@ -463,8 +465,6 @@ def build_hscat_report(test_path, target_path, manifest, summary, figures, repor
     descriptions = {
         "primary_key": "SLC SAFE identifier, imagette suffix, and reference coordinates.",
         "sar_time": "UTC SAR acquisition time, rounded down to whole seconds.",
-        "sar_lat": "SAR WV imagette latitude in degrees.",
-        "sar_lon": "SAR WV imagette longitude in degrees.",
         "sar_incidence_angle": "SAR incidence angle in degrees.",
         "sar_elevation_angle": "SAR elevation angle in degrees.",
         "sar_ground_heading": "SAR ground heading in degrees.",

@@ -216,6 +216,16 @@ def test_file_name_follows_the_spec_and_takes_the_team_name(tmp_path):
     assert (tmp_path / "out" / "S1_challenger_OceanSAR12_WV_20261002_v1.parquet").is_file()
 
 
+def test_test_file_without_sar_position_uses_the_reference_point(tmp_path):
+    """Spec 1.5.0 TEST files carry swot_lon / swot_lat, not sar_lon / sar_lat."""
+    new = row()
+    new["swot_lat"], new["swot_lon"] = new.pop("sar_lat"), new.pop("sar_lon")
+    path = recipe(tmp_path, [new])
+    challenger.produce_challenger(path)
+    result, audit = read_run(path)
+    assert result.column("swh").to_pylist() == [pytest.approx(2.5)]
+
+
 def test_cli_recipe(tmp_path):
     path = recipe(tmp_path, [row()])
     assert challenger.main(["--recipe", str(path)]) == 0

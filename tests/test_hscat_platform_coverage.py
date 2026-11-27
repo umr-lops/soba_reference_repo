@@ -13,7 +13,7 @@ def test_platform_coverage_replaces_first_map_and_keeps_global(tmp_path, monkeyp
     frame = pd.read_parquet(source)
     frame['_curation_mission'] = ['S1A', 'S1A', 'S1C']
     frame['ref_id'] = ['file_hy_2b_wind.nc', 'file_hy_2c_wind.nc', 'unknown']
-    frame['sar_lon'] = [-30.0, 20.0, np.nan]
+    frame['ref_lon'] = [-30.0, 20.0, np.nan]   # the map position (spec 1.5.0: no sar_lon)
     frame.to_parquet(source, index=False)
     captured = []
     original = Figure.savefig
