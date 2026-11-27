@@ -260,13 +260,16 @@ def _doc_release_date(product, production_date):
     return f"{date[:4]}-{date[4:6]}-{date[6:8]}"
 
 
-def render_column_table(schema, descriptions, *, caption, label, longtable_threshold=35):
+def render_column_table(schema, descriptions, *, caption, label, longtable_threshold=35,
+                        reference_names=frozenset(), name_width="4.1cm",
+                        description_width="8.1cm"):
     """Render one Column/Type/Description table for a single (per-database) schema.
 
     Shares the curated doc's grouping (Identification / SAR geometry / Reference /
     Ancillary) and description fallback, and switches to a ``longtable`` for wide
     schemas. Used by the catalogue report to describe the CCI and CMEMS catalogues
-    separately (their column sets differ).
+    separately (their column sets differ). ``reference_names`` lists extra columns that belong
+    to the Reference group (the dataset-named parameters of the coalign catalogues).
     """
     groups = {g: [] for g in ("Identification", "SAR geometry", "Reference", "Ancillary")}
     for field in schema:
@@ -277,7 +280,7 @@ def render_column_table(schema, descriptions, *, caption, label, longtable_thres
             group = "Identification"
         elif name.startswith("sar_"):
             group = "SAR geometry"
-        elif name.startswith(("ref_", "scat_", "swot_")):
+        elif name.startswith(("ref_", "scat_", "swot_")) or name in reference_names:
             group = "Reference"
         else:
             group = "Ancillary"
@@ -295,9 +298,9 @@ def render_column_table(schema, descriptions, *, caption, label, longtable_thres
                 _tex(field.name), _tex(str(field.type)),
                 _tex(description.replace("co-aligned", "matched")),
             ]) + r" \\")
-    spec = (r"@{}>{\raggedright\arraybackslash}p{4.1cm}"
+    spec = (r"@{}>{\raggedright\arraybackslash}p{" + name_width + "}"
             r">{\raggedright\arraybackslash}p{2.6cm}"
-            r">{\raggedright\arraybackslash}p{8.1cm}@{}")
+            r">{\raggedright\arraybackslash}p{" + description_width + "}@{}")
     header = r"\textbf{Column} & \textbf{Type} & \textbf{Description} " + chr(92) * 2
     if len(schema) <= longtable_threshold:
         return "\n".join([
