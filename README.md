@@ -208,6 +208,29 @@ Each check is reported `[PASS]`, `[WARN]` or `[FAIL]`; the command exits 1 when 
 | Curation provenance (`_curation_mission` = unit, `_curation_row` >= 0, unique) | – | FAIL |
 | `dataset_version` / `production_date` metadata match the filename | – | FAIL (WARN if absent) |
 
+## IW co-aligned catalogues (first version)
+
+`soba_build_coalign` builds IW catalogues when the recipe sets `sar_mode = "IW"`
+(`examples/coalign-iw.toml`). A row is one reference point matched with one IW GRD scene; the
+primary key is the GRD SAFE name + `ref_lon` + `ref_lat` (spec 1.5.0). The GRD matchups are read
+from `<stac_root>/<collection>/<YYYY-MM-DD>/grd/iw` (soba_matchups `product_type = "GRD"` runs).
+
+- The OCN and SLC twins of each GRD (one acquisition, slice times a second or so apart) come from
+  the CDSE daily metadata Parquets through cdsodatacli (>= 2026.11.27, `find_products_in_parquet`:
+  same platform, orbit, datatake and polarization, closest start within 8 s), when
+  `sar_parquet_root` is set; otherwise their columns are empty.
+- `sar_path_*` is the SAFE folder when it is on one of the `[archives]`, else empty: the
+  catalogue needs SAR metadata only.
+- SWOT parameters: `swh_swot`, `windspeed_swot` (`wind_speed_karin`), `windspeed_2_swot`
+  (`wind_speed_karin_2`); `ref_flag` is `swh_karin_qual`; the other KaRIn flags, the distances
+  to the footprint edges and `ref_distance_to_coast` (NASA GSFC grid) are kept.
+- The spec ancillary columns without an IW reader yet (sea ice, bathymetry, WW3, ECMWF) are
+  written empty and listed in the `ancillary columns not filled` global attribute, so small
+  catalogues can be built and checked now.
+- File names carry the SWOT release of the matchups (`PODAAC-SWOT-KARIN-L2-WINDWAVE-D0` / `-D2`)
+  and the GRD polarization (`SV`, `SH`, `DV`, `DH`; a partial dual-polarization `VV` / `HH`
+  product is filed under `SV` / `SH`).
+
 ## Development
 
 Run `python -m pytest -q` in an environment with the development dependencies. The SOBA report style and logo live in `assets/latex/`.

@@ -71,7 +71,14 @@ def read_recipe(path) -> dict:
 
 
 def run_recipe(path) -> tuple:
-    """Build the catalogues a recipe describes. Returns (paths, counts)."""
+    """Build the catalogues a recipe describes. Returns (paths, counts).
+
+    A recipe with ``sar_mode = "IW"`` builds IW catalogues from GRD matchups (``iw.py``).
+    """
+    from .iw import is_iw_recipe, run_iw_recipe
+
+    if is_iw_recipe(path):
+        return run_iw_recipe(path)
     recipe = read_recipe(path)
     for name, folder in recipe["ancillary"].items():
         if not folder.is_dir():
@@ -91,7 +98,8 @@ def main(argv=None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="soba_build_coalign",
-        description="Build WV co-aligned catalogue Parquets from soba_matchups STAC days.")
+        description="Build WV (or, with sar_mode = \"IW\", IW) co-aligned catalogue Parquets "
+                    "from soba_matchups STAC days.")
     parser.add_argument("--recipe", required=True, help="coalign recipe (TOML)")
     args = parser.parse_args(argv)
     paths, counts = run_recipe(args.recipe)
