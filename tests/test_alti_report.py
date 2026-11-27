@@ -139,3 +139,11 @@ def test_build_alti_run_report_two_sources_one_document(tmp_path):
     assets = run / "report" / "images_S1_curated_WV_ALTI"
     assert (assets / "cov_CCI_S1A.png").is_file()
     assert (assets / "alti_swh_initial_vs_final.png").is_file()
+
+
+def test_cci_is_recognised_under_the_published_and_spec_names():
+    from soba_reference_repo.alti_report import _database_of
+
+    for product in ("CCI-SEATSTATE_ALTI_L2P-V5", "CCI-SEA-STATE-ALTI-L2-V5"):
+        assert _database_of(f"S1A_curated_WV_20200101_20200301_20261117_SV_{product}_5.0.parquet") \
+            == "CCI"

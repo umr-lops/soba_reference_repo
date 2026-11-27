@@ -13,7 +13,7 @@ def product_table(role):
     values = {}
     for name in columns:
         if name in strings:
-            value = {"primary_key": "S1A_WV.SAFE_1.0_2.0", "sar_safe_slc": "S1A_WV.SAFE",
+            value = {"primary_key": "S1A_WV.SAFE_1.00_2.00", "sar_safe_slc": "S1A_WV.SAFE",
                      "sar_safe_ocn": "S1A_OCN.SAFE", "swot_source": "swot.nc"}[name]
             values[name] = pa.array([value], type=pa.string())
         elif name.endswith("time"):
@@ -184,7 +184,7 @@ def test_exporter_still_checks_ordered_alignment_and_metadata(tmp_path):
     target = save(tmp_path, target_table, "target.parquet")
     assert swot_test.validate_swot_test_pair(test, target) is True
     different = replace(target_table, "swot_lon", [3.0])
-    different = replace(different, "primary_key", ["S1A_WV.SAFE_3.0_2.0"])
+    different = replace(different, "primary_key", ["S1A_WV.SAFE_3.00_2.00"])
     save(tmp_path, different, target.name)
     assert validator.validate_file(target, "target")
     with pytest.raises(ValueError, match="primary_key values differ"):

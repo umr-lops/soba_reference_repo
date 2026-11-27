@@ -241,7 +241,7 @@ def _source_label(source):
     name = Path(source["curated_path"]).name
     if "CMEMS-ALTI-L3-VAVH" in name:
         return f"{source['mission']} CMEMS-VAVH"
-    if "CCI-SEATSTATE" in name:
+    if "CCI-SEATSTATE" in name or "CCI-SEA-STATE" in name:  # published, spec 1.7.0
         return f"{source['mission']} CCI-SeaState"
     return source["mission"]
 

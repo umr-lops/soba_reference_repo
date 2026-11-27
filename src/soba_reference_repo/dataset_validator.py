@@ -1,10 +1,10 @@
 """Read-only validation of SOBA coaligned catalogue and curated Parquets.
 
-Product-agnostic checks (WV x altimeter, SWOT, HSCAT/ASCAT): file naming
-convention, readability, common columns, SAR dates against the filename,
-SAR positions, SAFE identities, primary keys, curation provenance and the
-version/production-date metadata. Each check is reported as PASS, WARN or
-FAIL; a file is valid when no check FAILs.
+Checks against the SOBA parquet format specification (``spec``): file naming convention and
+reference product list, readability, the mandatory columns of the mode (WV or IW), SAR dates
+against the filename, SAR positions, SAFE identities, primary keys and their precision, the global
+attributes; plus SOBA production checks outside the spec (curation provenance, version metadata).
+Each check is reported as PASS, WARN or FAIL; a file is valid when no check FAILs.
 """
 
 from __future__ import annotations
@@ -18,11 +18,14 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from . import spec
+
 DATASET_TYPES = ("catalogue", "curated")
 
 # <mission>_<kind>_<mode>_<start>_<stop>_<production>_<pol>_<product>_<X.Y>.parquet
-# Dates are YYYYMMDD or YYYYMMDDTHHMMSS (the WV x altimeter catalogues).
-_DATE = r"\d{8}(?:T\d{6})?"
+# Dates are YYYYMMDD (spec); YYYYMMDDTHHMMSS (older WV x altimeter catalogues) is refused.
+_DATE = r"\d{8}"
+TIMESTAMP_NAME_RE = re.compile(r"_\d{8}T\d{6}_")
 NAME_RE = re.compile(
     rf"(?P<mission>S1[A-D])_(?P<kind>coaligned_catalogue|curated)_(?P<mode>WV|IW|EW|SM)_"
     rf"(?P<start>{_DATE})_(?P<stop>{_DATE})_(?P<production>{_DATE})_"
@@ -31,20 +34,15 @@ NAME_RE = re.compile(
 )
 KIND = {"catalogue": "coaligned_catalogue", "curated": "curated"}
 
-# Columns shared by every published SOBA catalogue and curated dataset.
-COMMON_COLUMNS = (
-    "primary_key", "sar_time", "sar_incidence_angle",
-    "sar_elevation_angle", "sar_safe_slc", "sar_safe_ocn", "sar_path_slc",
-    "sar_path_ocn", "ref_time", "ref_lat", "ref_lon", "ref_flag",
-)
 # Optional: checked only when present. Spec 1.5.0 dropped them from every dataset; files produced
 # before it may still carry them.
-POSITION_COLUMNS = ("sar_lat", "sar_lon")
+POSITION_COLUMNS = spec.OPTIONAL_POSITION_COLUMNS
+# Written by soba_reference_repo curation (not in the spec): checked when present.
 CURATION_COLUMNS = ("_curation_mission", "_curation_row")
 MISSING_SAFE = ("", "UNKNOWN")
 # primary_key ends with the reference coordinates: ..._<lon>_<lat>
 KEY_COORDS_RE = r"_(-?\d+(?:\.(\d*))?)_(-?\d+(?:\.(\d*))?)$"
-MIN_KEY_DECIMALS = 2
+MIN_KEY_DECIMALS = spec.MIN_KEY_DECIMALS
 
 
 @dataclass
@@ -74,6 +72,10 @@ def _strings(table: pa.Table, name: str) -> pd.Series:
 
 
 def _check_name(report: Report) -> dict | None:
+    if TIMESTAMP_NAME_RE.search(report.path.name):
+        report.add("FAIL", "Filename convention",
+                   "dates must be YYYYMMDD (spec), found YYYYMMDDTHHMMSS")
+        return None
     match = NAME_RE.fullmatch(report.path.name)
     if match is None:
         report.add("FAIL", "Filename convention",
@@ -102,23 +104,36 @@ def _check_name(report: Report) -> dict | None:
     report.add("PASS", "Filename convention",
                f"{parts['mission']} {parts['mode']} {parts['pol']} {parts['product']} "
                f"v{parts['version']}")
+    if spec.is_spec_product(parts["product"]):
+        report.add("PASS", "Reference product in the spec list", parts["product"])
+    else:
+        report.add("FAIL", "Reference product in the spec list",
+                   f"{parts['product']!r} is not a spec {spec.SPEC_VERSION} <refproductname>")
     return {**parts, "start_d": start, "stop_d": stop, "production_d": production}
 
 
-def _check_columns(report: Report, table: pa.Table) -> bool:
-    required = list(COMMON_COLUMNS)
-    if report.file_type == "curated":
-        required += CURATION_COLUMNS
+def _mode(table: pa.Table, name: dict | None) -> str:
+    """The SAR mode: from the filename, else IW when the GRD SAFE column is there, else WV."""
+    if name is not None:
+        return name["mode"]
+    return "IW" if "sar_safe_grd" in table.column_names else "WV"
+
+
+def _check_columns(report: Report, table: pa.Table, mode: str) -> bool:
+    required = list(spec.CATALOGUE_COLUMNS[mode])
     missing = [name for name in required if name not in table.column_names]
     if missing:
-        report.add("FAIL", "Required columns", f"missing {missing}")
+        report.add("FAIL", "Required columns",
+                   f"missing spec {spec.SPEC_VERSION} {mode} columns {missing}")
         return False
     dtype = table.schema.field("sar_time").type
     if not (pa.types.is_timestamp(dtype) or pa.types.is_string(dtype)
             or pa.types.is_large_string(dtype)):
         report.add("FAIL", "Required columns", f"sar_time type {dtype}")
         return False
-    report.add("PASS", "Required columns", f"{len(required)} columns present")
+    report.add("PASS", "Required columns",
+               f"{len(required)} spec {spec.SPEC_VERSION} {mode} columns present "
+               "(ref_param columns are named per dataset: not checked)")
     return True
 
 
@@ -159,17 +174,18 @@ def _check_positions(report: Report, table: pa.Table) -> None:
         return
     lat = pd.to_numeric(table.column("sar_lat").to_pandas(), errors="coerce")
     lon = pd.to_numeric(table.column("sar_lon").to_pandas(), errors="coerce")
-    bad = int((~(lat.abs().le(90) & lon.ge(-180) & lon.le(360))).sum())
+    bad = int((~(lat.abs().le(90) & lon.ge(-180) & lon.le(180))).sum())
     if bad:
         # Catalogues keep the source rows (e.g. netCDF fill value 9.97e36);
         # curation is expected to remove them.
         level = "FAIL" if report.file_type == "curated" else "WARN"
-        report.add(level, "SAR positions", f"{bad:,} rows with invalid sar_lat/sar_lon")
+        report.add(level, "SAR positions",
+                   f"{bad:,} rows with sar_lat outside [-90, 90] or sar_lon outside [-180, 180]")
     else:
         report.add("PASS", "SAR positions")
 
 
-def _check_safes(report: Report, table: pa.Table, name: dict | None) -> None:
+def _check_safes(report: Report, table: pa.Table, name: dict | None, mode: str) -> None:
     unknown = 0
     for column in ("sar_safe_slc", "sar_safe_ocn"):
         values = _strings(table, column)
@@ -180,12 +196,14 @@ def _check_safes(report: Report, table: pa.Table, name: dict | None) -> None:
         report.add("PASS", "SAFE identities")
     if name is None:
         return
-    slc = _strings(table, "sar_safe_slc").dropna()
-    units = slc.str.extract(r"(S1[A-D])_[A-Z]{2}_", expand=False).dropna()
+    # The SAFE the primary key is built on: GRD in IW (and EW, SM), SLC in WV.
+    column = "sar_safe_slc" if mode == "WV" else "sar_safe_grd"
+    safes = _strings(table, column).dropna()
+    units = safes.str.extract(r"(S1[A-D])_[A-Z]{2}_", expand=False).dropna()
     other = int((units != name["mission"]).sum())
     if other:
         report.add("FAIL", "SAFE unit matches the filename",
-                   f"{other:,} SLC SAFE not from {name['mission']}")
+                   f"{other:,} {column} not from {name['mission']}")
     else:
         report.add("PASS", "SAFE unit matches the filename")
 
@@ -201,13 +219,12 @@ def _check_keys(report: Report, table: pa.Table) -> None:
         report.add("PASS", "Primary keys", "non-null and unique")
 
 
-def _check_key_precision(report: Report, table: pa.Table, name: dict | None) -> None:
-    """Reference lon/lat in primary_key need >= 2 decimals to stay unique.
+def _check_key_precision(report: Report, table: pa.Table) -> None:
+    """Reference lon/lat in primary_key need >= 2 decimals (spec), for every reference.
 
     One WV imagette can match several reference points (several SCAT cells,
     two SCAT passes, products at 7.5/12.5/25 km): with 1 decimal (~11 km)
-    distinct points collide on the same key. SWOT keys use 0.1 degree by
-    contract (swot_test), so they are only warned about.
+    distinct points collide on the same key.
     """
     coords = _strings(table, "primary_key").str.extract(KEY_COORDS_RE)
     found = coords[0].notna()
@@ -222,13 +239,16 @@ def _check_key_precision(report: Report, table: pa.Table, name: dict | None) -> 
         report.add("PASS", "Primary key coordinate precision",
                    f">= {MIN_KEY_DECIMALS} decimals on lon/lat")
         return
-    swot = name is not None and "SWOT" in name["product"]
-    report.add("WARN" if swot else "FAIL", "Primary key coordinate precision",
-               f"{coarse:,} keys with < {MIN_KEY_DECIMALS} decimals on lon/lat"
-               + (" (SWOT 0.1 degree key contract)" if swot else ""))
+    report.add("FAIL", "Primary key coordinate precision",
+               f"{coarse:,} keys with < {MIN_KEY_DECIMALS} decimals on lon/lat")
 
 
 def _check_provenance(report: Report, table: pa.Table, name: dict | None) -> None:
+    absent = [column for column in CURATION_COLUMNS if column not in table.column_names]
+    if absent:
+        report.add("WARN", "Curation provenance",
+                   f"not checked: {absent} absent (SOBA curation columns, not in the spec)")
+        return
     missions = _strings(table, "_curation_mission")
     rows = pd.to_numeric(table.column("_curation_row").to_pandas(), errors="coerce")
     invalid = int((missions.isna() | ~missions.fillna("").str.fullmatch(r"S1[A-D]")
@@ -243,8 +263,27 @@ def _check_provenance(report: Report, table: pa.Table, name: dict | None) -> Non
         report.add("PASS", "Curation provenance")
 
 
+def _check_global_attributes(report: Report, schema: pa.Schema) -> None:
+    """The global attributes the spec makes mandatory, plus the curated source catalogue."""
+    meta = {key.decode(errors="replace"): value.decode(errors="replace")
+            for key, value in (schema.metadata or {}).items()}
+    required = list(spec.GLOBAL_ATTRIBUTES)
+    if report.file_type == "curated":
+        required.append(spec.CURATED_ATTRIBUTE)
+    missing = [key for key in required if not meta.get(key, "").strip()]
+    sources = [key for key in meta if spec.SOURCE_ATTRIBUTE_RE.fullmatch(key)]
+    if not sources:
+        missing.insert(0, "source <ref>")
+    if missing:
+        report.add("FAIL", "Global attributes",
+                   f"missing or empty spec {spec.SPEC_VERSION} attributes {missing}")
+    else:
+        report.add("PASS", "Global attributes", ", ".join([*sources, *required]))
+
+
 def _check_metadata(report: Report, schema: pa.Schema, name: dict | None) -> None:
-    meta = {key.decode(): value.decode(errors="replace")
+    """dataset_version / production_date against the filename (SOBA curation, not in the spec)."""
+    meta = {key.decode(errors="replace"): value.decode(errors="replace")
             for key, value in (schema.metadata or {}).items()}
     if report.file_type != "curated" or name is None:
         return
@@ -280,13 +319,15 @@ def validate_dataset(path: Path, file_type: str) -> Report:
         report.add("FAIL", "Parquet readable", "no rows")
         return report
     report.add("PASS", "Parquet readable")
-    if not _check_columns(report, table):
+    _check_global_attributes(report, table.schema)
+    mode = _mode(table, name)
+    if not _check_columns(report, table, mode):
         return report
     _check_sar_dates(report, table, name)
     _check_positions(report, table)
-    _check_safes(report, table, name)
+    _check_safes(report, table, name, mode)
     _check_keys(report, table)
-    _check_key_precision(report, table, name)
+    _check_key_precision(report, table)
     if file_type == "curated":
         _check_provenance(report, table, name)
     _check_metadata(report, table.schema, name)

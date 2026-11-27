@@ -498,7 +498,7 @@ def test_curated_global_attributes_from_older_catalogues():
         "PODAAC-SWOT-KARIN-L2-WINDWAVE-D0_0.1.parquet",
         {b"source_ref": b"PODAAC SWOT Karin L2 WindWave PGD0 and PID0 (D0)"}, ["prob_1"])
     assert swot["source swot"] == "PODAAC SWOT Karin L2 WindWave PGD0 and PID0 (D0)"
-    assert swot["source ancillary datasets"] == ""
+    assert swot["source ancillary datasets"] == "none"
     hscat = _attributes(
         "S1A_coaligned_catalogue_WV_20190116_20260629_20260908_SV_KNMI-HSCAT-HY2-25km_0.2.parquet",
         {b"utils_meta": json.dumps({"attrs": {"source ref": "HY-2B/HY-2C/HY-2D 25km KNMI"}})

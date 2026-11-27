@@ -77,7 +77,7 @@ def curated_global_attributes(source_path, metadata, table, production_date=None
     attributes = {
         "source_catalogue_dataset": name,
         source_key: source,
-        "source ancillary datasets": ancillary,
+        "source ancillary datasets": ancillary or "none",
         "library used to produce the parquet": LIBRARY,
         "library version": library_version(),
         "creation date": str(production_date or datetime.now().strftime("%Y%m%d")),

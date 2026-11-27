@@ -310,18 +310,24 @@ soba_validate_parquets --type curated --file /path/to/curated/S1?/*_5.0.parquet
 Each check is reported `[PASS]`, `[WARN]` or `[FAIL]`; the command exits 1 when any file has a
 `[FAIL]`.
 
+The checks follow the parquet format specification (`src/soba_reference_repo/spec.py`, spec
+1.7.0); the last two rows are SOBA production checks outside the spec.
+
 | Check | catalogue | curated |
 |---|---|---|
-| Filename convention (`S1X_<kind>_<mode>_<start>_<stop>_<production>_<pol>_<product>_<X.Y>`) | FAIL | FAIL |
+| Filename convention (`S1X_<kind>_<mode>_<start>_<stop>_<production>_<pol>_<product>_<X.Y>`, dates `YYYYMMDD`) | FAIL | FAIL |
+| `<product>` in the spec list (SWOT: `PODAAC-SWOT-KARIN-L2-WINDWAVE-<release>`) | FAIL | FAIL |
 | Parquet readable, at least one row | FAIL | FAIL |
-| Common columns (`primary_key`, `sar_time`, `sar_*_angle`, `sar_safe_*`, `sar_path_*`, `ref_*`; curated: `_curation_mission`, `_curation_row`); `sar_lat`/`sar_lon` optional (not written since spec 1.5.0, still found in older files) | FAIL | FAIL |
+| Global attributes: `source <ref>`, `source ancillary datasets`, `library used to produce the parquet`, `library version`, `creation date`; curated: `source_catalogue_dataset` | FAIL | FAIL |
+| Mandatory columns of the mode's spec table (WV; IW, also used for EW / SM); `ref_param` columns are named per dataset and not checked; `sar_lat`/`sar_lon` optional | FAIL | FAIL |
 | `sar_time` non-null | FAIL | FAIL |
 | Filename dates vs data | FAIL if data outside, WARN if name wider | FAIL unless first/last kept SAR dates |
-| SAR positions (`\|sar_lat\| <= 90`, `-180 <= sar_lon <= 360`), only in older files that still have the optional `sar_lat`/`sar_lon` | WARN | FAIL |
+| SAR positions (`\|sar_lat\| <= 90`, `-180 <= sar_lon <= 180`), only in older files that still have the optional `sar_lat`/`sar_lon` | WARN | FAIL |
 | SAFE identities (missing / `UNKNOWN`) | WARN | WARN |
-| SLC SAFE unit matches the filename unit | FAIL | FAIL |
+| Unit of the key SAFE (WV: SLC, IW: GRD) matches the filename unit | FAIL | FAIL |
 | Primary keys non-null and unique | FAIL | FAIL |
-| Curation provenance (`_curation_mission` = unit, `_curation_row` >= 0, unique) | – | FAIL |
+| Primary key `ref_lon` / `ref_lat` with at least 2 decimals (every reference, SWOT included) | FAIL | FAIL |
+| Curation provenance (`_curation_mission` = unit, `_curation_row` >= 0, unique); WARN when the columns are absent | – | FAIL |
 | `dataset_version` / `production_date` metadata match the filename | – | FAIL (WARN if absent) |
 
 ## Development

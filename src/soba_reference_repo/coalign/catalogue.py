@@ -190,7 +190,8 @@ def _global_attributes(ref_sources, key, ancillary, production) -> dict:
     kind = REFERENCE_KIND[key[2][:4]]
     return {
         f"source {kind}": ", ".join(sorted(ref_sources)),
-        "source ancillary datasets": ", ".join(source.description for source in ancillary),
+        "source ancillary datasets": (
+            ", ".join(source.description for source in ancillary) or "none"),
         "library used to produce the parquet": "soba_reference_repo",
         "library version": library_version(),
         "creation date": production,
