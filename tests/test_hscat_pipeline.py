@@ -17,6 +17,7 @@ from soba_reference_repo.hscat_report import (
 from soba_reference_repo.hscat_test import (
     HSCAT_DEFAULT_RULES,
     build_scat_frames,
+    validate_scat_file,
     write_scat_pair_chunked,
 )
 from soba_reference_repo.quality_disclaimers import (
@@ -51,6 +52,7 @@ def hscat_source(folder, mission="S1A", include_ecmwf=True):
             "ref_id": ["scatterometer.granule"] * 3,
             "ref_ice_prob": [0.0] * 3,
             "ref_flag": [0] * 3,
+            "ref_distance_to_coast": [50.0] * 3,
             "ecmwf_wind_dir_360": [45.0, 44.0, 46.0],
         }
     )
@@ -502,7 +504,7 @@ def test_hscat_pair_excludes_every_row_with_a_duplicate_primary_key(tmp_path):
     frame.loc[1, "ref_param_2"] = 5.5
     frame["_curation_mission"] = "S1A"
 
-    test, target, summary = build_scat_frames(frame, "windspeed")
+    test, target, summary = build_scat_frames(frame, "windspeed", source="KNMI-HSCAT-HY2-25km")
 
     assert test["primary_key"].to_list() == ["S1A_key_2"]
     assert target["primary_key"].to_list() == ["S1A_key_2"]
@@ -549,3 +551,59 @@ def test_chunked_duplicate_exclusions_do_not_overlap_incomplete_rows(tmp_path):
         "excluded_duplicate_key_rows"
     ] == len(frame)
     assert pq.read_table(tmp_path / "TEST2.parquet")["primary_key"].to_pylist() == ["complete"]
+
+
+def _curated_frame(tmp_path):
+    frame = pq.read_table(hscat_source(tmp_path)).to_pandas()
+    frame["_curation_mission"] = "S1A"
+    return frame
+
+
+def test_scat_target_has_no_reference_parameter(tmp_path):
+    test, target, _ = build_scat_frames(_curated_frame(tmp_path), "windspeed", source="HSCAT")
+
+    assert "scat_windspeed" in test
+    assert not {"scat_windspeed", "scat_winddirection"} & set(target.columns)
+    assert list(target.columns)[-1] == "scat_time"
+
+
+def test_scat_test_has_distance_to_coast_and_source(tmp_path):
+    frame = _curated_frame(tmp_path)
+
+    test, _, _ = build_scat_frames(frame, "windspeed", source="KNMI-HSCAT-HY2-25km")
+    assert test["sar_distance_to_coast"].to_list() == [50.0] * 3
+    assert test["scat_source"].to_list() == ["KNMI-HSCAT-HY2-25km"] * 3
+
+    frame["ref_source"] = "ASCAT-B"
+    frame["sar_distance_to_coast"] = 12.0
+    test, _, _ = build_scat_frames(frame, "windspeed", source="ignored")
+    assert test["scat_source"].to_list() == ["ASCAT-B"] * 3
+    assert test["sar_distance_to_coast"].to_list() == [12.0] * 3
+
+
+def test_scat_frames_need_distance_and_source(tmp_path):
+    frame = _curated_frame(tmp_path)
+    with pytest.raises(ValueError, match="ref_source"):
+        build_scat_frames(frame, "windspeed")
+    with pytest.raises(ValueError, match="distance_to_coast"):
+        build_scat_frames(frame.drop(columns="ref_distance_to_coast"), "windspeed", source="x")
+
+
+def test_validator_fails_a_target_with_the_reference_parameter(tmp_path):
+    test, target, _ = build_scat_frames(_curated_frame(tmp_path), "windspeed", source="HSCAT")
+    metadata = {key: b"x" for key in (
+        b"source scat", b"source ancillary datasets", b"library used to produce the parquet",
+        b"library version", b"creation date")}
+    good, bad = tmp_path / "target.parquet", tmp_path / "bad_target.parquet"
+
+    def write(frame, path):
+        table = pa.Table.from_pandas(frame, preserve_index=False)
+        pq.write_table(table.replace_schema_metadata(metadata), path)
+
+    write(target, good)
+    target["scat_windspeed"] = test["scat_windspeed"]
+    write(target, bad)
+
+    assert validate_scat_file(good, "target")
+    with pytest.raises(ValueError, match="must not contain the reference parameter"):
+        validate_scat_file(bad, "target")
