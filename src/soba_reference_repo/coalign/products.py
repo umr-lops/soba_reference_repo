@@ -18,7 +18,7 @@ from dataclasses import dataclass
 class Reference:
     """How one STAC reference product maps onto the catalogue."""
 
-    name: str  # <refproductname> of the file name (spec section 1.1); "{ver}" = SWOT version
+    name: str  # <refproductname> of the file name (spec section 1.1)
     params: tuple  # ((catalogue column, STAC point field), ...) in column order
     flag: str | None  # STAC point field copied to ref_flag; None = the product has none (null)
 
@@ -40,8 +40,12 @@ REFERENCES = {
     "ESACCI_SEASTATE_L2P_V5": Reference(
         "CCI-SEASTATE_ALTI_L2P-V5", (("swh_alti", "swh"),), "swh_quality_level",
     ),
+    # Spec 1.5.0: the SWOT name carries the release of the run (D0, D2), as the matchups do.
     "PODAAC_SWOT_KARIN_L2_WINDWAVE_D0": Reference(
-        "SWOT-KARIN-L2-WINDWAVE-{ver}", (("swh_swot", "swh_karin"),), "swh_karin_qual",
+        "PODAAC-SWOT-KARIN-L2-WINDWAVE-D0", (("swh_swot", "swh_karin"),), "swh_karin_qual",
+    ),
+    "PODAAC_SWOT_KARIN_L2_WINDWAVE_D2": Reference(
+        "PODAAC-SWOT-KARIN-L2-WINDWAVE-D2", (("swh_swot", "swh_karin"),), "swh_karin_qual",
     ),
 }
 
@@ -54,11 +58,10 @@ def reference_for(product: str) -> Reference:
     return REFERENCES[product]
 
 
-def product_name(reference: Reference, reference_version: str | None) -> str:
-    """``<refproductname>`` of the file name; SWOT is named after PGD0 / PID0."""
-    if "{ver}" not in reference.name:
-        return reference.name
-    version = (reference_version or "")[:4]
-    if version not in ("PGD0", "PID0"):
-        raise ValueError(f"cannot name a SWOT file from reference_version {reference_version!r}")
-    return reference.name.format(ver=version)
+def product_name(reference: Reference, reference_version: str | None = None) -> str:
+    """``<refproductname>`` of the file name.
+
+    SWOT is named after the release of the run (``...-D0``, ``...-D2``, spec 1.5.0), not after
+    the processing (PGD0 / PID0) of each granule, so ``reference_version`` no longer matters.
+    """
+    return reference.name

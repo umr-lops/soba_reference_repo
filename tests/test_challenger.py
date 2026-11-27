@@ -51,7 +51,7 @@ def recipe(tmp_path, rows, *, duplicate=False, quality=3, flags=0, swh=2.5):
     config = tmp_path / "recipe.toml"
     config.write_text(
         'test = "test.parquet"\narchive_root = "archive"\noutput_dir = "out"\n'
-        'production_date = "20261002"\nversion = "1.0"\n'
+        'production_date = "20261002"\nversion = "v1"\n'
         "max_time_delta_seconds = 3\nmax_distance_km = 5\n"
     )
     return config
@@ -72,7 +72,7 @@ def row(key="good", **updates):
 
 def read_run(path):
     out = path.parent / "out"
-    result = pq.read_table(out / "S1_challenger_ESACCI-SEASTATE_WV_20261002_1.0.parquet")
+    result = pq.read_table(out / "S1_challenger_ESACCI-SEASTATE_WV_20261002_v1.parquet")
     return result, json.loads((out / "audit.json").read_text())
 
 
@@ -181,6 +181,9 @@ def test_many_source_files_never_stay_open_together(tmp_path, monkeypatch):
     [
         'production_date = "20260230"',
         'version = "x"',
+        'version = "1.0"',
+        'version = "v0"',
+        'challenger_name = "ESA_CCI"',
         "max_distance_km = 0",
         "max_time_delta_seconds = true",
         "unknown = 1",
@@ -201,6 +204,16 @@ def test_invalid_recipe_rejected_without_output(tmp_path, replacement):
     with pytest.raises(ValueError):
         challenger.produce_challenger(path)
     assert not (tmp_path / "out").exists()
+
+
+def test_file_name_follows_the_spec_and_takes_the_team_name(tmp_path):
+    """Spec naming (#55): S1_challenger_<challenger-name>_<sarmode>_<productiondate>_vN."""
+    assert challenger.challenger_name("Ifremer", "20261127", "v2") == (
+        "S1_challenger_Ifremer_WV_20261127_v2.parquet")
+    path = recipe(tmp_path, [row()])
+    path.write_text(path.read_text() + 'challenger_name = "OceanSAR12"\n')
+    challenger.produce_challenger(path)
+    assert (tmp_path / "out" / "S1_challenger_OceanSAR12_WV_20261002_v1.parquet").is_file()
 
 
 def test_cli_recipe(tmp_path):
@@ -248,7 +261,7 @@ def test_real_copied_cci_files_with_local_test(tmp_path):
     path = tmp_path / "recipe.toml"
     path.write_text(
         'test = "test.parquet"\narchive_root = "archive"\noutput_dir = "out"\n'
-        'production_date = "20261002"\nversion = "1.0"\n'
+        'production_date = "20261002"\nversion = "v1"\n'
         "max_time_delta_seconds = 3\nmax_distance_km = 0.1\n"
     )
     challenger.produce_challenger(path)

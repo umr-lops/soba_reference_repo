@@ -425,8 +425,9 @@ def test_hscat_run_applies_recipe_wind_and_quality_filters(tmp_path, capsys):
     assert "TEST" not in report and "TARGET" not in report
     assert r"ref\_param\_1" in report and r"ref\_param\_2" in report
     assert Path(manifest["report_tex"]).parent == tmp_path / "output/report"
-    assert test_path.name == "S1_reference_test_dataset_WV_20260103_windspeed_0.1.parquet"
-    assert target_path.name == "S1_target_dataset_WV_20260103_windspeed_0.1.parquet"
+    # Spec naming convention (#54): wind-speed / wind-direction.
+    assert test_path.name == "S1_reference_test_dataset_WV_20260103_wind-speed_0.1.parquet"
+    assert target_path.name == "S1_target_dataset_WV_20260103_wind-speed_0.1.parquet"
     sections = [
         "Version History", "Dataset Content Description", "Global Coverage Map",
         "Monthly Distribution of Matchups", "HSCAT Wind-Speed and Wind-Direction Distributions",
