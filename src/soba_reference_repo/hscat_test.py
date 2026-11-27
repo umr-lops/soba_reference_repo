@@ -48,6 +48,9 @@ VARIABLE_COLUMNS = {
     "windspeed": ("ref_param_2", "scat_windspeed", "m/s"),
     "winddirection": ("ref_param_1", "scat_winddirection", "degrees"),
 }
+# <variablename> of the TEST / TARGET file names (spec naming convention): the recipe's
+# reference_variable keeps its own spelling.
+FILE_VARIABLE = {"windspeed": "wind-speed", "winddirection": "wind-direction"}
 HSCAT_DEFAULT_RULES = (
     {
         "id": "ecmwf_scat_speed_difference",
@@ -451,7 +454,7 @@ def _write_pair(
 ):
     stem = (
         f"S1_reference_test_dataset_WV_{recipe['production_date']}_"
-        f"{recipe['reference_variable']}_{recipe['version']}"
+        f"{FILE_VARIABLE[recipe['reference_variable']]}_{recipe['version']}"
     )
     target_stem = stem.replace("reference_test_dataset", "target_dataset", 1)
     directory = root / "datasets"
@@ -594,7 +597,7 @@ def run_hscat_recipe(recipe_path):
         stage = "pair"
         stem = (
             f"S1_reference_test_dataset_WV_{recipe['production_date']}_"
-            f"{recipe['reference_variable']}_{recipe['version']}"
+            f"{FILE_VARIABLE[recipe['reference_variable']]}_{recipe['version']}"
         )
         test_path = root / "datasets" / f"{stem}.parquet"
         target_path = (

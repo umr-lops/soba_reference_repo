@@ -95,13 +95,14 @@ def test_ref_params_are_named_per_dataset_and_only_what_is_needed():
     assert reference_for("CMEMS_WAV_L3_ALTI_VAVH").params == (("swh_alti", "VAVH"),)
 
 
-def test_altimeter_has_no_flag_and_swot_is_named_by_version():
+def test_altimeter_has_no_flag_and_swot_is_named_by_release():
+    """Spec 1.5.0 (#53): PODAAC-SWOT-KARIN-L2-WINDWAVE-<release>, whatever the processing."""
     assert reference_for("CMEMS_WAV_L3_ALTI_VAVH").flag is None
-    swot = reference_for("PODAAC_SWOT_KARIN_L2_WINDWAVE_D0")
-    assert product_name(swot, "PID0_01") == "SWOT-KARIN-L2-WINDWAVE-PID0"
-    assert product_name(swot, "PGD0_02") == "SWOT-KARIN-L2-WINDWAVE-PGD0"
-    with pytest.raises(ValueError, match="SWOT file"):
-        product_name(swot, "XYZ_01")
+    d0 = reference_for("PODAAC_SWOT_KARIN_L2_WINDWAVE_D0")
+    assert product_name(d0, "PID0_01") == product_name(d0, "PGD0_02") == (
+        "PODAAC-SWOT-KARIN-L2-WINDWAVE-D0")
+    d2 = reference_for("PODAAC_SWOT_KARIN_L2_WINDWAVE_D2")
+    assert product_name(d2, "PID2_01") == "PODAAC-SWOT-KARIN-L2-WINDWAVE-D2"
     with pytest.raises(ValueError, match="no catalogue mapping"):
         reference_for("NOT_A_PRODUCT")
 

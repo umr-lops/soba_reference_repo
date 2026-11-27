@@ -165,6 +165,11 @@ Copy `examples/cci-seastate-challenger.toml`, set its paths and run settings, th
 soba_produce_challenger --recipe path/to/challenger.toml
 ```
 
+The output follows the spec naming convention,
+`S1_challenger_<challenger-name>_WV_<productiondate>_<version>.parquet`: `version` is `v1`, `v2`,
+... (incremental) and `challenger_name` (optional, default `ESACCI-SEASTATE`) names the team or
+model, without `_`.
+
 ## Validate existing Parquets
 
 Validate supported TEST, TARGET, and CHALLENGER files individually (catalogue and curated datasets: see below):

@@ -25,6 +25,12 @@ _FILENAME = re.compile(
 _SAFE = re.compile(r"^(S1[ABCD])_WV_OCN__[^_]+_([0-9]{8}T[0-9]{6})_")
 _COLUMNS = ["primary_key", "sar_safe_ocn", "sar_time", "sar_lat", "sar_lon"]
 _EPOCH = datetime(1990, 1, 1, tzinfo=timezone.utc)
+DEFAULT_CHALLENGER_NAME = "ESACCI-SEASTATE"
+
+
+def challenger_name(name, production_date, version, mode="WV") -> str:
+    """Spec name: ``S1_challenger_<challenger-name>_<sarmode>_<productiondate>_<version>``."""
+    return f"S1_challenger_{name}_{mode}_{production_date}_{version}.parquet"
 
 
 def _read_recipe(path):
@@ -40,11 +46,19 @@ def _read_recipe(path):
         "max_time_delta_seconds",
         "max_distance_km",
     }
-    if config.keys() != required:
+    optional = {"challenger_name"}
+    if not required <= config.keys() <= required | optional:
         raise ValueError(
             f"recipe keys: missing {sorted(required - config.keys())}; "
-            f"unknown {sorted(config.keys() - required)}"
+            f"unknown {sorted(config.keys() - required - optional)}"
         )
+    # <challenger-name> of the file name (spec naming convention): the team or model that
+    # provides the predictions; no underscore, which separates the name fields.
+    config.setdefault("challenger_name", DEFAULT_CHALLENGER_NAME)
+    if not isinstance(config["challenger_name"], str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9.-]*", config["challenger_name"]
+    ):
+        raise ValueError("challenger_name must be letters, digits, '-' or '.' (no '_')")
     for key in ("test", "archive_root", "output_dir"):
         if not isinstance(config[key], str) or not config[key].strip():
             raise ValueError(f"{key} must be a nonempty path")
@@ -60,10 +74,10 @@ def _read_recipe(path):
         datetime.strptime(date, "%Y%m%d")
     except ValueError as exc:
         raise ValueError("production_date must be a valid YYYYMMDD date") from exc
-    if not isinstance(config["version"], str) or not re.fullmatch(
-        r"[0-9]+\.[0-9]+", config["version"]
-    ):
-        raise ValueError("version must use X.Y")
+    # Spec naming convention: an incremental chronological version, v1, v2, ...
+    if not isinstance(config["version"], str) or not re.fullmatch(r"v[1-9][0-9]*",
+                                                                   config["version"]):
+        raise ValueError("version must be v1, v2, ... (spec challenger naming convention)")
     for key in ("max_time_delta_seconds", "max_distance_km"):
         value = config[key]
         if type(value) not in (float, int) or not math.isfinite(value) or value <= 0:
@@ -212,7 +226,7 @@ def produce_challenger(recipe_path):
                 audit[i] = {**detail, **result}
     output = cfg["output_dir"]
     output.mkdir(parents=True, exist_ok=False)
-    name = f"S1_challenger_ESACCI-SEASTATE_WV_{cfg['production_date']}_{cfg['version']}.parquet"
+    name = challenger_name(cfg["challenger_name"], cfg["production_date"], cfg["version"])
     result = pa.table(
         {
             "primary_key": pa.array(keys, type=pa.string()),
