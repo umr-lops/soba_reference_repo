@@ -141,13 +141,10 @@ Table~\ref{tab:reference_stats} summarises the retained @@REFERENCE_LABEL@@.
 
 \Needspace{0.65\textheight}
 \subsection{Catalogue Columns}
-The co-aligned catalogue carries the SAR observation, the matched reference measurement, and the
-co-alignment geometry. The two reference databases (CCI SeaState V5 and CMEMS ALTI-L3-VAVH)
-carry \emph{different} column sets, so each is described in its own table (a union over the SAR
-units of that database). Descriptions marked inferred are field-name interpretations, not
-verified source definitions.
+@@COLUMNS_INTRO@@
 @@COLUMN_TABLES@@
 @@CATALOGUE_VERSIONS@@
+@@COLUMNS_EXTRA@@
 
 @@SAMPLING_NOTE@@
 
@@ -172,36 +169,19 @@ Product metadata and provenance are listed below. Original source attributes rem
 % SECTION 2 : Position in the dataflow
 % ---------------------------
 \section{Position in the Dataflow}
-This document describes the \textbf{co-aligned catalogue}: the raw, concatenated and enriched
-matchups produced by the colocation pipeline, before any quality curation. It is the input to the
-curation step that yields the \emph{curated} dataset (see the corresponding Curated dataset
-document for the applied quality filters and their per-step counts).
+@@POSITION_TEXT@@
 
 \begin{itemize}
     \item \textbf{SAR product and provider:} @@SAR_PRODUCT@@
     \item \textbf{Reference product and provider:} @@REFERENCE_PRODUCT@@
     \item \textbf{SAR acquisition mode:} Wave Mode (WV).
-    \item \textbf{Polarization:} single VV (SV).
+    \item \textbf{Polarization:} @@POLARIZATION@@
 \end{itemize}
 
 \noindent
-A catalogue file is one per SAR unit and reference database (CCI SeaState V5 or
-CMEMS ALTI-L3-VAVH); each row is a Sentinel-1 WV imagette collocated in space and time
-with one or more altimeter observations. The primary key of the catalogue is
-\texttt{sar\_safe\_slc} + \texttt{ref\_lon} + \texttt{ref\_lat} (rounded to 3 decimals).
-Multiple reference matches can correspond to one SAR image, so row counts are not counts
-of distinct images.
+@@FILE_DESCRIPTION@@
 
-\Needspace{0.5\textheight}
-\subsection{How the Catalogue Is Produced}
-The co-aligned catalogue is built by the colocation-to-catalogue pipeline
-(\texttt{catawvaltioneshot}): it loads the unified WV--altimeter colocation NetCDF files,
-enriches them, and writes one SOBA-schema Parquet catalogue per SAR unit and reference
-database. The table below lists the columns the pipeline \emph{adds or renames} on top of
-the raw colocation variables; the remaining columns are carried over from the colocation
-files (renamed to the SOBA schema, e.g. \texttt{oswLon} $\to$ \texttt{sar\_lon},
-\texttt{hs\_alti\_closest} $\to$ \texttt{ref\_hs\_alti\_closest}).
-@@DATAFLOW_EXTRA@@
+@@PRODUCTION_SECTION@@
 
 \newpage
 \addcontentsline{toc}{section}{References}
