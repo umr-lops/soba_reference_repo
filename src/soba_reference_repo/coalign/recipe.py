@@ -20,7 +20,7 @@ ANCILLARY = {
     "tengeop": True,   # class_1, pos_1: CLS deep-learning DL_Summary.xml tree
     "imerg": False,    # rain rate
     "ecmwf": True,     # ECMWF_Wind_Speed, ECMWF_Wind_Direction: operational 10 m wind
-    "era5": False,     # reanalysis 10 m wind
+    "era5": True,      # ERA5_Wind_Speed, ERA5_Wind_Direction: reanalysis 10 m wind
     "ww3": False,      # CCI sea state WW3 run
     "gebco": False,    # bathymetry
 }

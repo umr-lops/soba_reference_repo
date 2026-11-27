@@ -26,3 +26,4 @@ l1 = ["/legacy/project/cersat/public/cache/project/mpc-sentinel1/data/esa",  # M
 # the "ancillary columns not filled" global attribute.
 [ancillary]
 ecmwf = "/legacy/project/cersat/public/provider/ecmwf/forecast/hourly/0100deg/netcdf_light"
+era5 = "/reference/ref-ecmwf/ERA5"

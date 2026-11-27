@@ -55,7 +55,7 @@ def test_invalid_recipes_are_rejected(tmp_path, text, message):
 def test_every_ancillary_source_of_the_project_is_named():
     """The recipe knows all agreed sources; only the implemented ones are accepted for now."""
     assert set(ANCILLARY) == {"tengeop", "imerg", "ecmwf", "era5", "ww3", "gebco"}
-    assert [k for k, v in ANCILLARY.items() if v] == ["tengeop", "ecmwf"]
+    assert [k for k, v in ANCILLARY.items() if v] == ["tengeop", "ecmwf", "era5"]
 
 
 def test_a_missing_ancillary_folder_fails_instead_of_leaving_nulls(tmp_path):
