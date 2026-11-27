@@ -12,18 +12,31 @@ from pathlib import Path
 DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def find_days(product_dir, start: str, end: str) -> list:
-    """Day folders under ``product_dir`` (any depth, so ``<day>`` and ``ocn/wv/<day>`` both work).
+def find_days(product_dir, start: str, end: str, run=("ocn", "wv"), legacy=True) -> list:
+    """The run folder (it holds ``manifest.json`` and ``items/``) of each day, in day order.
 
-    A folder counts when its name is ``YYYY-MM-DD`` and it holds a ``manifest.json``.
-    ``<day>.replaced-*`` folders are not days. ``start`` and ``end`` are inclusive.
+    Two soba_matchups layouts are read:
+
+    - the common one, ``<product_dir>/<YYYY-MM-DD>/<product_type>/<mode>/`` with ``run`` =
+      ``(product_type, mode)`` (e.g. ``swot/d2/2026-11-20/ocn/wv``);
+    - with ``legacy``, the older one where the day folder is the run: ``<day>/`` or
+      ``ocn/wv/<day>/``.
+
+    When a day has both, the common layout wins. ``<day>.replaced-*`` folders are not days;
+    ``start`` and ``end`` are inclusive.
     """
-    found = {}
-    for manifest in Path(product_dir).glob("**/manifest.json"):
-        day = manifest.parent
-        if DAY.match(day.name) and start <= day.name <= end:
-            found.setdefault(day.name, day)
-    return [found[name] for name in sorted(found)]
+    root = Path(product_dir)
+    common, old = {}, {}
+    for manifest in [*root.glob("*/manifest.json"), *root.glob("*/*/*/manifest.json")]:
+        folder = manifest.parent
+        if DAY.match(folder.name):
+            if legacy:
+                old.setdefault(folder.name, folder)
+        elif (DAY.match(folder.parent.parent.name) and folder.parent.parent.parent == root
+              and (folder.parent.name, folder.name) == tuple(run)):
+            common[folder.parent.parent.name] = folder
+    found = {**old, **common}
+    return [found[day] for day in sorted(found) if start <= day <= end]
 
 
 def read_manifest(day_dir) -> dict:
