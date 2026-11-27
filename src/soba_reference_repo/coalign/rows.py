@@ -27,9 +27,12 @@ TAIL = ("ref_time", "ref_flag", "ref_id", "legacy_usage", "ref_source", "class_1
 EXTRA = ("ref_time_delta_min", "sar_ground_heading_uncertainty")
 
 
-def columns(param_names) -> list:
-    """All catalogue columns for a reference whose parameters are ``param_names``."""
-    return [*HEAD, *param_names, *TAIL, *EXTRA]
+def columns(param_names, ancillary=()) -> list:
+    """All catalogue columns for a reference whose parameters are ``param_names``.
+
+    ``ancillary`` lists the columns of the ancillary sources (those not already in ``TAIL``).
+    """
+    return [*HEAD, *param_names, *TAIL, *EXTRA, *[c for c in ancillary if c not in TAIL]]
 
 
 def _time(value: str) -> datetime:
