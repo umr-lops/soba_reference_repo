@@ -190,3 +190,21 @@ products = ["swot/d2"]
     recipe.write_text(base + 'sar_parquet_root = "stac"\n')  # WV by default
     with pytest.raises(ValueError, match="unknown keys"):
         read_recipe(recipe)
+
+
+def test_coarse_angle_flag_is_an_optional_boolean_column(tmp_path):
+    collection = tmp_path / "swot" / "d2"
+    write_day(collection, "2026-11-22", [item(GRD, [
+        point(1.0, 2.0, sar_angles_coarse=True),
+        point(3.0, 4.0, sar_angles_coarse=False),
+        point(5.0, 6.0),  # matchups before schema 23: no flag
+    ])])
+    paths, _ = build_catalogues([collection], "2026-11-22", "2026-11-22", tmp_path / "out",
+                                production="20261127", mode=iw.IW())
+    table = pq.read_table(paths[0])
+    assert str(table.schema.field("sar_angles_coarse").type) == "bool"
+    flags = dict(zip(table.column("ref_lon").to_pylist(),
+                     table.column("sar_angles_coarse").to_pylist()))
+    assert flags == {1.0: True, 3.0: False, 5.0: None}
+    assert table.column_names.index("sar_angles_coarse") == \
+        table.column_names.index("sar_ground_heading_uncertainty") + 1
