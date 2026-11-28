@@ -208,3 +208,18 @@ def test_coarse_angle_flag_is_an_optional_boolean_column(tmp_path):
     assert flags == {1.0: True, 3.0: False, 5.0: None}
     assert table.column_names.index("sar_angles_coarse") == \
         table.column_names.index("sar_ground_heading_uncertainty") + 1
+
+
+def test_angle_uncertainties_are_optional_float_columns(tmp_path):
+    collection = tmp_path / "swot" / "d2"
+    write_day(collection, "2026-11-22", [item(GRD, [
+        point(1.0, 2.0, sar_incidence_angle_uncertainty=0.9, sar_elevation_angle_uncertainty=0.9),
+        point(3.0, 4.0, sar_incidence_angle_uncertainty=3.9, sar_elevation_angle_uncertainty=3.4),
+        point(5.0, 6.0),  # matchups before schema 24
+    ])])
+    paths, _ = build_catalogues([collection], "2026-11-22", "2026-11-22", tmp_path / "out",
+                                production="20261127", mode=iw.IW())
+    rows = {r["ref_lon"]: r for r in pq.read_table(paths[0]).to_pylist()}
+    assert (rows[1.0]["sar_incidence_angle_uncertainty"],
+            rows[3.0]["sar_elevation_angle_uncertainty"]) == (0.9, 3.4)
+    assert rows[5.0]["sar_incidence_angle_uncertainty"] is None

@@ -69,7 +69,10 @@ ANCILLARY = ("sea_ice_concentration", "bathymetry", "WW3_Hs", "ECMWF_Wind_Speed"
 # Kept beyond the spec: useful for curation. sar_angles_coarse (soba_matchups schema >= 23): true
 # when incidence and elevation are s1-geometry's coarse estimate (footprint width just outside
 # its orbit-altitude band, satellite distance clamped to it); null in older matchups.
-EXTRA = ("ref_flag", "ref_source", "ref_time_delta_min", "sar_ground_heading_uncertainty",
+# sar_incidence_angle_uncertainty / sar_elevation_angle_uncertainty (schema >= 24): s1-geometry's
+# empirical uncertainty of the angles (deg, 68th percentile of the difference to ESA OCN angles).
+EXTRA = ("ref_flag", "ref_source", "ref_time_delta_min", "sar_incidence_angle_uncertainty",
+         "sar_elevation_angle_uncertainty", "sar_ground_heading_uncertainty",
          "sar_angles_coarse", "sar_orbit_direction")
 STRINGS = {"primary_key", "sar_path_ocn", "sar_path_slc", "sar_path_grd", "sar_safe_grd",
            "sar_safe_slc", "sar_safe_ocn", "ref_id", "ref_source", "sar_orbit_direction"}
@@ -203,6 +206,10 @@ def item_rows(item: dict, reference: IWReference, twins: dict, archives: Archive
                 "sar_elevation_angle": as_float(p.get("sar_elevation_angle")),
                 "sar_ground_heading": as_float(p.get("sar_ground_heading")),
                 "sar_ground_heading_uncertainty": as_float(p.get("sar_ground_heading_uncertainty")),
+                "sar_incidence_angle_uncertainty": as_float(
+                    p.get("sar_incidence_angle_uncertainty")),
+                "sar_elevation_angle_uncertainty": as_float(
+                    p.get("sar_elevation_angle_uncertainty")),
                 "sar_angles_coarse": (None if p.get("sar_angles_coarse") is None
                                       else bool(p["sar_angles_coarse"])),
                 "sar_distance_to_along_track_edge": as_float(
