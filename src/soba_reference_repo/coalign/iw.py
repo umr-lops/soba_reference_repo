@@ -66,12 +66,15 @@ TAIL = ("ref_time", "ref_id", "ref_distance_to_coast")
 # Spec ancillary columns; written empty when no source fills them.
 ANCILLARY = ("sea_ice_concentration", "bathymetry", "WW3_Hs", "ECMWF_Wind_Speed",
              "ECMWF_Wind_Direction")
-# Kept beyond the spec: useful for curation.
+# Kept beyond the spec: useful for curation. sar_angles_coarse (soba_matchups schema >= 23): true
+# when incidence and elevation are s1-geometry's coarse estimate (footprint width just outside
+# its orbit-altitude band, satellite distance clamped to it); null in older matchups.
 EXTRA = ("ref_flag", "ref_source", "ref_time_delta_min", "sar_ground_heading_uncertainty",
-         "sar_orbit_direction")
+         "sar_angles_coarse", "sar_orbit_direction")
 STRINGS = {"primary_key", "sar_path_ocn", "sar_path_slc", "sar_path_grd", "sar_safe_grd",
            "sar_safe_slc", "sar_safe_ocn", "ref_id", "ref_source", "sar_orbit_direction"}
 TIMES = {"sar_time", "ref_time"}
+BOOLEANS = {"sar_angles_coarse"}
 INTEGERS = {"ref_flag", "swh_karin_qual", "wind_speed_karin_qual", "wind_speed_karin_2_qual",
             "dynamic_ice_flag", "rain_flag"}
 MANDATORY = ("primary_key", "sar_time", "sar_safe_grd", "ref_lon", "ref_lat", "ref_time",
@@ -200,6 +203,8 @@ def item_rows(item: dict, reference: IWReference, twins: dict, archives: Archive
                 "sar_elevation_angle": as_float(p.get("sar_elevation_angle")),
                 "sar_ground_heading": as_float(p.get("sar_ground_heading")),
                 "sar_ground_heading_uncertainty": as_float(p.get("sar_ground_heading_uncertainty")),
+                "sar_angles_coarse": (None if p.get("sar_angles_coarse") is None
+                                      else bool(p["sar_angles_coarse"])),
                 "sar_distance_to_along_track_edge": as_float(
                     p.get("sar_distance_to_along_track_edge")),
                 "sar_distance_to_cross_track_edge": as_float(
@@ -237,6 +242,8 @@ class IW(Mode):
                 return pa.string()
             if name in TIMES:
                 return pa.timestamp("us")
+            if name in BOOLEANS:
+                return pa.bool_()
             return pa.int64() if name in INTEGERS else pa.float64()
 
         return pa.schema([(name, kind(name))
